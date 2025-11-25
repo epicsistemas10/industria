@@ -833,3 +833,55 @@ export const mapaHotspotsAPI = {
     return true;
   },
 };
+
+// ==================== PANORAMAS ====================
+export const panoramasAPI = {
+  getAll: async () => {
+    const { data, error } = await supabase
+      .from('panoramas')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  getById: async (id: string) => {
+    const { data, error } = await supabase
+      .from('panoramas')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  create: async (panorama: any) => {
+    const { data, error } = await supabase
+      .from('panoramas')
+      .insert([panorama])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  update: async (id: string, panorama: any) => {
+    const { data, error } = await supabase
+      .from('panoramas')
+      .update(panorama)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  delete: async (id: string) => {
+    const { error } = await supabase
+      .from('panoramas')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+};

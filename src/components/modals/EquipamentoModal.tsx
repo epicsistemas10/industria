@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { equipamentosAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
+import { storageAPI } from '../../lib/storage';
 
 interface EquipamentoModalProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ export default function EquipamentoModal({
   darkMode = true 
 }: EquipamentoModalProps) {
   const [loading, setLoading] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [setores, setSetores] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     codigo_interno: '',
@@ -130,14 +132,20 @@ export default function EquipamentoModal({
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, foto_url: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      setUploadingImage(true);
+      // enviando para o bucket 'equipamentos'
+      const publicUrl = await storageAPI.uploadImage(file, 'equipamentos', 'fotos');
+      setFormData({ ...formData, foto_url: publicUrl });
+    } catch (err) {
+      console.error('Erro ao enviar imagem:', err);
+      alert('Erro ao enviar imagem. Tente novamente.');
+    } finally {
+      setUploadingImage(false);
     }
   };
 

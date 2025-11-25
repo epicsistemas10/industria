@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { componentesAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
+import { storageAPI } from '../../lib/storage';
 
 interface ComponenteModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export default function ComponenteModal({
   darkMode = true 
 }: ComponenteModalProps) {
   const [loading, setLoading] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [tiposComponentes, setTiposComponentes] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     nome: '',
@@ -111,14 +113,19 @@ export default function ComponenteModal({
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, foto_url: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      setUploadingImage(true);
+      const publicUrl = await storageAPI.uploadImage(file, 'componentes', 'fotos');
+      setFormData({ ...formData, foto_url: publicUrl });
+    } catch (err) {
+      console.error('Erro ao enviar imagem:', err);
+      alert('Erro ao enviar imagem. Tente novamente.');
+    } finally {
+      setUploadingImage(false);
     }
   };
 

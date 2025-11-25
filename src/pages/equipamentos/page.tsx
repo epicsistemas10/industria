@@ -1,3 +1,22 @@
+import React from 'react'
+import { useEquipamentos } from '@/hooks/useEquipamentos'
+import CardEquipamento from '@/components/maintenance/CardEquipamento'
+
+export default function EquipamentosPage() {
+  const { data, loading } = useEquipamentos()
+
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold mb-4">Equipamentos</h1>
+      {loading && <div>Carregando...</div>}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {data.map((e) => (
+          <CardEquipamento key={e.id} nome={e.nome} foto={e.foto} codigo={e.codigo_interno} setor={e.setor} />
+        ))}
+      </div>
+    </div>
+  )
+}
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../dashboard/components/Sidebar';

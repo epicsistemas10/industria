@@ -17,6 +17,7 @@ const Equipes = lazy(() => import('../pages/equipes/page'));
 const Relatorios = lazy(() => import('../pages/relatorios/page'));
 const Custos = lazy(() => import('../pages/custos/page'));
 const Melhorias = lazy(() => import('../pages/melhorias/page'));
+const Panoramas = lazy(() => import('../pages/panoramas/page'));
 const Usuarios = lazy(() => import('../pages/usuarios/page'));
 const Mapa = lazy(() => import('../pages/mapa/page'));
 const Notificacoes = lazy(() => import('../pages/notificacoes/page'));
@@ -136,6 +137,14 @@ const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <Melhorias />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/panoramas',
+    element: (
+      <ProtectedRoute>
+        <Panoramas />
       </ProtectedRoute>
     ),
   },

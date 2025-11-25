@@ -26,19 +26,47 @@ export const storageAPI = {
       const filePath = folder ? `${folder}/${fileName}` : fileName;
 
       // Upload do arquivo
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
+      const attemptUpload = async () => {
+        const { data, error } = await supabase.storage
+          .from(bucket)
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false,
+          });
 
-      if (error) throw error;
+        if (error) throw error;
+        return data;
+      };
+
+      let uploadResult;
+      try {
+        uploadResult = await attemptUpload();
+      } catch (err: any) {
+        // If the bucket does not exist, try to create it and retry once
+        const msg = (err?.message || '').toString();
+        if (msg.toLowerCase().includes('bucket not found')) {
+          try {
+            await supabase.storage.createBucket(bucket, {
+              public: true,
+              fileSizeLimit: 5242880,
+              allowedMimeTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'],
+            });
+          } catch (createErr: any) {
+            // ignore if already exists or fail - we'll handle below
+            console.warn(`Could not create bucket ${bucket}:`, createErr?.message || createErr);
+          }
+
+          // retry upload once
+          uploadResult = await attemptUpload();
+        } else {
+          throw err;
+        }
+      }
 
       // Obter URL pública
       const { data: { publicUrl } } = supabase.storage
         .from(bucket)
-        .getPublicUrl(data.path);
+        .getPublicUrl(uploadResult.path);
 
       return publicUrl;
     } catch (error) {

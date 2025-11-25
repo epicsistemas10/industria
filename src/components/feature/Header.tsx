@@ -64,6 +64,12 @@ function Header() {
             >
               Contact
             </button>
+            <button
+              onClick={() => navigate('/setores')}
+              className="text-white/80 hover:text-white transition-colors text-sm font-light cursor-pointer"
+            >
+              Setores
+            </button>
           </nav>
 
           {/* Mobile Menu Button */}
@@ -114,6 +120,15 @@ function Header() {
                 className="block w-full text-left text-white/80 hover:text-white transition-colors text-sm font-light cursor-pointer"
               >
                 Contact
+              </button>
+              <button
+                onClick={() => {
+                  navigate('/setores');
+                  setIsMenuOpen(false);
+                }}
+                className="block w-full text-left text-white/80 hover:text-white transition-colors text-sm font-light cursor-pointer"
+              >
+                Setores
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import { supabase } from '../../lib/supabase';
+import PecaModal from '../../components/modals/PecaModal';
 
 interface PecaAnalise {
   nome: string;
@@ -28,6 +29,7 @@ export default function EstrategicoPecasPage() {
   const [selectedMarca, setSelectedMarca] = useState('');
   const [pecaAnalise, setPecaAnalise] = useState<PecaAnalise | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showPecaModal, setShowPecaModal] = useState(false);
 
   useEffect(() => {
     if (darkMode) {
@@ -163,23 +165,33 @@ export default function EstrategicoPecasPage() {
             </div>
 
             <div className="mt-4">
-              <button
-                onClick={buscarPeca}
-                disabled={!searchTerm || loading}
-                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap cursor-pointer"
-              >
-                {loading ? (
-                  <>
-                    <i className="ri-loader-4-line animate-spin mr-2"></i>
-                    Analisando...
-                  </>
-                ) : (
-                  <>
-                    <i className="ri-search-line mr-2"></i>
-                    Buscar Análise Completa
-                  </>
-                )}
-              </button>
+                <div className="flex gap-3">
+                  <button
+                    onClick={buscarPeca}
+                    disabled={!searchTerm || loading}
+                    className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap cursor-pointer"
+                  >
+                    {loading ? (
+                      <>
+                        <i className="ri-loader-4-line animate-spin mr-2"></i>
+                        Analisando...
+                      </>
+                    ) : (
+                      <>
+                        <i className="ri-search-line mr-2"></i>
+                        Buscar Análise Completa
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setShowPecaModal(true)}
+                    className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all whitespace-nowrap"
+                  >
+                    <i className="ri-add-line mr-2"></i>
+                    Nova Peça
+                  </button>
+                </div>
             </div>
           </div>
 
@@ -418,12 +430,15 @@ export default function EstrategicoPecasPage() {
           )}
 
           {!pecaAnalise && !loading && (
-            <div className="text-center py-12">
-              <i className="ri-search-line text-6xl text-gray-700 mb-4"></i>
-              <p className={darkMode ? 'text-gray-400' : 'text-gray-600'}>
-                Pesquise uma peça para ver a análise completa
-              </p>
-            </div>
+            <>
+              <div className="text-center py-12">
+                <i className="ri-search-line text-6xl text-gray-700 mb-4"></i>
+                <p className={darkMode ? 'text-gray-400' : 'text-gray-600'}>
+                  Pesquise uma peça para ver a análise completa
+                </p>
+              </div>
+              <PecaModal isOpen={showPecaModal} onClose={() => setShowPecaModal(false)} onSuccess={() => setShowPecaModal(false)} />
+            </>
           )}
         </main>
       </div>

@@ -36,7 +36,6 @@ export interface Componente {
   marca?: string;
   tipo?: string;
   medidas?: string;
-  estoque_minimo: number;
   descricao?: string;
   foto_url?: string;
   preco_unitario?: number;

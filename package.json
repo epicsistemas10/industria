@@ -18,7 +18,7 @@
     "react-dom": "^19.1.0",
     "react-i18next": "^15.6.0",
     "react-image-hotspots": "^2.5.0",
-    "photo-sphere-viewer": "^5.4.0",
+    "photo-sphere-viewer": "^4.8.1",
     "three": "^0.161.0",
     "react-router-dom": "^7.6.3",
     "recharts": "3.2.0",

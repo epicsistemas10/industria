@@ -576,6 +576,60 @@ export const equipesAPI = {
   },
 };
 
+// ==================== SETORES ====================
+export const setoresAPI = {
+  getAll: async () => {
+    const { data, error } = await supabase
+      .from('setores')
+      .select('*')
+      .order('nome');
+    if (error) throw error;
+    return data;
+  },
+
+  getById: async (id: string) => {
+    const { data, error } = await supabase
+      .from('setores')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  create: async (setor: any) => {
+    console.debug('[setoresAPI.create] payload:', setor);
+    const { data, error } = await supabase
+      .from('setores')
+      .insert([setor])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  update: async (id: string, setor: any) => {
+    console.debug('[setoresAPI.update] id:', id, 'payload:', setor);
+    const { data, error } = await supabase
+      .from('setores')
+      .update(setor)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  delete: async (id: string) => {
+    const { error } = await supabase
+      .from('setores')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+};
+
 // ==================== SERVIÇOS ====================
 export const servicosAPI = {
   getAll: async () => {

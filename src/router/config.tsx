@@ -19,6 +19,7 @@ const Custos = lazy(() => import('../pages/custos/page'));
 const Melhorias = lazy(() => import('../pages/melhorias/page'));
 const Panoramas = lazy(() => import('../pages/panoramas/page'));
 const Usuarios = lazy(() => import('../pages/usuarios/page'));
+const Setores = lazy(() => import('../pages/setores/page'));
 const Mapa = lazy(() => import('../pages/mapa/page'));
 const Notificacoes = lazy(() => import('../pages/notificacoes/page'));
 const PrevisaoFalhas = lazy(() => import('../pages/previsao-falhas/page'));
@@ -161,6 +162,14 @@ const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <Mapa />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/setores',
+    element: (
+      <ProtectedRoute>
+        <Setores />
       </ProtectedRoute>
     ),
   },

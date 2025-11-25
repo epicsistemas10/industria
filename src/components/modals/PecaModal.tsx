@@ -18,6 +18,8 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
   const [formData, setFormData] = useState({
     nome: '',
     codigo_interno: '',
+    marca: '',
+    fabricante: '',
     componente_id: '',
     quantidade_minima: 0,
     fornecedor: '',
@@ -43,6 +45,8 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       setFormData({
         nome: data.nome || '',
         codigo_interno: data.codigo_interno || '',
+        marca: data.marca || '',
+        fabricante: data.fabricante || '',
         componente_id: data.componente_id || '',
         quantidade_minima: data.quantidade_minima || 0,
         fornecedor: data.fornecedor || '',
@@ -56,7 +60,7 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     }
   };
 
-  const resetForm = () => setFormData({ nome: '', codigo_interno: '', componente_id: '', quantidade_minima: 0, fornecedor: '', preco_unitario: 0, foto_url: '' });
+  const resetForm = () => setFormData({ nome: '', codigo_interno: '', marca: '', fabricante: '', componente_id: '', quantidade_minima: 0, fornecedor: '', preco_unitario: 0, foto_url: '' });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,6 +127,16 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Código Interno</label>
               <input value={formData.codigo_interno} onChange={(e) => setFormData({ ...formData, codigo_interno: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Marca</label>
+              <input value={formData.marca} onChange={(e) => setFormData({ ...formData, marca: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Fabricante</label>
+              <input value={formData.fabricante} onChange={(e) => setFormData({ ...formData, fabricante: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div>

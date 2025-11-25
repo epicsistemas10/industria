@@ -4,6 +4,7 @@ import TopBar from '../dashboard/components/TopBar';
 import { componentesAPI } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import ComponenteModal from '../../components/modals/ComponenteModal';
+import TipoComponenteModal from '../../components/modals/TipoComponenteModal';
 import { useToast } from '../../hooks/useToast';
 
 interface Componente {
@@ -13,7 +14,6 @@ interface Componente {
   codigo_fabricante?: string;
   marca?: string;
   tipo?: string;
-  estoque_minimo: number;
   preco_unitario?: number;
   foto_url?: string;
   tipos_componentes?: { nome: string };
@@ -31,6 +31,7 @@ export default function ComponentesPage() {
   const { success, error: showError } = useToast();
   const [showModal, setShowModal] = useState(false);
   const [selectedComponenteId, setSelectedComponenteId] = useState<string | undefined>();
+  const [showTipoModal, setShowTipoModal] = useState(false);
 
   useEffect(() => {
     if (darkMode) {
@@ -133,6 +134,14 @@ export default function ComponentesPage() {
               <i className="ri-add-line mr-2"></i>
               Novo Componente
             </button>
+            <button
+              onClick={() => setShowTipoModal(true)}
+              className="px-4 py-2 ml-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-all whitespace-nowrap"
+            >
+              <i className="ri-list-unordered mr-2"></i>
+              Tipos
+            </button>
+            {/* Nova Peça moved to dedicated Peças page */}
           </div>
 
           {/* Filtros */}
@@ -220,7 +229,7 @@ export default function ComponentesPage() {
                             {comp.tipos_componentes?.nome || comp.tipo || '-'}
                           </span>
                         </td>
-                        <td className={`px-6 py-4 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{comp.estoque_minimo || 0}</td>
+                        
                         <td className={`px-6 py-4 text-sm font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                           {comp.preco_unitario ? `R$ ${comp.preco_unitario.toFixed(2)}` : '-'}
                         </td>
@@ -285,6 +294,8 @@ export default function ComponentesPage() {
         componenteId={selectedComponenteId}
         darkMode={darkMode}
       />
+      <TipoComponenteModal isOpen={showTipoModal} onClose={() => setShowTipoModal(false)} onSuccess={() => setShowTipoModal(false)} />
+      {/* Peça modal now lives on the dedicated /pecas page */}
     </div>
   );
 }

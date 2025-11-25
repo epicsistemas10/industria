@@ -29,7 +29,6 @@ export default function ComponenteModal({
     marca: '',
     tipo_componente_id: '',
     especificacoes: '',
-    estoque_minimo: 0,
     preco_unitario: 0,
     foto_url: ''
   });
@@ -71,7 +70,6 @@ export default function ComponenteModal({
         marca: data.marca || '',
         tipo_componente_id: data.tipo_componente_id || '',
         especificacoes: data.especificacoes || '',
-        estoque_minimo: data.estoque_minimo || 0,
         preco_unitario: data.preco_unitario || 0,
         foto_url: data.foto_url || ''
       });
@@ -90,7 +88,6 @@ export default function ComponenteModal({
       marca: '',
       tipo_componente_id: '',
       especificacoes: '',
-      estoque_minimo: 0,
       preco_unitario: 0,
       foto_url: ''
     });
@@ -244,23 +241,6 @@ export default function ComponenteModal({
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                Estoque Mínimo
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={formData.estoque_minimo}
-                onChange={(e) => setFormData({ ...formData, estoque_minimo: parseInt(e.target.value) || 0 })}
-                className={`w-full px-4 py-2 rounded-lg border ${
-                  darkMode 
-                    ? 'bg-slate-700 border-slate-600 text-white' 
-                    : 'bg-white border-gray-300 text-gray-900'
-                } focus:outline-none focus:border-purple-500`}
-              />
             </div>
 
             <div>

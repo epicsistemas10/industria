@@ -10,6 +10,12 @@ interface ProtectedRouteProps {
 export default function ProtectedRoute({ children, requiredPermission }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
 
+  // Dev bypass: set VITE_BYPASS_AUTH=true in your `.env` to skip auth locally
+  const bypass = import.meta.env.VITE_BYPASS_AUTH === 'true';
+  if (bypass) {
+    console.log('⚠️ ProtectedRoute: auth bypass enabled (VITE_BYPASS_AUTH=true) — rendering children in dev');
+  }
+
   console.log('🔐 ProtectedRoute:', { user: !!user, loading });
 
   if (loading) {
@@ -24,7 +30,7 @@ export default function ProtectedRoute({ children, requiredPermission }: Protect
     );
   }
 
-  if (!user) {
+  if (!user && !bypass) {
     console.log('❌ ProtectedRoute: Usuário não autenticado, redirecionando para login');
     return <Navigate to="/login" replace />;
   }
@@ -32,7 +38,7 @@ export default function ProtectedRoute({ children, requiredPermission }: Protect
   console.log('✅ ProtectedRoute: Usuário autenticado, renderizando página');
 
   if (requiredPermission) {
-    const userPermission = user.user_metadata?.permission || 'visitante';
+    const userPermission = bypass ? 'admin' : user.user_metadata?.permission || 'visitante';
     if (!requiredPermission.includes(userPermission as Permission)) {
       console.log('❌ ProtectedRoute: Permissão negada');
       return (

@@ -12,6 +12,7 @@ export default function ComponenteDetail() {
   const { data: pecas, loading, fetch, create, update, remove } = usePecas(id)
   const [showPecaModal, setShowPecaModal] = useState(false)
   const [selectedPecaId, setSelectedPecaId] = useState<string | undefined>()
+  const { success, error: showError } = useToast()
 
   useEffect(() => {
     if (!id) return
@@ -57,7 +58,7 @@ export default function ComponenteDetail() {
               <button onClick={(e) => { e.stopPropagation(); setSelectedPecaId(p.id); setShowPecaModal(true); }} className="w-8 h-8 bg-blue-600 text-white rounded flex items-center justify-center">
                 <i className="ri-edit-line"></i>
               </button>
-              <button onClick={async (e) => { e.stopPropagation(); if (!confirm('Remover peça?')) return; try { await remove(p.id); await fetch(); } catch (err) { console.error(err); alert('Erro ao remover peça'); } }} className="w-8 h-8 bg-red-600 text-white rounded flex items-center justify-center">
+              <button onClick={async (e) => { e.stopPropagation(); if (!confirm('Remover peça?')) return; try { await remove(p.id); await fetch(); success('Peça removida'); } catch (err) { console.error(err); showError('Erro ao remover peça'); } }} className="w-8 h-8 bg-red-600 text-white rounded flex items-center justify-center">
                 <i className="ri-delete-bin-line"></i>
               </button>
             </div>

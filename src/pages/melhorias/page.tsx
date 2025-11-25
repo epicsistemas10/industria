@@ -3,6 +3,7 @@ import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import { melhoriasAPI, equipamentosAPI } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useToast } from '../../hooks/useToast';
 
 interface Melhoria {
   id: string;
@@ -59,6 +60,7 @@ export default function MelhoriasPage() {
   });
 
   const [equipamentos, setEquipamentos] = useState<any[]>([]);
+  const { success, error: showError } = useToast();
 
   useEffect(() => {
     if (darkMode) {
@@ -126,17 +128,19 @@ export default function MelhoriasPage() {
 
       if (editingMelhoria) {
         await melhoriasAPI.update(editingMelhoria.id, melhoriaData);
+        success('Melhoria atualizada');
       } else {
         await melhoriasAPI.create(melhoriaData);
+        success('Melhoria criada');
       }
 
       setShowModal(false);
       setEditingMelhoria(null);
       resetForm();
       loadData();
-    } catch (error) {
-      console.error('Erro ao salvar melhoria:', error);
-      alert('Erro ao salvar melhoria');
+    } catch (err: any) {
+      console.error('Erro ao salvar melhoria:', err);
+      showError('Erro ao salvar melhoria');
     }
   };
 

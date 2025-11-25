@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { equipamentosAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import { storageAPI } from '../../lib/storage';
+import { useToast } from '../../hooks/useToast';
 
 interface EquipamentoModalProps {
   isOpen: boolean;
@@ -39,6 +40,7 @@ export default function EquipamentoModal({
     data_inicio_revisao: '',
     data_prevista_fim: ''
   });
+  const { success, error: showError } = useToast();
 
   useEffect(() => {
     if (isOpen) {
@@ -126,7 +128,7 @@ export default function EquipamentoModal({
       onClose();
     } catch (error) {
       console.error('Erro ao salvar equipamento:', error);
-      alert('Erro ao salvar equipamento. Tente novamente.');
+      showError('Erro ao salvar equipamento');
     } finally {
       setLoading(false);
     }

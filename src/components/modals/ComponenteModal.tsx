@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { componentesAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import { storageAPI } from '../../lib/storage';
+import { useToast } from '../../hooks/useToast';
 
 interface ComponenteModalProps {
   isOpen: boolean;
@@ -32,6 +33,7 @@ export default function ComponenteModal({
     preco_unitario: 0,
     foto_url: ''
   });
+  const { success, error: showError } = useToast();
 
   useEffect(() => {
     if (isOpen) {
@@ -100,14 +102,16 @@ export default function ComponenteModal({
       setLoading(true);
       if (componenteId) {
         await componentesAPI.update(componenteId, formData);
+        success('Componente atualizado');
       } else {
         await componentesAPI.create(formData);
+        success('Componente criado');
       }
       onSuccess();
       onClose();
     } catch (error) {
       console.error('Erro ao salvar componente:', error);
-      alert('Erro ao salvar componente. Tente novamente.');
+      showError('Erro ao salvar componente');
     } finally {
       setLoading(false);
     }
@@ -123,7 +127,7 @@ export default function ComponenteModal({
       setFormData({ ...formData, foto_url: publicUrl });
     } catch (err) {
       console.error('Erro ao enviar imagem:', err);
-      alert('Erro ao enviar imagem. Tente novamente.');
+      showError('Erro ao enviar imagem');
     } finally {
       setUploadingImage(false);
     }

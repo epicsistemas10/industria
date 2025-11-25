@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useAuth } from '../../contexts/AuthContext';
 import EquipamentoModal from '../../components/modals/EquipamentoModal';
+import { useToast } from '../../hooks/useToast';
 
 interface Equipamento {
   id: string;
@@ -22,6 +23,7 @@ export default function EquipamentosPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { canCreate, canEdit, canDelete } = usePermissions();
+  const { success, error: showError } = useToast();
   const [equipamentos, setEquipamentos] = useState<Equipamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -74,9 +76,10 @@ export default function EquipamentosPage() {
       try {
         await equipamentosAPI.delete(id);
         loadEquipamentos();
+        success('Equipamento excluído');
       } catch (error) {
         console.error('Erro ao excluir equipamento:', error);
-        alert('Erro ao excluir equipamento');
+        showError('Erro ao excluir equipamento');
       }
     }
   };

@@ -4,6 +4,7 @@ import TopBar from '../dashboard/components/TopBar';
 import { componentesAPI } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import ComponenteModal from '../../components/modals/ComponenteModal';
+import { useToast } from '../../hooks/useToast';
 
 interface Componente {
   id: string;
@@ -27,6 +28,7 @@ export default function ComponentesPage() {
   const [filterTipo, setFilterTipo] = useState('');
   const [filterMarca, setFilterMarca] = useState('');
   const { canCreate, canEdit, canDelete } = usePermissions();
+  const { success, error: showError } = useToast();
   const [showModal, setShowModal] = useState(false);
   const [selectedComponenteId, setSelectedComponenteId] = useState<string | undefined>();
 
@@ -65,9 +67,10 @@ export default function ComponentesPage() {
       try {
         await componentesAPI.delete(id);
         loadComponentes();
+        success('Componente excluído');
       } catch (error) {
         console.error('Erro ao excluir componente:', error);
-        alert('Erro ao excluir componente');
+        showError('Erro ao excluir componente');
       }
     }
   };

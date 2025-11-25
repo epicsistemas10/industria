@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { usePecas } from '../../hooks/usePecas';
 import { storageAPI } from '../../lib/storage';
+import { useToast } from '../../hooks/useToast';
 
 interface PecaModalProps {
   isOpen: boolean;
@@ -30,6 +31,8 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       else resetForm();
     }
   }, [isOpen, pecaId]);
+
+  const { success, error: showError } = useToast();
 
   const loadPeca = async () => {
     if (!pecaId) return;
@@ -61,14 +64,16 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       setLoading(true);
       if (pecaId) {
         await supabase.from('pecas').update(formData).eq('id', pecaId);
+        success('Peça atualizada');
       } else {
         await supabase.from('pecas').insert(formData);
+        success('Peça criada');
       }
       onSuccess();
       onClose();
     } catch (err) {
       console.error('Erro ao salvar peça:', err);
-      alert('Erro ao salvar peça.');
+      showError('Erro ao salvar peça');
     } finally {
       setLoading(false);
     }
@@ -83,7 +88,7 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       setFormData({ ...formData, foto_url: publicUrl });
     } catch (err) {
       console.error('Erro ao enviar imagem:', err);
-      alert('Erro ao enviar imagem.');
+      showError('Erro ao enviar imagem');
     } finally {
       setUploadingImage(false);
     }

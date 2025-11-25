@@ -112,13 +112,16 @@ export default function MelhoriasPage() {
         categoriaAuto = 'OPEX';
       }
 
+      // Normalize numeric fields and nullable values before sending to API
       const melhoriaData = {
         ...formData,
         categoria_investimento: categoriaAuto,
-        roi_estimado: roiCalculado,
-        payback_meses: paybackCalculado,
-        equipamento_id: formData.equipamento_id || null,
-        data_implementacao: formData.data_implementacao || null
+        custo_estimado: Number(formData.custo_estimado) || 0,
+        economia_estimada: Number(formData.economia_estimada) || 0,
+        roi_estimado: Number(roiCalculado.toFixed(2)),
+        payback_meses: Number(paybackCalculado) || null,
+        equipamento_id: formData.equipamento_id ? formData.equipamento_id : null,
+        data_implementacao: formData.data_implementacao ? formData.data_implementacao : null
       };
 
       if (editingMelhoria) {

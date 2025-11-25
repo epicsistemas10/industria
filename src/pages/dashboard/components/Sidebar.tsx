@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import PecaModal from '../../../components/modals/PecaModal';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -15,7 +14,6 @@ export default function Sidebar({ isOpen, onToggle, darkMode }: SidebarProps) {
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState('AlgodoTech');
   const [showSettings, setShowSettings] = useState(false);
-  const [showPecaModal, setShowPecaModal] = useState(false);
 
   useEffect(() => {
     // Carregar logo e nome salvos
@@ -47,7 +45,7 @@ export default function Sidebar({ isOpen, onToggle, darkMode }: SidebarProps) {
     { id: 'dashboard', label: 'Dashboard', icon: 'ri-dashboard-line', path: '/dashboard' },
     { id: 'equipamentos', label: 'Equipamentos', icon: 'ri-tools-line', path: '/equipamentos' },
     { id: 'componentes', label: 'Componentes', icon: 'ri-settings-3-line', path: '/componentes' },
-    { id: 'pecas', label: 'Peças', icon: 'ri-shopping-bag-line', path: '/estrategico-pecas' },
+    { id: 'pecas', label: 'Peças', icon: 'ri-shopping-bag-line', path: '/pecas' },
     { id: 'setores', label: 'Setores', icon: 'ri-stack-line', path: '/setores' },
     { id: 'servicos', label: 'Serviços', icon: 'ri-briefcase-line', path: '/servicos' },
     { id: 'mapa', label: 'Mapa Industrial', icon: 'ri-map-2-line', path: '/mapa' },

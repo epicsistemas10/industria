@@ -117,6 +117,10 @@ export default function EquipamentoModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (uploadingImage) {
+      showError('Upload da imagem em andamento. Aguarde antes de salvar.');
+      return;
+    }
     try {
       setLoading(true);
       if (equipamentoId) {
@@ -145,7 +149,9 @@ export default function EquipamentoModal({
       setFormData({ ...formData, foto_url: publicUrl });
     } catch (err) {
       console.error('Erro ao enviar imagem:', err);
-      alert('Erro ao enviar imagem. Tente novamente.');
+      // Mostrar toast de erro ao usuário
+      const msg = (err as any)?.message || 'Erro ao enviar imagem. Tente novamente.';
+      showError(msg);
     } finally {
       setUploadingImage(false);
     }
@@ -402,7 +408,7 @@ export default function EquipamentoModal({
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || uploadingImage}
               className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-lg hover:from-blue-700 hover:to-cyan-700 transition-all whitespace-nowrap cursor-pointer disabled:opacity-50"
             >
               {loading ? 'Salvando...' : equipamentoId ? 'Atualizar' : 'Criar'}

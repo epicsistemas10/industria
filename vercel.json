@@ -6,4 +6,8 @@
       "config": { "distDir": "out" }
     }
   ]
+  ,
+  "rewrites": [
+    { "source": "^/(.*)", "destination": "/index.html" }
+  ]
 }

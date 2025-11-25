@@ -56,9 +56,14 @@ export const equipamentosAPI = {
   async create(equipamento: any) {
     try {
       console.debug('[equipamentosAPI.create] payload:', equipamento);
+      const payload = { ...equipamento };
+      // Convert empty date strings to null to avoid Postgres errors
+      if (payload.data_inicio_revisao === '') payload.data_inicio_revisao = null;
+      if (payload.data_prevista_fim === '') payload.data_prevista_fim = null;
+
       const { data, error } = await supabase
         .from('equipamentos')
-        .insert([equipamento])
+        .insert([payload])
         .select()
         .single();
 
@@ -77,9 +82,13 @@ export const equipamentosAPI = {
   async update(id: string, equipamento: any) {
     try {
       console.debug('[equipamentosAPI.update] id:', id, 'payload:', equipamento);
+      const payload = { ...equipamento };
+      if (payload.data_inicio_revisao === '') payload.data_inicio_revisao = null;
+      if (payload.data_prevista_fim === '') payload.data_prevista_fim = null;
+
       const { data, error } = await supabase
         .from('equipamentos')
-        .update(equipamento)
+        .update(payload)
         .eq('id', id)
         .select()
         .single();

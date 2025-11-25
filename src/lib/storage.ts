@@ -42,25 +42,16 @@ export const storageAPI = {
       try {
         uploadResult = await attemptUpload();
       } catch (err: any) {
-        // If the bucket does not exist, try to create it and retry once
-        const msg = (err?.message || '').toString();
-        if (msg.toLowerCase().includes('bucket not found')) {
-          try {
-            await supabase.storage.createBucket(bucket, {
-              public: true,
-              fileSizeLimit: 5242880,
-              allowedMimeTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'],
-            });
-          } catch (createErr: any) {
-            // ignore if already exists or fail - we'll handle below
-            console.warn(`Could not create bucket ${bucket}:`, createErr?.message || createErr);
-          }
-
-          // retry upload once
-          uploadResult = await attemptUpload();
-        } else {
-          throw err;
+        // If the bucket does not exist, don't try to create it from the browser.
+        // The frontend uses the anon key and cannot create buckets in Supabase.
+        const msg = (err?.message || '').toString().toLowerCase();
+        if (msg.includes('bucket not found') || msg.includes('not found')) {
+          throw new Error(
+            `Bucket "${bucket}" not found in Supabase Storage. The web client cannot create buckets with the anon key. Create the bucket named "${bucket}" in the Supabase dashboard (Storage) with public access, or run a server-side script using the Supabase service_role key to create it, then retry the upload.`
+          );
         }
+
+        throw err;
       }
 
       // Obter URL pública

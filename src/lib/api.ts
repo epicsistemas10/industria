@@ -781,3 +781,55 @@ export const mapaAPI = {
     if (error) throw error;
   },
 };
+
+// ==================== MAPA HOTSPOTS ====================
+export const mapaHotspotsAPI = {
+  getAll: async () => {
+    const { data, error } = await supabase
+      .from('equipamento_mapa')
+      .select('*')
+      .order('id');
+    if (error) throw error;
+    return data;
+  },
+
+  getById: async (id: string) => {
+    const { data, error } = await supabase
+      .from('equipamento_mapa')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  create: async (hotspot: any) => {
+    const { data, error } = await supabase
+      .from('equipamento_mapa')
+      .insert([hotspot])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  update: async (id: string, hotspot: any) => {
+    const { data, error } = await supabase
+      .from('equipamento_mapa')
+      .update(hotspot)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  delete: async (id: string) => {
+    const { error } = await supabase
+      .from('equipamento_mapa')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+};

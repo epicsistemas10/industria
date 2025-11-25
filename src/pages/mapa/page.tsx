@@ -4,6 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import { supabase } from '../../lib/supabase';
+import useMapaHotspots from '../../hooks/useMapaHotspots';
+import { useToast } from '../../hooks/useToast';
+import PanoramaViewer from '../../components/PanoramaViewer';
 
 interface Equipment {
   id: string;
@@ -62,6 +65,9 @@ export default function MapaPage() {
   const [serviceDesc, setServiceDesc] = useState('');
   const [selectedEquipmentsForService, setSelectedEquipmentsForService] = useState<string[]>([]);
 
+  const mapa = useMapaHotspots();
+  const toast = useToast();
+
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add('dark');
@@ -73,17 +79,23 @@ export default function MapaPage() {
   useEffect(() => {
     loadEquipments();
     loadSetores();
-    loadHotspots();
+    // hotspots will be loaded by hook
+    mapa.load();
     
     const savedImage = localStorage.getItem('map_image');
     if (savedImage) setMapImage(savedImage);
     
     const interval = setInterval(() => {
       loadEquipments();
-      loadHotspots();
+      mapa.load();
     }, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    // keep local hotspots in sync with hook
+    setHotspots(mapa.hotspots);
+  }, [mapa.hotspots]);
 
   const loadSetores = async () => {
     try {
@@ -137,28 +149,7 @@ export default function MapaPage() {
   };
 
   const loadHotspots = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('equipamento_mapa')
-        .select('*');
-
-      if (!error && data) {
-        const hotspotsData = data.map(item => ({
-          id: item.id,
-          equipamento_id: item.equipamento_id,
-          x: item.x || 10,
-          y: item.y || 10,
-          width: item.width || 8,
-          height: item.height || 8,
-          color: item.color || '#10b981',
-          fontSize: item.font_size || 14,
-          icon: item.icon || 'ri-tools-fill',
-        }));
-        setHotspots(hotspotsData);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar hotspots:', err);
-    }
+    // now handled by useMapaHotspots hook
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -180,43 +171,26 @@ export default function MapaPage() {
 
     try {
       // Verificar se já existe hotspot para este equipamento
-      const { data: existingHotspot } = await supabase
-        .from('equipamento_mapa')
-        .select('id')
-        .eq('equipamento_id', selectedEquipmentForHotspot)
-        .single();
-
-      if (existingHotspot) {
-        alert('Este equipamento já possui um hotspot no mapa!');
+      // check existing via hook data
+      const exists = mapa.hotspots.find(h => h.equipamento_id === selectedEquipmentForHotspot);
+      if (exists) {
+        toast.warning('Este equipamento já possui um hotspot no mapa.');
         return;
       }
 
-      // Inserir novo hotspot
-      const { error } = await supabase
-        .from('equipamento_mapa')
-        .insert({
-          equipamento_id: selectedEquipmentForHotspot,
-          x: 20,
-          y: 20,
-          width: 8,
-          height: 8,
-        });
+      await mapa.createHotspot({
+        equipamento_id: selectedEquipmentForHotspot,
+        x: 20,
+        y: 20,
+        width: 8,
+        height: 8,
+      });
 
-      if (error) {
-        console.error('Erro ao inserir hotspot:', error);
-        throw error;
-      }
-
-      // Recarregar hotspots
-      await loadHotspots();
       setShowAddHotspot(false);
       setSelectedEquipmentForHotspot('');
-      
-      // Mostrar mensagem de sucesso
-      alert('Hotspot adicionado com sucesso! Agora você pode arrastá-lo para a posição correta.');
     } catch (err: any) {
       console.error('Erro ao adicionar hotspot:', err);
-      alert(`Erro ao adicionar hotspot: ${err.message || 'Erro desconhecido'}`);
+      toast.error(`Erro ao adicionar hotspot: ${err.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -273,28 +247,19 @@ export default function MapaPage() {
       const hotspot = hotspots.find(h => h.id === selectedHotspot);
       if (hotspot) {
         try {
-          const { error } = await supabase
-            .from('equipamento_mapa')
-            .update({
-              x: hotspot.x,
-              y: hotspot.y,
-              width: hotspot.width,
-              height: hotspot.height,
-              color: hotspot.color,
-              font_size: hotspot.fontSize,
-              icon: hotspot.icon,
-            })
-            .eq('id', hotspot.id);
-          
-          if (error) {
-            console.error('Erro ao salvar posição:', error);
-            alert('Erro ao salvar posição do hotspot');
-          } else {
-            console.log('Hotspot salvo com sucesso:', hotspot);
-          }
+          await mapa.updateHotspot(hotspot.id, {
+            x: hotspot.x,
+            y: hotspot.y,
+            width: hotspot.width,
+            height: hotspot.height,
+            color: hotspot.color,
+            font_size: hotspot.fontSize,
+            icon: hotspot.icon,
+          });
+          // success toast handled by hook
         } catch (err) {
           console.error('Erro ao salvar posição:', err);
-          alert('Erro ao salvar posição do hotspot');
+          toast.error('Erro ao salvar posição do hotspot');
         }
       }
     }
@@ -304,18 +269,13 @@ export default function MapaPage() {
   };
 
   const handleDeleteHotspot = async (hotspotId: string) => {
-    if (!confirm('Deseja remover este hotspot?')) return;
-
+    if (!window.confirm('Deseja remover este hotspot?')) return;
     try {
-      await supabase
-        .from('equipamento_mapa')
-        .delete()
-        .eq('id', hotspotId);
-
-      await loadHotspots();
+      await mapa.deleteHotspot(hotspotId);
       setSelectedHotspot(null);
     } catch (err) {
       console.error('Erro ao deletar hotspot:', err);
+      toast.error('Erro ao remover hotspot');
     }
   };
 
@@ -492,27 +452,16 @@ export default function MapaPage() {
     setHotspots(updatedHotspots);
 
     try {
-      const { error } = await supabase
-        .from('equipamento_mapa')
-        .update({
-          color: hotspotColor,
-          font_size: hotspotFontSize,
-          icon: hotspotIcon,
-        })
-        .eq('id', selectedHotspot);
-      
-      if (error) {
-        console.error('Erro ao salvar customização:', error);
-        alert('Erro ao salvar customização');
-      } else {
-        console.log('Customização salva com sucesso');
-        setShowCustomizePanel(false);
-        // Recarregar hotspots para garantir sincronização
-        await loadHotspots();
-      }
+      await mapa.updateHotspot(selectedHotspot, {
+        color: hotspotColor,
+        font_size: hotspotFontSize,
+        icon: hotspotIcon,
+      });
+      setShowCustomizePanel(false);
+      // hook will reload and sync
     } catch (err) {
       console.error('Erro ao salvar customização:', err);
-      alert('Erro ao salvar customização');
+      toast.error('Erro ao salvar customização');
     }
   };
 
@@ -540,23 +489,14 @@ export default function MapaPage() {
 
     // Salvar imediatamente
     try {
-      const { error } = await supabase
-        .from('equipamento_mapa')
-        .update({
-          width: newWidth,
-          height: newHeight,
-        })
-        .eq('id', selectedHotspot);
-      
-      if (error) {
-        console.error('Erro ao salvar tamanho:', error);
-        alert('Erro ao salvar tamanho');
-      } else {
-        console.log('Tamanho salvo com sucesso');
-      }
+      await mapa.updateHotspot(selectedHotspot, {
+        width: newWidth,
+        height: newHeight,
+      });
+      // success toast from hook
     } catch (err) {
       console.error('Erro ao salvar tamanho:', err);
-      alert('Erro ao salvar tamanho');
+      toast.error('Erro ao salvar tamanho');
     }
   };
 
@@ -582,22 +522,13 @@ export default function MapaPage() {
 
     // Salvar imediatamente
     try {
-      const { error } = await supabase
-        .from('equipamento_mapa')
-        .update({
-          font_size: newFontSize,
-        })
-        .eq('id', selectedHotspot);
-      
-      if (error) {
-        console.error('Erro ao salvar tamanho da fonte:', error);
-        alert('Erro ao salvar tamanho da fonte');
-      } else {
-        console.log('Tamanho da fonte salvo com sucesso');
-      }
+      await mapa.updateHotspot(selectedHotspot, {
+        font_size: newFontSize,
+      });
+      // success toast from hook
     } catch (err) {
       console.error('Erro ao salvar tamanho da fonte:', err);
-      alert('Erro ao salvar tamanho da fonte');
+      toast.error('Erro ao salvar tamanho da fonte');
     }
   };
 
@@ -605,40 +536,26 @@ export default function MapaPage() {
     // Salvar todos os hotspots antes de sair do modo edição
     try {
       const savePromises = hotspots.map(async (hotspot) => {
-        const { error } = await supabase
-          .from('equipamento_mapa')
-          .update({
-            x: hotspot.x,
-            y: hotspot.y,
-            width: hotspot.width,
-            height: hotspot.height,
-            color: hotspot.color,
-            font_size: hotspot.fontSize,
-            icon: hotspot.icon,
-          })
-          .eq('id', hotspot.id);
-        
-        if (error) {
-          console.error('Erro ao salvar hotspot:', hotspot.id, error);
-          throw error;
-        }
-        return true;
+        await mapa.updateHotspot(hotspot.id, {
+          x: hotspot.x,
+          y: hotspot.y,
+          width: hotspot.width,
+          height: hotspot.height,
+          color: hotspot.color,
+          font_size: hotspot.fontSize,
+          icon: hotspot.icon,
+        });
       });
 
       await Promise.all(savePromises);
-      
-      console.log('Todos os hotspots salvos com sucesso');
-      
-      // Recarregar hotspots para garantir sincronização
-      await loadHotspots();
-      
+
+      // hook will reload and sync
       setEditMode(false);
       setSelectedHotspot(null);
-      
-      alert('Alterações salvas com sucesso!');
+      toast.success('Alterações salvas com sucesso!');
     } catch (err) {
       console.error('Erro ao salvar hotspots:', err);
-      alert('Erro ao salvar as alterações. Tente novamente.');
+      toast.error('Erro ao salvar as alterações. Tente novamente.');
     }
   };
 

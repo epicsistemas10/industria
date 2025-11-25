@@ -1,32 +1,4 @@
-import React, { useState } from 'react'
-import Hotspot from 'react-image-hotspots'
 
-export default function MapaPage() {
-  const [image, setImage] = useState<string | null>(null)
-  const [hotspots, setHotspots] = useState<any[]>([])
-
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold mb-4">Mapa da Indústria</h1>
-      <div className="mb-4">
-        <input type="file" accept="image/*" onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (!f) return
-          const url = URL.createObjectURL(f)
-          setImage(url)
-        }} />
-      </div>
-
-      {image ? (
-        <div className="border p-2">
-          <Hotspot src={image} hotspots={hotspots} onChange={(h: any) => setHotspots(h)} />
-        </div>
-      ) : (
-        <div className="text-gray-500">Envie uma imagem da planta para criar hotspots</div>
-      )}
-    </div>
-  )
-}
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../dashboard/components/Sidebar';

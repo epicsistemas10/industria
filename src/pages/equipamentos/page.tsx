@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { formatEquipamentoName } from '../../utils/format';
+import EquipamentoName from '../../components/base/EquipamentoName';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
@@ -39,6 +41,7 @@ export default function EquipamentosPage() {
   const [filterLinha, setFilterLinha] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [selectedEquipamentoId, setSelectedEquipamentoId] = useState<string | undefined>();
+  const [selectedEquipamentoData, setSelectedEquipamentoData] = useState<any | undefined>();
   const [darkMode, setDarkMode] = useState(true);
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -112,18 +115,22 @@ export default function EquipamentosPage() {
   };
 
   const handleEdit = (id: string) => {
+    const eq = equipamentos.find(e => e.id === id);
+    setSelectedEquipamentoData(eq);
     setSelectedEquipamentoId(id);
     setShowModal(true);
   };
 
   const handleCreate = () => {
     setSelectedEquipamentoId(undefined);
+    setSelectedEquipamentoData(undefined);
     setShowModal(true);
   };
 
   const handleModalClose = () => {
     setShowModal(false);
     setSelectedEquipamentoId(undefined);
+    setSelectedEquipamentoData(undefined);
   };
 
   const handleModalSuccess = () => {
@@ -342,7 +349,7 @@ export default function EquipamentosPage() {
                               )}
                             </td>
                             <td className="px-4 py-3">
-                              <div className="font-medium text-white">{equipamento.nome}</div>
+                              <div className="font-medium text-white"><EquipamentoName equipamento={equipamento} className="" numberClassName="text-amber-300" /></div>
                               <div className={`text-sm ${getCriticidadeColor(equipamento.criticidade)}`}>{equipamento.criticidade || ''}</div>
                             </td>
                                 <td className="px-4 py-3 text-sm text-gray-400">{equipamento.setores?.nome || equipamento.setor || 'Sem setor'}</td>
@@ -409,6 +416,7 @@ export default function EquipamentosPage() {
         onClose={handleModalClose}
         onSuccess={handleModalSuccess}
         equipamentoId={selectedEquipamentoId}
+        initialData={selectedEquipamentoData}
         darkMode={darkMode}
       />
 

@@ -51,10 +51,26 @@ export default function EquipamentoModal({
   useEffect(() => {
     if (isOpen) {
       loadSetores();
+      // If we have initialData (from parent) prefill immediately so user doesn't see empty fields
+      if (initialData) {
+        const safe = {
+          ...initialData,
+          ano_fabricacao: (initialData.ano_fabricacao ?? ''),
+          serie: initialData.serie ?? '',
+          dimensao: initialData.dimensao ?? '',
+          peso: initialData.peso ?? '',
+          criticidade: (['Baixa', 'Média', 'Alta', 'Crítica'].includes(initialData?.criticidade)
+            ? (initialData.criticidade as 'Baixa' | 'Média' | 'Alta' | 'Crítica')
+            : 'Média')
+        };
+        setFormData((prev) => ({ ...prev, ...safe } as any));
+      }
+
       if (equipamentoId) {
         loadEquipamento();
       } else {
-        resetForm();
+        // only reset if there's no initialData
+        if (!initialData) resetForm();
       }
     }
   }, [isOpen, equipamentoId, initialData]);
@@ -77,6 +93,24 @@ export default function EquipamentoModal({
     try {
       setLoading(true);
       const data = await equipamentosAPI.getById(equipamentoId);
+      if (!data) {
+        // fallback to initialData if available
+        if (initialData) {
+          const safe = {
+            ...initialData,
+            ano_fabricacao: (initialData.ano_fabricacao ?? ''),
+            serie: initialData.serie ?? '',
+            dimensao: initialData.dimensao ?? '',
+            peso: initialData.peso ?? '',
+            criticidade: (['Baixa', 'Média', 'Alta', 'Crítica'].includes(initialData?.criticidade)
+              ? (initialData.criticidade as 'Baixa' | 'Média' | 'Alta' | 'Crítica')
+              : 'Média')
+          };
+          setFormData((prev) => ({ ...prev, ...safe } as any));
+        }
+        return;
+      }
+
       setFormData({
         codigo_interno: data.codigo_interno || '',
         numero: (data as any).numero ?? '',

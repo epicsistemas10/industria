@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { formatEquipamentoName } from '../../utils/format';
+import EquipamentoName from '../../components/base/EquipamentoName';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
@@ -210,7 +212,7 @@ export default function ServicosPage() {
                       <input type="checkbox" checked={selectedEquipIds.includes(eq.id)} onChange={(e)=>{
                         if(e.target.checked) setSelectedEquipIds(prev=>[...prev,eq.id]); else setSelectedEquipIds(prev=>prev.filter(id=>id!==eq.id));
                       }} />
-                      <div className="flex-1">{eq.nome}</div>
+                      <div className="flex-1"><EquipamentoName equipamento={eq} numberClassName="text-amber-300" /></div>
                     </label>
                   ))}
                 </div>

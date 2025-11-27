@@ -1,5 +1,7 @@
 
 import { useState, useEffect, useRef } from 'react';
+import { formatEquipamentoName } from '../../utils/format';
+import EquipamentoName from '../../components/base/EquipamentoName';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
@@ -1244,7 +1246,7 @@ export default function MapaPage() {
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
               >
-              {mapImage ? (
+                {mapImage && (
                 <img 
                   ref={imageRef}
                   onLoad={() => {
@@ -1351,7 +1353,7 @@ export default function MapaPage() {
                           darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'
                         } border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}
                       >
-                        <div className="font-bold">{equipment.nome}</div>
+                        <div className="font-bold"><EquipamentoName equipamento={equipment} numberClassName="text-amber-300" /></div>
                         <div className="text-sm">{equipment.setor}</div>
                         <div className="text-xs">Revisão: {equipment.progresso}%</div>
                       </div>
@@ -1480,7 +1482,7 @@ export default function MapaPage() {
                               else setGroupForm((s: any) => ({ ...s, members: (s.members||[]).filter((id: string) => id !== eq.id) }));
                             }} />
                             <div>
-                              <div className={`${darkMode ? 'text-gray-200' : 'text-gray-900'} font-medium`}>{eq.nome}</div>
+                              <div className={`${darkMode ? 'text-gray-200' : 'text-gray-900'} font-medium`}><EquipamentoName equipamento={eq} numberClassName="text-amber-300" /></div>
                               <div className="text-xs text-gray-400">IND: {eq.codigo_interno || eq.id.slice(0,8)} • {eq.setor}</div>
                             </div>
                           </label>
@@ -1573,7 +1575,7 @@ export default function MapaPage() {
                       <option value="">Selecione...</option>
                       {equipments.map((eq) => (
                         <option key={eq.id} value={eq.id}>
-                          {eq.nome} - {eq.setor}
+                          {formatEquipamentoName(eq)} - {eq.setor}
                         </option>
                       ))}
                     </select>
@@ -1818,7 +1820,7 @@ export default function MapaPage() {
                   <div>
                     <label className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Nome</label>
                     <p className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                      {selectedEquipment.nome}
+                      {formatEquipamentoName(selectedEquipment)}
                     </p>
                   </div>
 
@@ -1959,7 +1961,7 @@ export default function MapaPage() {
                   <div>
                     <label className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Nome</label>
                     <p className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                      {selectedEquipment.nome}
+                      {formatEquipamentoName(selectedEquipment)}
                     </p>
                   </div>
 
@@ -2012,7 +2014,7 @@ export default function MapaPage() {
                             if (e.target.checked) setSelectedEquipmentsForService(prev => [...prev, eq.id]);
                             else setSelectedEquipmentsForService(prev => prev.filter(id => id !== eq.id));
                           }} />
-                          <span className={`${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>{eq.nome}</span>
+                          <span className={`${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>{formatEquipamentoName(eq)}</span>
                         </label>
                       ))}
                       {equipments.length === 0 && (

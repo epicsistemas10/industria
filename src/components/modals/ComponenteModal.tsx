@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { formatEquipamentoName } from '../../utils/format';
+import EquipamentoName from '../base/EquipamentoName';
 import { componentesAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import { storageAPI } from '../../lib/storage';
@@ -412,7 +414,7 @@ export default function ComponenteModal({
                       className="w-4 h-4"
                     />
                     <div>
-                      <div className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>{eq.nome}</div>
+                      <div className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}><EquipamentoName equipamento={eq} numberClassName="text-amber-300" /></div>
                       <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{eq.codigo_interno || '—'}</div>
                     </div>
                   </div>

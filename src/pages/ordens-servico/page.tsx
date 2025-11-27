@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatEquipamentoName } from '../../utils/format';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
@@ -143,7 +144,7 @@ export default function OrdensServicoPage() {
 
         osParaCriar.push({
           numero_os: numeroOS,
-          titulo: `Manutenção ${tipo} - ${eq.nome}`,
+          titulo: `Manutenção ${tipo} - ${formatEquipamentoName(eq)}`,
           descricao: `OS gerada automaticamente devido ao status: ${eq.status}. Criticidade: ${eq.criticidade}.`,
           equipamento_id: eq.id,
           prioridade,

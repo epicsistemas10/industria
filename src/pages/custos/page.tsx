@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatEquipamentoName } from '../../utils/format';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
@@ -503,7 +504,7 @@ export default function CustosPage() {
                   >
                     <option value="">Selecione...</option>
                     {equipamentos.map(eq => (
-                      <option key={eq.id} value={eq.id}>{eq.nome}</option>
+                      <option key={eq.id} value={eq.id}>{formatEquipamentoName(eq)}</option>
                     ))}
                   </select>
                 </div>

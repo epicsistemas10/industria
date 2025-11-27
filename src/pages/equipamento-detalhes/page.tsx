@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import Sidebar from '../dashboard/components/Sidebar';
+import { formatEquipamentoName } from '../../utils/format';
+import EquipamentoName from '../../components/base/EquipamentoName';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
 
@@ -226,7 +228,8 @@ export default function EquipamentoDetalhesPage() {
             </button>
             <div className="flex items-start justify-between">
               <div>
-                <h1 className="text-3xl font-bold text-white mb-2">{equipamento.nome}</h1>
+                <h1 className="text-3xl font-bold text-white mb-2"><EquipamentoName equipamento={equipamento} numberClassName="text-amber-300" /></h1>
+                <div className="text-sm text-blue-100 mt-1">{equipamento.codigo_interno ? `IND: ${equipamento.codigo_interno}` : ''}</div>
                 <div className="flex items-center gap-4 text-blue-100">
                   <span className="flex items-center gap-2">
                     <i className="ri-building-line"></i>
@@ -306,6 +309,26 @@ export default function EquipamentoDetalhesPage() {
                           <div className="flex justify-between">
                             <span className="text-gray-400">Fabricante:</span>
                             <span className="text-white font-medium">{equipamento.fabricante}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Código Interno (IND):</span>
+                            <span className="text-white font-medium">{equipamento.codigo_interno || '-'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Número:</span>
+                            <span className="text-white font-medium">{equipamento.numero ? `${equipamento.numero}º` : '-'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Série:</span>
+                            <span className="text-white font-medium">{(equipamento as any).serie || '-'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Dimensão:</span>
+                            <span className="text-white font-medium">{(equipamento as any).dimensao || '-'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Peso:</span>
+                            <span className="text-white font-medium">{(equipamento as any).peso || '-'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-400">Modelo:</span>

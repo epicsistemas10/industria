@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { formatEquipamentoName } from '../../utils/format';
+import EquipamentoName from '../../components/base/EquipamentoName';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
@@ -380,7 +382,7 @@ export default function PlanejamentoPage() {
                                     ? darkMode ? 'text-green-400 line-through' : 'text-green-600 line-through'
                                     : darkMode ? 'text-white' : 'text-gray-900'
                                 }`}>
-                                  {atividade.equipamento_nome}
+                                  <EquipamentoName equipamento={atividade.equipamento_nome} numberClassName="text-amber-300" />
                                 </h4>
                                 <p className={`text-xs mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                                   🔧 {atividade.servico_nome}
@@ -438,7 +440,7 @@ export default function PlanejamentoPage() {
                 >
                   <option value="">Selecione um equipamento</option>
                   {equipamentos.map(eq => (
-                    <option key={eq.id} value={eq.id}>{eq.nome}</option>
+                    <option key={eq.id} value={eq.id}>{formatEquipamentoName(eq)}</option>
                   ))}
                 </select>
               </div>

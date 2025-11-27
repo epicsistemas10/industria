@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatEquipamentoName } from '../../utils/format';
 import { ordensServicoAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 
@@ -202,7 +203,7 @@ export default function OrdemServicoModal({
                 <option value="">Selecione o equipamento</option>
                 {equipamentos.map((eq) => (
                   <option key={eq.id} value={eq.id}>
-                    {eq.nome}
+                    {formatEquipamentoName(eq)}
                   </option>
                 ))}
               </select>

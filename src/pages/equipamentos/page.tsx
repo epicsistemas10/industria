@@ -321,9 +321,9 @@ export default function EquipamentosPage() {
                 <thead className={`${darkMode ? 'text-gray-300 bg-slate-900' : 'text-gray-700 bg-gray-50'}`}>
                   <tr>
                     <th className="text-left px-4 py-3">Foto</th>
+                    <th className="text-left px-4 py-3">IND</th>
                     <th className="text-left px-4 py-3">Nome</th>
                     <th className="text-left px-4 py-3">Setor</th>
-                    <th className="text-left px-4 py-3">IND</th>
                     <th className="text-left px-4 py-3">Linha</th>
                     <th className="text-left px-4 py-3">Progresso</th>
                     <th className="text-left px-4 py-3">Ações</th>
@@ -348,16 +348,19 @@ export default function EquipamentosPage() {
                                 <div className="w-12 h-12 rounded bg-slate-700 flex items-center justify-center text-white"><i className="ri-tools-line"></i></div>
                               )}
                             </td>
+
                             <td className="px-4 py-3">
-                              <div className="font-medium text-white"><EquipamentoName equipamento={equipamento} className="" numberClassName="text-amber-300" /></div>
-                              <div className={`text-sm ${getCriticidadeColor(equipamento.criticidade)}`}>{equipamento.criticidade || ''}</div>
-                            </td>
-                                <td className="px-4 py-3 text-sm text-gray-400">{equipamento.setores?.nome || equipamento.setor || 'Sem setor'}</td>
-                                <td className="px-4 py-3">
                               {equipamento.codigo_interno ? (
                                 <div className={`inline-block px-2 py-0.5 text-xs rounded-full ${darkMode ? 'bg-slate-700 text-white' : 'bg-gray-200 text-gray-800'}`}>{equipamento.codigo_interno}</div>
                               ) : <span className="text-sm text-gray-400">-</span>}
                             </td>
+
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-white"><EquipamentoName equipamento={equipamento} className="" numberClassName="text-amber-300" /></div>
+                              <div className={`text-sm ${getCriticidadeColor(equipamento.criticidade)}`}>{equipamento.criticidade || ''}</div>
+                            </td>
+
+                            <td className="px-4 py-3 text-sm text-gray-400">{equipamento.setores?.nome || equipamento.setor || 'Sem setor'}</td>
                             <td className="px-4 py-3 text-sm text-gray-400">{equipamento.linha_setor || '-'}</td>
                             <td className="px-4 py-3 w-56">
                               <div className="flex items-center gap-3">

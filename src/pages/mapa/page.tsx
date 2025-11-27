@@ -1246,7 +1246,7 @@ export default function MapaPage() {
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
               >
-                {mapImage && (
+                {mapImage ? (
                 <img 
                   ref={imageRef}
                   onLoad={() => {

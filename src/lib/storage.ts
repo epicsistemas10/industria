@@ -8,7 +8,7 @@ export const storageAPI = {
    * @param folder - Pasta dentro do bucket (opcional)
    * @returns URL pública da imagem
    */
-  async uploadImage(file: File, bucket: string, folder?: string): Promise<string> {
+  async uploadImage(file: File, bucket: string, folder?: string, fileName?: string): Promise<string> {
     try {
       // Validar tipo de arquivo
       if (!file.type.startsWith('image/')) {
@@ -20,10 +20,10 @@ export const storageAPI = {
         throw new Error('A imagem deve ter no máximo 5MB');
       }
 
-      // Gerar nome único para o arquivo
+      // Gerar nome único para o arquivo, a não ser que fileName seja fornecido
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = folder ? `${folder}/${fileName}` : fileName;
+      const finalName = fileName ? fileName : `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = folder ? `${folder}/${finalName}` : finalName;
 
       // Upload do arquivo
       const attemptUpload = async () => {
@@ -31,7 +31,7 @@ export const storageAPI = {
           .from(bucket)
           .upload(filePath, file, {
             cacheControl: '3600',
-            upsert: false,
+            upsert: true, // allow overwrite when using a fixed filename
           });
 
         if (error) throw error;

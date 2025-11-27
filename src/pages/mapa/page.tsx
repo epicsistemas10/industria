@@ -95,8 +95,36 @@ export default function MapaPage() {
     // hotspots will be loaded by hook
     mapa.load();
 
-    const savedImage = localStorage.getItem('map_image');
-    if (savedImage) setMapImage(savedImage);
+    // First try localStorage (uploader browser). If not present, try public storage URL at a fixed path
+    const init = async () => {
+      const savedImage = (() => {
+        try { return localStorage.getItem('map_image'); } catch (e) { return null; }
+      })();
+      if (savedImage) {
+        setMapImage(savedImage);
+        return;
+      }
+
+      try {
+        // Construct public URL via Supabase helper
+        const { data } = supabase.storage.from('mapas').getPublicUrl('mapa.jpg');
+        if (data && data.publicUrl) {
+          // do a quick HEAD/fetch to see if exists
+          try {
+            const resp = await fetch(data.publicUrl, { method: 'HEAD' });
+            if (resp.ok) {
+              setMapImage(data.publicUrl);
+              return;
+            }
+          } catch (e) {
+            // ignore fetch errors
+          }
+        }
+      } catch (e) {
+        // ignore storage errors
+      }
+    };
+    init();
 
     const interval = setInterval(() => {
       loadEquipments();
@@ -285,7 +313,8 @@ export default function MapaPage() {
 
           // Try upload
           try {
-            const publicUrl = await storageAPI.uploadImage(fileToUpload, 'mapas');
+            // upload to a fixed filename so all users can load the same map
+            const publicUrl = await storageAPI.uploadImage(fileToUpload, 'mapas', undefined, 'mapa.jpg');
             setMapImage(publicUrl);
             try { localStorage.setItem('map_image', publicUrl); } catch (e) { /* ignore */ }
             toast.success('Mapa enviado e salvo no Storage (bucket mapas)');

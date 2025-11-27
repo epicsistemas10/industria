@@ -61,6 +61,9 @@ export default function MapaPage() {
   const [hotspotFontSize, setHotspotFontSize] = useState(14);
   const [hotspotIcon, setHotspotIcon] = useState('ri-tools-fill');
   const mapRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const [imgRect, setImgRect] = useState<DOMRect | null>(null);
+  const [containerRect, setContainerRect] = useState<DOMRect | null>(null);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [serviceName, setServiceName] = useState('');
   const [serviceDesc, setServiceDesc] = useState('');
@@ -90,7 +93,18 @@ export default function MapaPage() {
       loadEquipments();
       mapa.load();
     }, 30000);
-    return () => clearInterval(interval);
+    // update rects for image/container when layout changes
+    const updateRects = () => {
+      if (mapRef.current) setContainerRect(mapRef.current.getBoundingClientRect());
+      if (imageRef.current) setImgRect(imageRef.current.getBoundingClientRect());
+    };
+    updateRects();
+    window.addEventListener('resize', updateRects);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('resize', updateRects);
+    };
   }, []);
 
   useEffect(() => {
@@ -778,6 +792,13 @@ export default function MapaPage() {
               >
               {mapImage ? (
                 <img 
+                  ref={imageRef}
+                  onLoad={() => {
+                    if (mapRef.current && imageRef.current) {
+                      setContainerRect(mapRef.current.getBoundingClientRect());
+                      setImgRect(imageRef.current.getBoundingClientRect());
+                    }
+                  }}
                   src={mapImage} 
                   alt="Mapa Industrial" 
                   className="w-full h-full object-contain pointer-events-none"
@@ -792,14 +813,51 @@ export default function MapaPage() {
               )}
               
               {/* Hotspots Overlay */}
-              {getFilteredHotspots().map((hotspot) => {
-                const equipment = equipments.find(eq => eq.id === hotspot.equipamento_id);
+              {getFilteredHotspots().map((hotspot: any) => {
+                const isGroup = !!hotspot.isGroup;
+                let equipment: any = null;
+                if (!isGroup) equipment = equipments.find((eq) => eq.id === hotspot.equipamento_id);
+
+                // for group hotspots, synthesize equipment-like data using group info and members
+                if (isGroup) {
+                  const group = hotspot.group || {};
+                  const members: string[] = hotspot.members || [];
+                  const memberProgs = members.map((id) => equipments.find((e) => e.id === id)?.progresso ?? 0);
+                  const avgProg = memberProgs.length ? Math.round(memberProgs.reduce((s, v) => s + v, 0) / memberProgs.length) : 0;
+                  equipment = {
+                    nome: group.nome || `Grupo ${group.id}`,
+                    setor: group.linha || 'Grupo',
+                    progresso: avgProg,
+                    criticidade: null,
+                  };
+                }
+
                 if (!equipment) return null;
 
-                const hotspotColor = hotspot.color || getStatusColor(equipment.status);
+                const hotspotColor = hotspot.color || getStatusColor(equipment.status || 'operacional');
                 const fontSize = hotspot.fontSize || 14;
                 const iconClass = hotspot.icon || 'ri-tools-fill';
                 const circleSize = fontSize * 4;
+
+                // compute absolute positions relative to displayed image area to avoid drift when container resizes
+                const stylePos: any = {};
+                if (imgRect && containerRect) {
+                  const imgOffsetX = imgRect.left - containerRect.left;
+                  const imgOffsetY = imgRect.top - containerRect.top;
+                  const leftPx = imgOffsetX + (hotspot.x / 100) * imgRect.width;
+                  const topPx = imgOffsetY + (hotspot.y / 100) * imgRect.height;
+                  const widthPx = (hotspot.width / 100) * imgRect.width;
+                  const heightPx = (hotspot.height / 100) * imgRect.height;
+                  stylePos.left = `${leftPx}px`;
+                  stylePos.top = `${topPx}px`;
+                  stylePos.width = `${widthPx}px`;
+                  stylePos.height = `${heightPx}px`;
+                } else {
+                  stylePos.left = `${hotspot.x}%`;
+                  stylePos.top = `${hotspot.y}%`;
+                  stylePos.width = `${hotspot.width}%`;
+                  stylePos.height = `${hotspot.height}%`;
+                }
 
                 return (
                   <div
@@ -807,11 +865,8 @@ export default function MapaPage() {
                     className={`absolute group ${editMode ? 'cursor-move' : 'cursor-pointer'} ${
                       selectedHotspot === hotspot.id ? 'ring-4 ring-blue-500' : ''
                     }`}
-                    style={{ 
-                      left: `${hotspot.x}%`, 
-                      top: `${hotspot.y}%`,
-                      width: `${hotspot.width}%`,
-                      height: `${hotspot.height}%`,
+                    style={{
+                      ...stylePos,
                       backgroundColor: editMode ? 'rgba(59, 130, 246, 0.3)' : 'transparent',
                       border: editMode ? '2px dashed #3b82f6' : 'none',
                     }}
@@ -819,9 +874,9 @@ export default function MapaPage() {
                     onClick={() => !editMode && handleHotspotClick(hotspot)}
                   >
                     {/* Indicador de Status com Ícone */}
-                    <div 
+                    <div
                       className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 rounded-full flex flex-col items-center justify-center shadow-lg transition-transform group-hover:scale-125"
-                      style={{ 
+                      style={{
                         backgroundColor: hotspotColor,
                         width: `${circleSize}px`,
                         height: `${circleSize}px`,
@@ -832,12 +887,14 @@ export default function MapaPage() {
                         {equipment.progresso}%
                       </span>
                     </div>
-                    
+
                     {/* Tooltip ao passar o mouse */}
                     {!editMode && (
-                      <div className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 ${
-                        darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'
-                      } border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}>
+                      <div
+                        className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 ${
+                          darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'
+                        } border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}
+                      >
                         <div className="font-bold">{equipment.nome}</div>
                         <div className="text-sm">{equipment.setor}</div>
                         <div className="text-xs">Revisão: {equipment.progresso}%</div>
@@ -859,7 +916,7 @@ export default function MapaPage() {
                           className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 cursor-se-resize"
                           onMouseDown={(e) => handleMouseDown(e, hotspot.id, true)}
                         ></div>
-                        
+
                         {/* Delete button */}
                         <button
                           onClick={(e) => {

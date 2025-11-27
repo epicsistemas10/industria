@@ -38,16 +38,21 @@ export function useMapaHotspots() {
 
       // load group-level hotspots and merge
       const groups = await grupoEquipamentosAPI.getAll();
-      const groupHotspots = (groups || []).map((g: any) => ({
-        id: `grp-${g.id}`,
-        equipamento_id: g.id, // use group id here; caller should treat it as group
-        x: Number(g.x) ?? 10,
-        y: Number(g.y) ?? 10,
-        width: Number(g.width) ?? 8,
-        height: Number(g.height) ?? 8,
-        color: g.color ?? '#10b981',
-        fontSize: g.font_size ?? 14,
-        icon: g.icon ?? 'ri-tools-fill',
+      const groupHotspots = await Promise.all((groups || []).map(async (g: any) => {
+        const members = await grupoEquipamentosAPI.getMembers(g.id).catch(() => []);
+        return {
+          id: `grp-${g.id}`,
+          isGroup: true,
+          group: g,
+          members,
+          x: Number(g.x) ?? 10,
+          y: Number(g.y) ?? 10,
+          width: Number(g.width) ?? 8,
+          height: Number(g.height) ?? 8,
+          color: g.color ?? '#10b981',
+          fontSize: g.font_size ?? 14,
+          icon: g.icon ?? 'ri-tools-fill',
+        };
       }));
 
       setHotspots([...groupHotspots, ...equipmentHotspots]);

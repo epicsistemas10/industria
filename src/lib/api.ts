@@ -922,9 +922,23 @@ export const mapaHotspotsAPI = {
   },
 
   create: async (hotspot: any) => {
+    // Normalize frontend camelCase keys to DB snake_case column names
+    const payload: any = { ...hotspot };
+    if ('fontSize' in payload) {
+      payload.font_size = payload.fontSize;
+      delete payload.fontSize;
+    }
+
+    // ensure only known columns are sent to avoid PostgREST 400 errors
+    const allowed = new Set(['equipamento_id', 'x', 'y', 'width', 'height', 'color', 'font_size', 'icon']);
+    const filtered: any = {};
+    Object.entries(payload).forEach(([k, v]) => {
+      if (allowed.has(k)) filtered[k] = v;
+    });
+
     const { data, error } = await supabase
       .from('equipamento_mapa')
-      .insert([hotspot])
+      .insert([filtered])
       .select()
       .single();
     if (error) throw error;
@@ -932,12 +946,27 @@ export const mapaHotspotsAPI = {
   },
 
   update: async (id: string, hotspot: any) => {
+    // Normalize camelCase keys to DB snake_case
+    const payload: any = { ...hotspot };
+    if ('fontSize' in payload) {
+      payload.font_size = payload.fontSize;
+      delete payload.fontSize;
+    }
+
+    // Filter allowed columns to avoid PostgREST complaining about unknown columns
+    const allowed = new Set(['equipamento_id', 'x', 'y', 'width', 'height', 'color', 'font_size', 'icon']);
+    const filtered: any = {};
+    Object.entries(payload).forEach(([k, v]) => {
+      if (allowed.has(k)) filtered[k] = v;
+    });
+
     const { data, error } = await supabase
       .from('equipamento_mapa')
-      .update(hotspot)
+      .update(filtered)
       .eq('id', id)
       .select()
       .single();
+
     if (error) throw error;
     return data;
   },

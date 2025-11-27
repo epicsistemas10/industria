@@ -981,6 +981,128 @@ export const mapaHotspotsAPI = {
   },
 };
 
+// ==================== GRUPO EQUIPAMENTOS ====================
+export const grupoEquipamentosAPI = {
+  getAll: async () => {
+    const { data, error } = await supabase
+      .from('grupo_equipamentos')
+      .select('*')
+      .order('nome');
+    if (error) throw error;
+    return data || [];
+  },
+
+  getById: async (id: string) => {
+    const { data, error } = await supabase
+      .from('grupo_equipamentos')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  create: async (grupo: any) => {
+    const { data, error } = await supabase
+      .from('grupo_equipamentos')
+      .insert([grupo])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  update: async (id: string, grupo: any) => {
+    const { data, error } = await supabase
+      .from('grupo_equipamentos')
+      .update(grupo)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  delete: async (id: string) => {
+    const { error } = await supabase
+      .from('grupo_equipamentos')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  getMembers: async (grupoId: string) => {
+    const { data, error } = await supabase
+      .from('grupo_equipamentos_members')
+      .select('equipamento_id')
+      .eq('grupo_id', grupoId);
+    if (error) throw error;
+    return (data || []).map((d: any) => d.equipamento_id);
+  }
+};
+
+// ==================== PLANEJAMENTO ====================
+export const planejamentoAPI = {
+  createPlanning: async (planning: any, items: any[]) => {
+    // creates planejamento_semanal and planejamento_itens
+    const { data: pData, error: pErr } = await supabase
+      .from('planejamento_semanal')
+      .insert([planning])
+      .select()
+      .single();
+    if (pErr) throw pErr;
+    const planningId = (pData as any).id;
+    if (items && items.length > 0) {
+      const toInsert = items.map(i => ({ ...i, planejamento_id: planningId }));
+      const { error: itemsErr } = await supabase.from('planejamento_itens').insert(toInsert);
+      if (itemsErr) throw itemsErr;
+    }
+    return pData;
+  },
+
+  addExecution: async (itemId: string, exec: any) => {
+    // exec: { responsavel_id, iniciado_em?, finalizado_em?, observacao }
+    const payload = { ...exec, item_id: itemId };
+    const { data, error } = await supabase.from('planejamento_execucoes').insert([payload]).select().single();
+    if (error) throw error;
+    // update item status accordingly
+    const status = exec.finalizado_em ? 'concluido' : exec.iniciado_em ? 'iniciado' : undefined;
+    if (status) {
+      const { error: uErr } = await supabase.from('planejamento_itens').update({ status }).eq('id', itemId);
+      if (uErr) console.warn('Não foi possível atualizar status do item:', uErr);
+    }
+    return data;
+  },
+
+  generateOsFromItems: async (items: { equipamento_id: string; servico_id: string; equipe_id?: string; responsavel_id?: string; }[]) => {
+    // creates ordens_servico per equipment grouping services into one OS per equipment
+    const byEquip: Record<string, any[]> = {};
+    items.forEach(it => {
+      if (!byEquip[it.equipamento_id]) byEquip[it.equipamento_id] = [];
+      byEquip[it.equipamento_id].push(it);
+    });
+
+    const created: any[] = [];
+    for (const equipamentoId of Object.keys(byEquip)) {
+      const services = byEquip[equipamentoId];
+      // create a single OS for this equipment containing references in description
+      const osPayload: any = {
+        equipamento_id: equipamentoId,
+        equipe_id: services[0].equipe_id || null,
+        criado_por: services[0].responsavel_id || null,
+        status: 'aberta',
+        descricao: `OS automática gerada para ${services.length} serviço(s): ${services.map(s => s.servico_id).join(',')}`
+      };
+      const { data, error } = await supabase.from('ordens_servico').insert([osPayload]).select().single();
+      if (error) throw error;
+      created.push(data);
+      // Optionally link services to OS in os_servicos table if exists (not implemented here)
+    }
+    return created;
+  }
+};
+
 // ==================== PANORAMAS ====================
 export const panoramasAPI = {
   getAll: async () => {

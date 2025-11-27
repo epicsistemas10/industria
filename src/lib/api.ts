@@ -63,6 +63,8 @@ export const equipamentosAPI = {
         'criticidade', 'status_revisao', 'foto_url', 'mtbf', 'data_inicio_revisao', 'data_prevista_fim',
         'posicao_x', 'posicao_y', 'codigo_interno'
       ]);
+      // allow optional equipment number
+      allowed.add('numero');
       const filtered: any = {};
       Object.entries(payload).forEach(([k, v]) => {
         if (allowed.has(k)) filtered[k] = v;
@@ -100,6 +102,8 @@ export const equipamentosAPI = {
         'criticidade', 'status_revisao', 'foto_url', 'mtbf', 'data_inicio_revisao', 'data_prevista_fim',
         'posicao_x', 'posicao_y', 'codigo_interno'
       ]);
+      // allow optional equipment number
+      allowed.add('numero');
       const filtered: any = {};
       Object.entries(payload).forEach(([k, v]) => {
         if (allowed.has(k)) filtered[k] = v;

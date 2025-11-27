@@ -27,6 +27,7 @@ export default function EquipamentoModal({
   const [setores, setSetores] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     codigo_interno: '',
+    numero: '' as any,
     nome: '',
     setor_id: '',
     descricao: '',
@@ -78,6 +79,7 @@ export default function EquipamentoModal({
       const data = await equipamentosAPI.getById(equipamentoId);
       setFormData({
         codigo_interno: data.codigo_interno || '',
+        numero: (data as any).numero ?? '',
         nome: data.nome || '',
         setor_id: data.setor_id || '',
         descricao: data.descricao || '',
@@ -108,6 +110,7 @@ export default function EquipamentoModal({
   const resetForm = () => {
     const base = {
       codigo_interno: '',
+      numero: '' as any,
       nome: '',
       setor_id: '',
       descricao: '',
@@ -240,6 +243,24 @@ export default function EquipamentoModal({
                     : 'bg-white border-gray-300 text-gray-900'
                 } focus:outline-none focus:border-blue-500`}
                 placeholder="Ex: EQ-001"
+              />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                Número (opcional)
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={formData.numero ?? ''}
+                onChange={(e) => setFormData({ ...formData, numero: e.target.value === '' ? '' : Number(e.target.value) })}
+                className={`w-full px-4 py-2 rounded-lg border ${
+                  darkMode 
+                    ? 'bg-slate-700 border-slate-600 text-white' 
+                    : 'bg-white border-gray-300 text-gray-900'
+                } focus:outline-none focus:border-blue-500`}
+                placeholder="1, 2, 3..."
               />
             </div>
 

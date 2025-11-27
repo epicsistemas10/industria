@@ -1,5 +1,5 @@
 import { lazy } from 'react';
-import { RouteObject, Navigate } from 'react-router-dom';
+import { RouteObject } from 'react-router-dom';
 import ProtectedRoute from '../components/base/ProtectedRoute';
 
 // Lazy loading das páginas
@@ -25,6 +25,7 @@ const Notificacoes = lazy(() => import('../pages/notificacoes/page'));
 const PrevisaoFalhas = lazy(() => import('../pages/previsao-falhas/page'));
 const EstrategicoPecas = lazy(() => import('../pages/estrategico-pecas/page'));
 const Pecas = lazy(() => import('../pages/pecas/page'));
+const ComponentesReservas = lazy(() => import('../pages/componentes/reservas/page'));
 const Seguranca = lazy(() => import('../pages/seguranca/page'));
 const LeitorPlacas = lazy(() => import('../pages/leitor-placas/page'));
 const Planejamento = lazy(() => import('../pages/planejamento/page'));
@@ -195,6 +196,14 @@ const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <PrevisaoFalhas />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/componentes/reservas',
+    element: (
+      <ProtectedRoute>
+        <ComponentesReservas />
       </ProtectedRoute>
     ),
   },

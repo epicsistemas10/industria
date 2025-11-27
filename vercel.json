@@ -5,9 +5,6 @@
       "use": "@vercel/static-build",
       "config": { "distDir": "out" }
     }
-  ]
-  ,
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  ],
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

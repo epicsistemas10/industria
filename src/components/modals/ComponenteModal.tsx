@@ -20,7 +20,6 @@ export default function ComponenteModal({
   darkMode = true 
 }: ComponenteModalProps) {
   const [loading, setLoading] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
   const [tiposComponentes, setTiposComponentes] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     nome: '',
@@ -32,15 +31,27 @@ export default function ComponenteModal({
     preco_unitario: 0,
     foto_url: ''
   });
+  const [equipamentosList, setEquipamentosList] = useState<any[]>([]);
+  const [selectedEquipamentos, setSelectedEquipamentos] = useState<string[]>([]);
   const { success, error: showError } = useToast();
 
   useEffect(() => {
     if (isOpen) {
       loadTiposComponentes();
+      loadEquipamentosList();
       if (componenteId) {
         loadComponente();
       } else {
         resetForm();
+        // Preencher código automático com prefixo COM (pré-fill apenas informativo)
+        (async () => {
+          try {
+            const next = await componentesAPI.getNextCodigo('COM');
+            setFormData((prev) => ({ ...prev, codigo_interno: next }));
+          } catch (err) {
+            console.warn('Não foi possível pré-gerar código COM:', err);
+          }
+        })();
       }
     }
   }, [isOpen, componenteId]);
@@ -55,6 +66,18 @@ export default function ComponenteModal({
       setTiposComponentes(data || []);
     } catch (error) {
       console.error('Erro ao carregar tipos de componentes:', error);
+    }
+  };
+
+  const loadEquipamentosList = async () => {
+    try {
+      const { data } = await supabase
+        .from('equipamentos')
+        .select('id, nome, codigo_interno')
+        .order('nome');
+      if (data) setEquipamentosList(data);
+    } catch (err) {
+      console.error('Erro ao carregar equipamentos para seleção:', err);
     }
   };
 
@@ -73,6 +96,16 @@ export default function ComponenteModal({
         preco_unitario: data.preco_unitario || 0,
         foto_url: data.foto_url || ''
       });
+      // load existing equipamento associations
+      try {
+        const { data: assoc } = await supabase
+          .from('equipamentos_componentes')
+          .select('equipamento_id')
+          .eq('componente_id', componenteId);
+        if (assoc) setSelectedEquipamentos(assoc.map((a: any) => a.equipamento_id));
+      } catch (err) {
+        console.error('Erro ao carregar associações equipamentos-componentes:', err);
+      }
     } catch (error) {
       console.error('Erro ao carregar componente:', error);
     } finally {
@@ -97,12 +130,46 @@ export default function ComponenteModal({
     e.preventDefault();
     try {
       setLoading(true);
-      if (componenteId) {
-        await componentesAPI.update(componenteId, formData);
-        success('Componente atualizado');
-      } else {
-        await componentesAPI.create(formData);
+      const payload = { ...formData };
+      if (!componenteId) {
+        // Sempre gerar novo código COM### no momento do envio para evitar duplicatas pré-geradas
+        try {
+          const next = await componentesAPI.getNextCodigo('COM');
+          payload.codigo_interno = next;
+        } catch (err) {
+          console.error('Erro ao gerar código COM no envio:', err);
+          showError('Erro ao gerar código do componente');
+          setLoading(false);
+          return;
+        }
+        const created = await componentesAPI.create(payload);
         success('Componente criado');
+        // after create, insert associations
+        try {
+          const compId = created?.id;
+          if (compId && selectedEquipamentos.length) {
+            await supabase.from('equipamentos_componentes').insert(
+              selectedEquipamentos.map(eid => ({ equipamento_id: eid, componente_id: compId, quantidade_usada: 1 }))
+            );
+          }
+        } catch (err) {
+          console.warn('Não foi possível criar associações equipamento-componente:', err);
+        }
+      } else {
+        // edição: não altera o código interno
+        await componentesAPI.update(componenteId, payload);
+        success('Componente atualizado');
+        // update associations: remove existing and recreate
+        try {
+          await supabase.from('equipamentos_componentes').delete().eq('componente_id', componenteId);
+          if (selectedEquipamentos.length) {
+            await supabase.from('equipamentos_componentes').insert(
+              selectedEquipamentos.map(eid => ({ equipamento_id: eid, componente_id: componenteId, quantidade_usada: 1 }))
+            );
+          }
+        } catch (err) {
+          console.warn('Não foi possível atualizar associações equipamento-componente:', err);
+        }
       }
       onSuccess();
       onClose();
@@ -119,14 +186,12 @@ export default function ComponenteModal({
     if (!file) return;
 
     try {
-      setUploadingImage(true);
       const publicUrl = await storageAPI.uploadImage(file, 'componentes', 'fotos');
       setFormData({ ...formData, foto_url: publicUrl });
     } catch (err) {
       console.error('Erro ao enviar imagem:', err);
       showError('Erro ao enviar imagem');
     } finally {
-      setUploadingImage(false);
     }
   };
 
@@ -177,6 +242,7 @@ export default function ComponenteModal({
                 required
                 value={formData.codigo_interno}
                 onChange={(e) => setFormData({ ...formData, codigo_interno: e.target.value })}
+                readOnly={!componenteId} // leitura apenas em criação (prefere automático)
                 className={`w-full px-4 py-2 rounded-lg border ${
                   darkMode 
                     ? 'bg-slate-700 border-slate-600 text-white' 
@@ -309,6 +375,51 @@ export default function ComponenteModal({
                 )}
               </div>
             </div>
+          </div>
+
+          <div>
+            <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              Atribuir a Equipamentos (múltipla seleção)
+            </label>
+            <div className="flex items-center gap-3 mb-2">
+              <label className="inline-flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={equipamentosList.length > 0 && selectedEquipamentos.length === equipamentosList.length}
+                  onChange={(e) => setSelectedEquipamentos(e.target.checked ? equipamentosList.map(eq => eq.id) : [])}
+                  className="w-4 h-4"
+                />
+                <span className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Selecionar todos</span>
+              </label>
+            </div>
+
+            <div className={`max-h-48 overflow-y-auto rounded border p-2 ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-gray-300'}`}>
+              {equipamentosList.length === 0 && (
+                <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Nenhum equipamento disponível</div>
+              )}
+              {equipamentosList.map(eq => (
+                <label key={eq.id} className="flex items-center justify-between gap-3 p-1 hover:bg-opacity-5 rounded">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      value={eq.id}
+                      checked={selectedEquipamentos.includes(eq.id)}
+                      onChange={(e) => {
+                        const id = eq.id;
+                        if (e.target.checked) setSelectedEquipamentos(prev => Array.from(new Set([...prev, id])));
+                        else setSelectedEquipamentos(prev => prev.filter(x => x !== id));
+                      }}
+                      className="w-4 h-4"
+                    />
+                    <div>
+                      <div className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>{eq.nome}</div>
+                      <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{eq.codigo_interno || '—'}</div>
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <p className="text-sm text-gray-400 mt-1">Marque os equipamentos desejados e clique em salvar.</p>
           </div>
 
           <div className="flex gap-3 pt-4">

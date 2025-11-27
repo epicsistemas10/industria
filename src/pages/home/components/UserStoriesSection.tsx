@@ -1,4 +1,3 @@
-
 export default function UserStoriesSection() {
   return (
     <section className="py-24 relative overflow-hidden">
@@ -15,13 +14,14 @@ export default function UserStoriesSection() {
             <span className="text-purple-200 text-sm">Our User Stories</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
-            How We Made an{' '}
+            How We Made an{" "}
             <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
               Impact
             </span>
           </h2>
           <p className="text-xl text-purple-100 max-w-3xl mx-auto">
-            Discover how users transformed their content creation with our AI-powered video generation platform.
+            Discover how users transformed their content creation with our
+            AI-powered video generation platform.
           </p>
         </div>
 
@@ -30,24 +30,30 @@ export default function UserStoriesSection() {
           {/* Story 1 */}
           <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-8 border border-purple-600/30">
             <div className="mb-6">
-              <img 
-                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" 
-                alt="Content Creator Success" 
+              <img
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+                alt="Content Creator Success"
                 className="w-full h-48 object-cover rounded-lg mb-4"
               />
-              <h3 className="text-white font-semibold text-lg mb-2">Content Creator Success</h3>
+              <h3 className="text-white font-semibold text-lg mb-2">
+                Content Creator Success
+              </h3>
               <p className="text-purple-200 text-sm mb-4">
-                "I was able to create 50+ engaging short videos in just one week. The AI-generated captions and effects saved me countless hours of editing work."
+                "I was able to create 50+ engaging short videos in just one
+                week. The AI-generated captions and effects saved me countless
+                hours of editing work."
               </p>
             </div>
             <div className="flex items-center space-x-3">
-              <img 
-                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" 
-                alt="Sarah Johnson" 
+              <img
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+                alt="Sarah Johnson"
                 className="w-10 h-10 rounded-full object-cover"
               />
               <div>
-                <div className="text-white font-medium text-sm">Sarah Johnson</div>
+                <div className="text-white font-medium text-sm">
+                  Sarah Johnson
+                </div>
                 <div className="text-purple-300 text-xs">Content Creator</div>
               </div>
             </div>
@@ -56,24 +62,30 @@ export default function UserStoriesSection() {
           {/* Story 2 */}
           <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-8 border border-purple-600/30">
             <div className="mb-6">
-              <img 
-                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" 
-                alt="Marketing Team Growth" 
+              <img
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+                alt="Marketing Team Growth"
                 className="w-full h-48 object-cover rounded-lg mb-4"
               />
-              <h3 className="text-white font-semibold text-lg mb-2">Marketing Team Growth</h3>
+              <h3 className="text-white font-semibold text-lg mb-2">
+                Marketing Team Growth
+              </h3>
               <p className="text-purple-200 text-sm mb-4">
-                "Our social media engagement increased by 300% after using this platform. The automated video creation process revolutionized our content strategy."
+                "Our social media engagement increased by 300% after using this
+                platform. The automated video creation process revolutionized
+                our content strategy."
               </p>
             </div>
             <div className="flex items-center space-x-3">
-              <img 
-                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" 
-                alt="Mike Thompson" 
+              <img
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+                alt="Mike Thompson"
                 className="w-10 h-10 rounded-full object-cover"
               />
               <div>
-                <div className="text-white font-medium text-sm">Mike Thompson</div>
+                <div className="text-white font-medium text-sm">
+                  Mike Thompson
+                </div>
                 <div className="text-purple-300 text-xs">Marketing Manager</div>
               </div>
             </div>
@@ -82,25 +94,31 @@ export default function UserStoriesSection() {
           {/* Story 3 */}
           <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-8 border border-purple-600/30">
             <div className="mb-6">
-              <img 
-                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" 
-                alt="Small Business Success" 
+              <img
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+                alt="Small Business Success"
                 className="w-full h-48 object-cover rounded-lg mb-4"
               />
-              <h3 className="text-white font-semibold text-lg mb-2">Small Business Success</h3>
+              <h3 className="text-white font-semibold text-lg mb-2">
+                Small Business Success
+              </h3>
               <p className="text-purple-200 text-sm mb-4">
-                "As a small business owner, I couldn't afford expensive video production. This tool helped me create professional videos that boosted my sales by 150%."
+                "As a small business owner, I couldn't afford expensive video
+                production. This tool helped me create professional videos that
+                boosted my sales by 150%."
               </p>
             </div>
             <div className="flex items-center space-x-3">
-              <img 
-                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" 
-                alt="Emily Chen" 
+              <img
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+                alt="Emily Chen"
                 className="w-10 h-10 rounded-full object-cover"
               />
               <div>
                 <div className="text-white font-medium text-sm">Emily Chen</div>
-                <div className="text-purple-300 text-xs">Small Business Owner</div>
+                <div className="text-purple-300 text-xs">
+                  Small Business Owner
+                </div>
               </div>
             </div>
           </div>
@@ -113,9 +131,12 @@ export default function UserStoriesSection() {
             <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <i className="ri-instagram-fill text-white text-2xl"></i>
             </div>
-            <h3 className="text-white font-semibold text-lg mb-2">Instagram Reels</h3>
+            <h3 className="text-white font-semibold text-lg mb-2">
+              Instagram Reels
+            </h3>
             <p className="text-purple-200 text-sm">
-              Create viral Instagram Reels with trending music, effects, and optimized captions that boost engagement.
+              Create viral Instagram Reels with trending music, effects, and
+              optimized captions that boost engagement.
             </p>
           </div>
 
@@ -124,9 +145,12 @@ export default function UserStoriesSection() {
             <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <i className="ri-line-chart-fill text-white text-2xl"></i>
             </div>
-            <h3 className="text-white font-semibold text-lg mb-2">Viral Videos</h3>
+            <h3 className="text-white font-semibold text-lg mb-2">
+              Viral Videos
+            </h3>
             <p className="text-purple-200 text-sm">
-              Generate content that's designed to go viral with AI-powered trend analysis and optimized storytelling.
+              Generate content that's designed to go viral with AI-powered trend
+              analysis and optimized storytelling.
             </p>
           </div>
 
@@ -135,9 +159,12 @@ export default function UserStoriesSection() {
             <div className="w-16 h-16 bg-gradient-to-r from-pink-500 to-purple-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <i className="ri-notification-fill text-white text-2xl"></i>
             </div>
-            <h3 className="text-white font-semibtml text-lg mb-2">YouTube Shorts</h3>
+            <h3 className="text-white font-semibtml text-lg mb-2">
+              YouTube Shorts
+            </h3>
             <p className="text-purple-200 text-sm">
-              Optimize your content for YouTube Shorts with perfect aspect ratios, engaging thumbnails, and SEO-friendly titles.
+              Optimize your content for YouTube Shorts with perfect aspect
+              ratios, engaging thumbnails, and SEO-friendly titles.
             </p>
           </div>
         </div>

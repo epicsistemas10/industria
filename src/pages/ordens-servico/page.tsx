@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import useSidebar from '../../hooks/useSidebar';
 import { ordensServicoAPI } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import OrdemServicoModal from '../../components/modals/OrdemServicoModal';
@@ -23,7 +24,7 @@ interface OrdemServico {
 }
 
 export default function OrdensServicoPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(true);
   const [ordens, setOrdens] = useState<OrdemServico[]>([]);
   const [loading, setLoading] = useState(true);
@@ -225,7 +226,7 @@ export default function OrdensServicoPage() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
-      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
       
       <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
         <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />

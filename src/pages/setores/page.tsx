@@ -3,12 +3,13 @@ import useSetores from '../../hooks/useSetores';
 import SetorModal from '../../components/modals/SetorModal';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import useSidebar from '../../hooks/useSidebar';
 
 export default function SetoresPage() {
   const { setores, loading, remove, load } = useSetores();
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<string | undefined>(undefined);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(true);
 
   useEffect(() => {
@@ -27,7 +28,7 @@ export default function SetoresPage() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors`}> 
-      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
       <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
         <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />
 

@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import useSidebar from '../../hooks/useSidebar';
 
 interface Usuario {
   id: string;
@@ -14,20 +15,19 @@ interface Usuario {
   status: 'ativo' | 'inativo' | 'bloqueado';
   avatar?: string;
   telefone?: string;
+  ativo?: boolean;
   dataAdmissao: string;
   ultimoAcesso?: string;
 }
 
 export default function UsuariosPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(true);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { user: authUser, session } = useAuth();
+  const [, setLoading] = useState(true);
+  const { session } = useAuth();
   const [currentPerfil, setCurrentPerfil] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterRole, setFilterRole] = useState('todos');
   const [busca, setBusca] = useState('');
   const [filtroStatus, setFiltroStatus] = useState<string>('todos');
   const [filtroPerfil, setFiltroPerfil] = useState<string>('todos');
@@ -35,11 +35,19 @@ export default function UsuariosPage() {
   // Estado único para controle do modal e formulário
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<Usuario | null>(null);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    nome: string;
+    email: string;
+    senha: string;
+    cargo: string;
+    telefone: string;
+    departamento: string;
+    ativo: boolean;
+  }>({
     nome: '',
     email: '',
     senha: '',
-    cargo: 'tecnico' as 'admin' | 'gestor' | 'tecnico' | 'operador',
+    cargo: 'tecnico',
     telefone: '',
     departamento: '',
     ativo: true
@@ -295,7 +303,7 @@ export default function UsuariosPage() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
-      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
 
       <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
         <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />

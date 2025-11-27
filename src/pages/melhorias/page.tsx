@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import useSidebar from '../../hooks/useSidebar';
 import { melhoriasAPI, equipamentosAPI } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useToast } from '../../hooks/useToast';
@@ -27,7 +28,7 @@ interface Melhoria {
 }
 
 export default function MelhoriasPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(false);
   const [melhorias, setMelhorias] = useState<Melhoria[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,7 +38,7 @@ export default function MelhoriasPage() {
   const [filterCategoria, setFilterCategoria] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingMelhoria, setEditingMelhoria] = useState<Melhoria | null>(null);
-  const { canCreate, canEdit, canDelete } = usePermissions();
+  const { canEdit, canDelete } = usePermissions();
 
   // Form state
   const [formData, setFormData] = useState({
@@ -243,7 +244,7 @@ export default function MelhoriasPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
       
       <div className={`flex-1 flex flex-col transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
         <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />
@@ -448,19 +449,19 @@ export default function MelhoriasPage() {
 
                   {/* Análise Financeira */}
                   <div className="grid grid-cols-2 gap-3 mb-4 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200">
-                    {melhoria.custo_estimado > 0 && (
+                    {(melhoria.custo_estimado ?? 0) > 0 && (
                       <div>
                         <p className="text-xs text-gray-600 mb-1">Custo</p>
                         <p className="text-sm font-semibold text-red-600">
-                          R$ {melhoria.custo_estimado.toLocaleString('pt-BR')}
+                          R$ {(melhoria.custo_estimado ?? 0).toLocaleString('pt-BR')}
                         </p>
                       </div>
                     )}
-                    {melhoria.economia_estimada > 0 && (
+                    {(melhoria.economia_estimada ?? 0) > 0 && (
                       <div>
                         <p className="text-xs text-gray-600 mb-1">Economia</p>
                         <p className="text-sm font-semibold text-green-600">
-                          R$ {melhoria.economia_estimada.toLocaleString('pt-BR')}
+                          R$ {(melhoria.economia_estimada ?? 0).toLocaleString('pt-BR')}
                         </p>
                       </div>
                     )}

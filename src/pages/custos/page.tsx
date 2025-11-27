@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import useSidebar from '../../hooks/useSidebar';
 import { custosAPI, equipamentosAPI, componentesAPI } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 
@@ -23,7 +24,7 @@ interface Custo {
 }
 
 export default function CustosPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(true);
   const [custos, setCustos] = useState<Custo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -190,7 +191,7 @@ export default function CustosPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
       
       <div className={`flex-1 flex flex-col transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
         <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />

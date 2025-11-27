@@ -3,10 +3,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import useSidebar from '../../hooks/useSidebar';
 import { supabase } from '../../lib/supabase';
 import useMapaHotspots from '../../hooks/useMapaHotspots';
 import { useToast } from '../../hooks/useToast';
-import PanoramaViewer from '../../components/PanoramaViewer';
+// PanoramaViewer removed from this file (used elsewhere)
 
 interface Equipment {
   id: string;
@@ -35,7 +36,7 @@ interface Hotspot {
 
 export default function MapaPage() {
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(true);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
@@ -127,16 +128,16 @@ export default function MapaPage() {
           nome: item.nome || 'Sem nome',
           x: 0,
           y: 0,
-          status: item.status_revisao >= 100 ? 'operacional' : 
+          status: (item.status_revisao >= 100 ? 'operacional' : 
                  item.status_revisao >= 50 ? 'manutencao' : 
-                 item.status_revisao > 0 ? 'alerta' : 'parado',
+                 item.status_revisao > 0 ? 'alerta' : 'parado') as Equipment['status'],
           setor: item.setores?.nome || 'Sem setor',
           progresso: item.status_revisao || 0,
           criticidade: item.criticidade,
           fabricante: item.fabricante,
           modelo: item.modelo,
         }));
-        setEquipments(mapped);
+        setEquipments(mapped as Equipment[]);
       } else {
         setEquipments([]);
       }
@@ -148,18 +149,80 @@ export default function MapaPage() {
     }
   };
 
-  const loadHotspots = async () => {
-    // now handled by useMapaHotspots hook
-  };
+  // hotspots are handled by `useMapaHotspots` hook
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
+      reader.onloadend = async () => {
+        let result = reader.result as string;
+
+        // Try to save to localStorage; if it fails due to quota, try to compress the image
+        const trySave = async (dataUrl: string) => {
+          try {
+            localStorage.setItem('map_image', dataUrl);
+            return true;
+          } catch (err) {
+            return false;
+          }
+        };
+
+        const compressDataUrl = (dataUrl: string, maxWidth = 1920, quality = 0.8): Promise<string> => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              let { width, height } = img;
+              if (width > maxWidth) {
+                const ratio = maxWidth / width;
+                width = maxWidth;
+                height = height * ratio;
+              }
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) return reject(new Error('Canvas not supported'));
+              ctx.drawImage(img, 0, 0, width, height);
+              const compressed = canvas.toDataURL('image/jpeg', quality);
+              resolve(compressed);
+            };
+            img.onerror = (e) => reject(e);
+            img.src = dataUrl;
+          });
+        };
+
+        // First, try saving the original data URL
+        let saved = await trySave(result);
+
+        // If failed, attempt compression and retry a couple times
+        if (!saved) {
+          try {
+            const compressed1 = await compressDataUrl(result, 1920, 0.8);
+            saved = await trySave(compressed1);
+            result = compressed1;
+          } catch (err) {
+            console.warn('Compressão inicial falhou', err);
+          }
+        }
+
+        if (!saved) {
+          try {
+            const compressed2 = await compressDataUrl(result, 1280, 0.7);
+            saved = await trySave(compressed2);
+            result = compressed2;
+          } catch (err) {
+            console.warn('Segunda tentativa de compressão falhou', err);
+          }
+        }
+
+        if (!saved) {
+          toast.error('Não foi possível salvar o mapa localmente (tamanho excede o limite do navegador). Reduza a resolução da imagem e tente novamente.');
+          setShowImageUpload(false);
+          return;
+        }
+
         setMapImage(result);
-        localStorage.setItem('map_image', result);
         setShowImageUpload(false);
       };
       reader.readAsDataURL(file);
@@ -253,7 +316,7 @@ export default function MapaPage() {
             width: hotspot.width,
             height: hotspot.height,
             color: hotspot.color,
-            font_size: hotspot.fontSize,
+            fontSize: hotspot.fontSize,
             icon: hotspot.icon,
           });
           // success toast handled by hook
@@ -358,10 +421,9 @@ export default function MapaPage() {
         descricao: serviceDesc || null,
       }));
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('equipamento_servicos')
-        .insert(rows)
-        .select();
+        .insert(rows);
 
       if (error) {
         console.error('Erro ao criar serviços:', error);
@@ -454,7 +516,7 @@ export default function MapaPage() {
     try {
       await mapa.updateHotspot(selectedHotspot, {
         color: hotspotColor,
-        font_size: hotspotFontSize,
+        fontSize: hotspotFontSize,
         icon: hotspotIcon,
       });
       setShowCustomizePanel(false);
@@ -523,7 +585,7 @@ export default function MapaPage() {
     // Salvar imediatamente
     try {
       await mapa.updateHotspot(selectedHotspot, {
-        font_size: newFontSize,
+        fontSize: newFontSize,
       });
       // success toast from hook
     } catch (err) {
@@ -542,7 +604,7 @@ export default function MapaPage() {
           width: hotspot.width,
           height: hotspot.height,
           color: hotspot.color,
-          font_size: hotspot.fontSize,
+          fontSize: hotspot.fontSize,
           icon: hotspot.icon,
         });
       });
@@ -561,75 +623,74 @@ export default function MapaPage() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
-      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
 
       <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
         <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />
 
         <main className="p-6">
-          {/* Header */}
-          <div className="mb-6 flex items-center justify-between flex-wrap gap-4">
+          {/* Header with controls (title left, controls right) */}
+          <div className="mb-4 flex items-start justify-between gap-4">
             <div>
               <h1 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                 Mapa Industrial Interativo
               </h1>
-              <p className={`mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              <p className={`mt-1 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                 Visualização em tempo real dos equipamentos • {filteredCount} equipamentos exibidos
               </p>
             </div>
-
-            <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
               <button
                 onClick={editMode ? handleSaveAndExit : () => setEditMode(true)}
-                className={`px-4 py-2 rounded-lg transition-all whitespace-nowrap cursor-pointer ${
-                  editMode 
-                    ? 'bg-red-600 text-white hover:bg-red-700' 
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                title={editMode ? 'Salvar e Sair' : 'Modo Edição'}
+                aria-label={editMode ? 'Salvar e Sair' : 'Modo Edição'}
+                className={`w-10 h-10 flex items-center justify-center rounded-md transition-all cursor-pointer text-white ${
+                  editMode ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
                 }`}
               >
-                <i className={`${editMode ? 'ri-save-line' : 'ri-edit-line'} mr-2`}></i>
-                {editMode ? 'Salvar e Sair' : 'Modo Edição'}
+                <i className={`${editMode ? 'ri-save-line' : 'ri-edit-line'} text-lg`}></i>
               </button>
 
               {editMode && (
                 <>
                   <button
                     onClick={() => setShowAddHotspot(true)}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all whitespace-nowrap cursor-pointer"
+                    title="Adicionar Hotspot"
+                    aria-label="Adicionar Hotspot"
+                    className="w-10 h-10 flex items-center justify-center bg-green-600 text-white rounded-md hover:bg-green-700 transition-all"
                   >
-                    <i className="ri-add-line mr-2"></i>
-                    Adicionar Hotspot
+                    <i className="ri-add-line"></i>
                   </button>
 
                   {selectedHotspot && (
                     <>
                       <button
                         onClick={handleCustomizeHotspot}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all whitespace-nowrap cursor-pointer"
+                        title="Personalizar Hotspot"
+                        aria-label="Personalizar Hotspot"
+                        className="w-10 h-10 flex items-center justify-center bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all"
                       >
-                        <i className="ri-palette-line mr-2"></i>
-                        Personalizar
+                        <i className="ri-palette-line"></i>
                       </button>
 
-                      <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-1 bg-slate-800 rounded-md px-2 py-1">
                         <button
                           onClick={() => handleSizeChange(-1)}
                           className="w-8 h-8 flex items-center justify-center bg-slate-700 text-white rounded hover:bg-slate-600 cursor-pointer"
-                          title="Diminuir área do hotspot"
+                          title="Diminuir área"
                         >
                           <i className="ri-subtract-line"></i>
                         </button>
-                        <span className="text-white text-sm px-2">Área</span>
                         <button
                           onClick={() => handleSizeChange(1)}
                           className="w-8 h-8 flex items-center justify-center bg-slate-700 text-white rounded hover:bg-slate-600 cursor-pointer"
-                          title="Aumentar área do hotspot"
+                          title="Aumentar área"
                         >
                           <i className="ri-add-line"></i>
                         </button>
                       </div>
 
-                      <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-1 bg-slate-800 rounded-md px-2 py-1">
                         <button
                           onClick={() => handleCircleSizeChange(-2)}
                           className="w-8 h-8 flex items-center justify-center bg-slate-700 text-white rounded hover:bg-slate-600 cursor-pointer"
@@ -637,7 +698,6 @@ export default function MapaPage() {
                         >
                           <i className="ri-subtract-line"></i>
                         </button>
-                        <span className="text-white text-sm px-2">Círculo</span>
                         <button
                           onClick={() => handleCircleSizeChange(2)}
                           className="w-8 h-8 flex items-center justify-center bg-slate-700 text-white rounded hover:bg-slate-600 cursor-pointer"
@@ -653,19 +713,18 @@ export default function MapaPage() {
 
               <button
                 onClick={() => setShowImageUpload(true)}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all whitespace-nowrap cursor-pointer"
+                title="Alterar Imagem"
+                aria-label="Alterar Imagem"
+                className="w-10 h-10 flex items-center justify-center bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all"
               >
-                <i className="ri-image-add-line mr-2"></i>
-                Alterar Imagem
+                <i className="ri-image-add-line"></i>
               </button>
 
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className={`px-4 py-2 pr-8 rounded-lg border ${
-                  darkMode 
-                    ? 'bg-slate-800 border-slate-700 text-white' 
-                    : 'bg-white border-gray-300 text-gray-900'
+                className={`text-sm px-2 py-1 pr-6 rounded-md border ${
+                  darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
                 } focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer`}
               >
                 <option value="todos">Todos os Status</option>
@@ -678,10 +737,8 @@ export default function MapaPage() {
               <select
                 value={filterSetor}
                 onChange={(e) => setFilterSetor(e.target.value)}
-                className={`px-4 py-2 pr-8 rounded-lg border ${
-                  darkMode 
-                    ? 'bg-slate-800 border-slate-700 text-white' 
-                    : 'bg-white border-gray-300 text-gray-900'
+                className={`text-sm px-2 py-1 pr-6 rounded-md border ${
+                  darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
                 } focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer`}
               >
                 <option value="todos">Todos os Setores</option>
@@ -692,33 +749,38 @@ export default function MapaPage() {
             </div>
           </div>
 
+          {/* empty spacer removed - header is integrated with controls above */}
+
           {/* Legend removed as requested */}
 
           {/* Loading */}
           {loading && (
-            <div className={`rounded-xl overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex items-center justify-center`} style={{ height: 'calc(100vh - 200px)' }}>
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                <p className={darkMode ? 'text-gray-400' : 'text-gray-600'}>Carregando mapa...</p>
+            <div className="-mx-6">
+              <div className={`rounded-xl overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex items-center justify-center`} style={{ height: 'calc(100vh - 100px)' }}>
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                  <p className={darkMode ? 'text-gray-400' : 'text-gray-600'}>Carregando mapa...</p>
+                </div>
               </div>
             </div>
           )}
 
           {/* Mapa Interativo - TELA CHEIA */}
           {!loading && (
-            <div 
-              ref={mapRef}
-              className={`rounded-xl overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl relative ${editMode ? 'cursor-crosshair' : 'cursor-default'}`} 
-              style={{ height: 'calc(100vh - 200px)' }}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-            >
+            <div className="-mx-6">
+              <div 
+                ref={mapRef}
+                className={`rounded-xl overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl relative ${editMode ? 'cursor-crosshair' : 'cursor-default'}`} 
+                style={{ height: 'calc(100vh - 100px)' }}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+              >
               {mapImage ? (
                 <img 
                   src={mapImage} 
                   alt="Mapa Industrial" 
-                  className="w-full h-full object-cover pointer-events-none"
+                  className="w-full h-full object-contain pointer-events-none"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-slate-700/30">
@@ -813,6 +875,7 @@ export default function MapaPage() {
                   </div>
                 );
               })}
+              </div>
             </div>
           )}
 
@@ -1092,25 +1155,25 @@ export default function MapaPage() {
                 <h3 className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                   Detalhes do Equipamento
                 </h3>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={openServiceModalForSelected}
-                      className="px-3 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 text-sm"
-                    >
-                      Cadastrar Serviço Padrão
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedEquipment(null);
-                        setEquipmentDetails(null);
-                      }}
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer ${
-                        darkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'
-                      }`}
-                    >
-                      <i className={`ri-close-line ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}></i>
-                    </button>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={openServiceModalForSelected}
+                    className="px-3 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 text-sm"
+                  >
+                    Cadastrar Serviço Padrão
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedEquipment(null);
+                      setEquipmentDetails(null);
+                    }}
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer ${
+                      darkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'
+                    }`}
+                  >
+                    <i className={`ri-close-line ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}></i>
+                  </button>
+                </div>
               </div>
 
               {loadingDetails ? (
@@ -1120,7 +1183,6 @@ export default function MapaPage() {
                 </div>
               ) : equipmentDetails ? (
                 <div className="space-y-4">
-                  {/* Informações Básicas */}
                   <div>
                     <label className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Nome</label>
                     <p className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -1148,7 +1210,6 @@ export default function MapaPage() {
                     </div>
                   </div>
 
-                  {/* Progresso */}
                   <div>
                     <label className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Progresso da Revisão</label>
                     <div className="mt-2">
@@ -1166,7 +1227,6 @@ export default function MapaPage() {
                     </div>
                   </div>
 
-                  {/* Custo Total */}
                   <div>
                     <label className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Custo Acumulado</label>
                     <p className={`font-bold text-lg ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
@@ -1174,7 +1234,6 @@ export default function MapaPage() {
                     </p>
                   </div>
 
-                  {/* Componentes */}
                   <div>
                     <label className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                       Componentes ({equipmentDetails.componentes?.length || 0})
@@ -1198,7 +1257,6 @@ export default function MapaPage() {
                     </div>
                   </div>
 
-                  {/* Ordens de Serviço */}
                   <div>
                     <label className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                       Ordens de Serviço Recentes
@@ -1211,9 +1269,7 @@ export default function MapaPage() {
                               OS #{os.numero_os || os.id.slice(0, 8)}
                             </p>
                             <span className={`text-xs px-2 py-1 rounded ${
-                              os.status === 'concluida' 
-                                ? 'bg-green-500/20 text-green-400' 
-                                : 'bg-yellow-500/20 text-yellow-400'
+                              os.status === 'concluida' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
                             }`}>
                               {os.status}
                             </span>
@@ -1231,7 +1287,6 @@ export default function MapaPage() {
                     </div>
                   </div>
 
-                  {/* Histórico de Manutenção */}
                   <div>
                     <label className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                       Histórico de Manutenção

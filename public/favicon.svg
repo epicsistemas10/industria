@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Blue background -->
+  <rect width="100%" height="100%" rx="48" fill="#0A58A6" />
+
+  <!-- Gear (industry) -->
+  <g transform="translate(256,300) scale(0.9)">
+    <g transform="translate(-80,-80)">
+      <path d="M160 96c0 35.3-28.7 64-64 64s-64-28.7-64-64 28.7-64 64-64 64 28.7 64 64z" fill="#C9DFF6" opacity="0.06" />
+      <g transform="translate(64,64)">
+        <path d="M0-24 a24 24 0 1 0 0 48 a24 24 0 1 0 0 -48" fill="#ffffff" />
+      </g>
+    </g>
+  </g>
+
+  <!-- Stylized cotton tuft: three white puffs -->
+  <g transform="translate(196,178) scale(1.2)">
+    <ellipse cx="40" cy="38" rx="34" ry="28" fill="#FFFFFF" />
+    <ellipse cx="80" cy="38" rx="28" ry="24" fill="#FFFFFF" />
+    <ellipse cx="60" cy="20" rx="26" ry="20" fill="#FFFFFF" />
+    <!-- small shadow / stitch to denote cotton fibers -->
+    <path d="M38 48 q12 10 24 0" stroke="#E6F0FB" stroke-width="3" fill="none" stroke-linecap="round" />
+  </g>
+
+  <!-- Small gear overlay to hint 'industry' -->
+  <g transform="translate(320,320) scale(0.42)">
+    <path d="M120 40 L136 24 L160 32 L176 16 L192 32 L208 48 L224 64 L208 80 L192 96 L176 80 L160 88 L136 96 L120 80 L104 64 L120 40 z" fill="#E1EEF9" opacity="0.9"/>
+    <circle cx="160" cy="64" r="16" fill="#0A58A6" />
+  </g>
+
+  <!-- subtle highlight to make it look modern -->
+  <rect x="0" y="0" width="512" height="512" rx="48" fill="url(#grad)" opacity="0.06" />
+  <defs>
+    <linearGradient id="grad" x1="0" x2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.06" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.00" />
+    </linearGradient>
+  </defs>
+</svg>

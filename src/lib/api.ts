@@ -57,22 +57,34 @@ export const equipamentosAPI = {
     try {
       console.debug('[equipamentosAPI.create] payload:', equipamento);
       const payload = { ...equipamento };
+      // Filter payload to allowed equipamento columns to avoid PostgREST errors
+      const allowed = new Set([
+        'nome', 'setor_id', 'descricao', 'fabricante', 'modelo', 'ano_fabricacao',
+        'criticidade', 'status_revisao', 'foto_url', 'mtbf', 'data_inicio_revisao', 'data_prevista_fim',
+        'posicao_x', 'posicao_y', 'codigo_interno'
+      ]);
+      const filtered: any = {};
+      Object.entries(payload).forEach(([k, v]) => {
+        if (allowed.has(k)) filtered[k] = v;
+      });
       // Convert empty date strings to null to avoid Postgres errors
       if (payload.data_inicio_revisao === '') payload.data_inicio_revisao = null;
       if (payload.data_prevista_fim === '') payload.data_prevista_fim = null;
 
+      // Avoid requesting returned columns via .select() here because
+      // some PostgREST setups (and long/complex return queries) can
+      // produce 400 errors. Insert and return the payload on success.
       const { data, error } = await supabase
         .from('equipamentos')
-        .insert([payload])
-        .select()
-        .single();
+        .insert([filtered]);
 
       if (error) {
-        console.error('Erro ao criar equipamento:', error);
+        console.error('Erro ao criar equipamento:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
         throw error;
       }
 
-      return data;
+      // If PostgREST returned the created row, prefer it; otherwise return the payload
+      return (data && data[0]) || payload;
     } catch (error) {
       console.error('Erro na criação do equipamento:', error);
       throw error;
@@ -83,22 +95,30 @@ export const equipamentosAPI = {
     try {
       console.debug('[equipamentosAPI.update] id:', id, 'payload:', equipamento);
       const payload = { ...equipamento };
+      const allowed = new Set([
+        'nome', 'setor_id', 'descricao', 'fabricante', 'modelo', 'ano_fabricacao',
+        'criticidade', 'status_revisao', 'foto_url', 'mtbf', 'data_inicio_revisao', 'data_prevista_fim',
+        'posicao_x', 'posicao_y', 'codigo_interno'
+      ]);
+      const filtered: any = {};
+      Object.entries(payload).forEach(([k, v]) => {
+        if (allowed.has(k)) filtered[k] = v;
+      });
       if (payload.data_inicio_revisao === '') payload.data_inicio_revisao = null;
       if (payload.data_prevista_fim === '') payload.data_prevista_fim = null;
 
+      // Similar to create: avoid .select() after update to prevent malformed return queries
       const { data, error } = await supabase
         .from('equipamentos')
-        .update(payload)
-        .eq('id', id)
-        .select()
-        .single();
+        .update(filtered)
+        .eq('id', id);
 
       if (error) {
-        console.error('Erro ao atualizar equipamento:', error);
+        console.error('Erro ao atualizar equipamento:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
         throw error;
       }
 
-      return data;
+      return (data && data[0]) || payload;
     } catch (error) {
       console.error('Erro na atualização do equipamento:', error);
       throw error;
@@ -194,6 +214,41 @@ export const componentesAPI = {
       return data;
     } catch (error) {
       console.error('Erro na criação do componente:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Gera o próximo código interno sequencial para um prefixo de 3 letras.
+   * Ex: prefix = 'COM' -> busca último 'COM###' e retorna 'COM' + next number padded 3 digits.
+   */
+  async getNextCodigo(prefix: string) {
+    try {
+      const likePattern = `${prefix}%`;
+      const { data, error } = await supabase
+        .from('componentes')
+        .select('codigo_interno')
+        .ilike('codigo_interno', likePattern)
+        .order('codigo_interno', { ascending: false })
+        .limit(1);
+
+      if (error) {
+        console.error('Erro ao buscar último código interno:', error);
+        throw error;
+      }
+
+      let nextNumber = 1;
+      if (data && data.length > 0 && data[0].codigo_interno) {
+        const lastCode: string = data[0].codigo_interno as string;
+        const suffix = lastCode.replace(/[^0-9]/g, '');
+        const num = parseInt(suffix || '0', 10);
+        if (!isNaN(num)) nextNumber = num + 1;
+      }
+
+      const nextStr = String(nextNumber).padStart(3, '0');
+      return `${prefix}${nextStr}`;
+    } catch (error) {
+      console.error('Erro ao gerar próximo código interno:', error);
       throw error;
     }
   },

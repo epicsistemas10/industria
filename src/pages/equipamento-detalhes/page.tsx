@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import useSidebar from '../../hooks/useSidebar';
 
 interface Equipamento {
   id: string;
@@ -52,7 +53,7 @@ export default function EquipamentoDetalhesPage() {
   const [searchParams] = useSearchParams();
   const equipamentoId = id || searchParams.get('id');
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(true);
   const [activeTab, setActiveTab] = useState('geral');
   const [equipamento, setEquipamento] = useState<Equipamento | null>(null);
@@ -186,7 +187,7 @@ export default function EquipamentoDetalhesPage() {
   if (!equipamento) {
     return (
       <div className="min-h-screen bg-gray-950 flex">
-        <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+        <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
         <div className={`flex-1 flex flex-col transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
           <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />
           <div className="flex-1 flex items-center justify-center">
@@ -208,7 +209,7 @@ export default function EquipamentoDetalhesPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 flex">
-      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
       
       <div className={`flex-1 flex flex-col transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
         <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />
@@ -356,6 +357,29 @@ export default function EquipamentoDetalhesPage() {
                   </div>
 
                   {/* Descrição */}
+                  {/* Peças: mostrar associações rápidas na aba Geral */}
+                  <div className="bg-gray-800 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold text-white mb-4">Peças</h3>
+                    {componentes.length === 0 ? (
+                      <p className="text-gray-400">Nenhuma peça associada a este equipamento</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {componentes.slice(0, 6).map(c => (
+                          <div key={c.id} className="bg-gray-700 px-3 py-1 rounded text-white text-sm">
+                            <div className="font-medium">{c.nome}</div>
+                            <div className="text-xs text-gray-300">{c.codigo_interno || ''}</div>
+                          </div>
+                        ))}
+                        {componentes.length > 6 && (
+                          <div className="bg-gray-700 px-3 py-1 rounded text-white text-sm">+{componentes.length - 6} mais</div>
+                        )}
+                      </div>
+                    )}
+                    <div className="mt-4">
+                      <button onClick={() => setActiveTab('componentes')} className="px-3 py-2 bg-purple-600 text-white rounded">Ver todos</button>
+                    </div>
+                  </div>
+
                   {equipamento.descricao && (
                     <div className="bg-gray-800 rounded-lg p-6">
                       <h3 className="text-lg font-semibold text-white mb-4">Descrição</h3>

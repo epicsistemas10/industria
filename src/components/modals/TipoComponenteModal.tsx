@@ -21,9 +21,10 @@ export default function TipoComponenteModal({ isOpen, onClose, onSuccess, darkMo
     if (!nome.trim()) return;
     try {
       setLoading(true);
-      const { data, error } = await supabase.from('tipos_componentes').insert({ nome }).select().single();
+      const { data, error } = await supabase.from('tipos_componentes').insert({ nome });
       if (error) throw error;
-      success('Tipo criado');
+      // prefer toast success if available
+      try { success('Tipo criado'); } catch {}
       setNome('');
       onSuccess && onSuccess();
       onClose();

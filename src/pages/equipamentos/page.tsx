@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import useSidebar from '../../hooks/useSidebar';
 import { equipamentosAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useAuth } from '../../contexts/AuthContext';
 import EquipamentoModal from '../../components/modals/EquipamentoModal';
+// import ImportarEquipamentos from '../../components/ImportarEquipamentos';
 import { useToast } from '../../hooks/useToast';
 
 interface Equipamento {
@@ -17,12 +19,15 @@ interface Equipamento {
   status_revisao: number;
   foto_url?: string;
   setores?: { nome: string };
+  codigo_interno?: string;
+  linha_setor?: string;
+  subgrupo?: string;
 }
 
 export default function EquipamentosPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { canCreate, canEdit, canDelete } = usePermissions();
+  const { canCreate, canDelete } = usePermissions();
   const { success, error: showError } = useToast();
   const [equipamentos, setEquipamentos] = useState<Equipamento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,14 +35,17 @@ export default function EquipamentosPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSetor, setFilterSetor] = useState('');
   const [filterCriticidade, setFilterCriticidade] = useState('');
+  const [filterSubgrupo, setFilterSubgrupo] = useState('');
+  const [filterLinha, setFilterLinha] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [selectedEquipamentoId, setSelectedEquipamentoId] = useState<string | undefined>();
   const [darkMode, setDarkMode] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [serviceName, setServiceName] = useState('');
   const [serviceDesc, setServiceDesc] = useState('');
   const [serviceTargetEquipId, setServiceTargetEquipId] = useState<string | null>(null);
+  const [equipamentoComponentesMap, setEquipamentoComponentesMap] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
     if (darkMode) {
@@ -57,6 +65,25 @@ export default function EquipamentosPage() {
       setError(false);
       const data = await equipamentosAPI.getAll();
       setEquipamentos(data || []);
+      // load componentes for these equipamentos
+      try {
+        const ids = (data || []).map((d: any) => d.id).filter(Boolean);
+        if (ids.length) {
+          const { data: comps } = await supabase
+            .from('equipamentos_componentes')
+            .select('equipamento_id, quantidade_usada, componentes(id, nome, codigo_interno, marca)')
+            .in('equipamento_id', ids);
+          const map: Record<string, any[]> = {};
+          (comps || []).forEach((row: any) => {
+            const eqId = row.equipamento_id;
+            map[eqId] = map[eqId] || [];
+            if (row.componentes) map[eqId].push({ ...row.componentes, quantidade_usada: row.quantidade_usada });
+          });
+          setEquipamentoComponentesMap(map);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar componentes por equipamento:', err);
+      }
     } catch (error) {
       console.error('Erro ao carregar equipamentos:', error);
       setError(true);
@@ -103,15 +130,32 @@ export default function EquipamentosPage() {
     loadEquipamentos();
   };
 
+  const q = searchTerm.trim().toLowerCase();
   const filteredEquipamentos = equipamentos.filter(eq => {
-    const matchSearch = (eq.nome?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+    const nome = eq.nome?.toLowerCase() || '';
+    const codigo = (eq.codigo_interno || '').toLowerCase();
+    const matchSearch = q === '' || nome.includes(q) || codigo.includes(q);
     const setorNome = eq.setores?.nome || eq.setor || '';
     const matchSetor = !filterSetor || setorNome === filterSetor;
     const matchCriticidade = !filterCriticidade || eq.criticidade === filterCriticidade;
-    return matchSearch && matchSetor && matchCriticidade;
+    const matchSubgrupo = !filterSubgrupo || (eq.subgrupo || '') === filterSubgrupo;
+    const matchLinha = !filterLinha || (eq.linha_setor || 'Sem linha') === filterLinha;
+    return matchSearch && matchSetor && matchCriticidade && matchSubgrupo && matchLinha;
   });
 
+  // Agrupar por subgrupo -> linha
+  const grouped = filteredEquipamentos.reduce((acc: Record<string, Record<string, Equipamento[]>> , eq) => {
+    const sg = (eq.subgrupo || '') as string;
+    const ln = (eq.linha_setor || 'Sem linha') as string;
+    if (!acc[sg]) acc[sg] = {};
+    if (!acc[sg][ln]) acc[sg][ln] = [];
+    acc[sg][ln].push(eq);
+    return acc;
+  }, {});
+
   const setores = [...new Set(equipamentos.map(eq => eq.setores?.nome || eq.setor).filter(Boolean))];
+  const subgrupos = [...new Set(equipamentos.map(eq => eq.subgrupo || '').filter(Boolean))];
+  const linhas = [...new Set(equipamentos.map(eq => eq.linha_setor || 'Sem linha').filter(Boolean))];
   const criticidades = ['Baixa', 'Média', 'Alta', 'Crítica'];
 
   const getCriticidadeColor = (criticidade: string) => {
@@ -147,7 +191,7 @@ export default function EquipamentosPage() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
-      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
       
       <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
         <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />
@@ -176,12 +220,12 @@ export default function EquipamentosPage() {
 
           {/* Filtros */}
           <div className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl p-4 mb-6 shadow-lg`}>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="relative">
                 <i className={`ri-search-line absolute left-3 top-1/2 -translate-y-1/2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}></i>
                 <input
                   type="text"
-                  placeholder="Buscar equipamento..."
+                  placeholder="Buscar equipamento ou IND..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className={`w-full pl-10 pr-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-green-500 focus:border-transparent`}
@@ -200,6 +244,17 @@ export default function EquipamentosPage() {
               </select>
 
               <select
+                value={filterSubgrupo}
+                onChange={(e) => setFilterSubgrupo(e.target.value)}
+                className={`px-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-green-500 focus:border-transparent pr-8`}
+              >
+                <option value="">Todos os Equipamentos</option>
+                {subgrupos.map(sg => (
+                  <option key={sg} value={sg}>{sg}</option>
+                ))}
+              </select>
+
+              <select
                 value={filterCriticidade}
                 onChange={(e) => setFilterCriticidade(e.target.value)}
                 className={`px-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-green-500 focus:border-transparent pr-8`}
@@ -209,8 +264,21 @@ export default function EquipamentosPage() {
                   <option key={crit} value={crit}>{crit}</option>
                 ))}
               </select>
+
+              <select
+                value={filterLinha}
+                onChange={(e) => setFilterLinha(e.target.value)}
+                className={`px-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-green-500 focus:border-transparent pr-8`}
+              >
+                <option value="">Todas as Linhas</option>
+                {linhas.map(ln => (
+                  <option key={ln} value={ln}>{ln}</option>
+                ))}
+              </select>
             </div>
           </div>
+
+          {/* Import button removed; import functionality moved to admin area if needed */}
 
           {/* Loading */}
           {loading && (
@@ -239,101 +307,74 @@ export default function EquipamentosPage() {
             </div>
           )}
 
-          {/* Grid de Equipamentos */}
+          {/* Lista de Equipamentos (tabela) */}
           {!loading && !error && filteredEquipamentos.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredEquipamentos.map((equipamento) => (
-                <div
-                  key={equipamento.id}
-                  className={`rounded-xl shadow-lg hover:shadow-xl transition-all cursor-pointer border overflow-hidden group ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}
-                >
-                  {/* Imagem */}
-                  <div className="relative h-48 bg-gradient-to-br from-slate-700 to-slate-800 overflow-hidden">
-                    {equipamento.foto_url ? (
-                      <img
-                        src={equipamento.foto_url}
-                        alt={equipamento.nome}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <i className="ri-tools-line text-6xl text-gray-500"></i>
-                      </div>
-                    )}
-                    <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-semibold ${getCriticidadeColor(equipamento.criticidade)}`}>
-                      {equipamento.criticidade || 'N/A'}
-                    </div>
-                  </div>
-
-                  {/* Conteúdo */}
-                  <div className="p-4">
-                    <h3 className={`font-bold text-lg mb-2 truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{equipamento.nome}</h3>
-                    
-                    <div className={`flex items-center gap-2 text-sm mb-3 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      <i className="ri-building-line"></i>
-                      <span>{equipamento.setores?.nome || equipamento.setor || 'Sem setor'}</span>
-                    </div>
-
-                    {/* Progresso */}
-                    <div className="mb-4">
-                      <div className="flex items-center justify-between text-sm mb-1">
-                        <span className={darkMode ? 'text-gray-400' : 'text-gray-600'}>Progresso</span>
-                        <span className={`font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{equipamento.status_revisao || 0}%</span>
-                      </div>
-                      <div className={`w-full rounded-full h-2 ${darkMode ? 'bg-slate-700' : 'bg-gray-200'}`}>
-                        <div
-                          className={`h-2 rounded-full transition-all ${getStatusColor(equipamento.status_revisao || 0)}`}
-                          style={{ width: `${equipamento.status_revisao || 0}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    {/* Ações */}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => navigate(`/equipamento/${equipamento.id}`)}
-                        className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap cursor-pointer"
-                      >
-                        <i className="ri-eye-line mr-1"></i>
-                        Ver Detalhes
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setServiceTargetEquipId(equipamento.id);
-                          setServiceName('');
-                          setServiceDesc('');
-                          setShowServiceModal(true);
-                        }}
-                        className="w-10 h-10 flex items-center justify-center bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap cursor-pointer"
-                        title="Cadastrar Serviço"
-                      >
-                        <i className="ri-add-circle-line text-lg"></i>
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEdit(equipamento.id);
-                        }}
-                        className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap cursor-pointer"
-                        title="Editar"
-                      >
-                        <i className="ri-edit-line text-lg"></i>
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(equipamento.id);
-                        }}
-                        className="w-10 h-10 flex items-center justify-center bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap cursor-pointer"
-                        title="Excluir"
-                      >
-                        <i className="ri-delete-bin-line text-lg"></i>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl p-2 overflow-x-auto` }>
+              <table className="w-full min-w-[800px]">
+                <thead className={`${darkMode ? 'text-gray-300 bg-slate-900' : 'text-gray-700 bg-gray-50'}`}>
+                  <tr>
+                    <th className="text-left px-4 py-3">Foto</th>
+                    <th className="text-left px-4 py-3">Nome</th>
+                    <th className="text-left px-4 py-3">Setor</th>
+                    <th className="text-left px-4 py-3">IND</th>
+                    <th className="text-left px-4 py-3">Linha</th>
+                    <th className="text-left px-4 py-3">Progresso</th>
+                    <th className="text-left px-4 py-3">Ações</th>
+                  </tr>
+                </thead>
+                    {Object.entries(grouped).map(([subgrupo, linhas]) => (
+                      <tbody key={`group-${subgrupo}`}>
+                        <tr className={`${darkMode ? 'bg-slate-900' : 'bg-gray-100'}`}>
+                          <td colSpan={7} className="px-4 py-2 font-semibold">{subgrupo}</td>
+                        </tr>
+                    {Object.entries(linhas).map(([linha, items]) => (
+                      <React.Fragment key={`ln-${subgrupo}-${linha}`}>
+                            <tr className={`${darkMode ? 'bg-slate-800/60' : 'bg-gray-50'}`}>
+                              <td colSpan={7} className="px-6 py-1 text-sm text-gray-400">Linha: {linha}</td>
+                            </tr>
+                        {items.map(equipamento => (
+                          <tr key={equipamento.id} className={`${darkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'} transition-colors`}>
+                            <td className="px-4 py-3">
+                              {equipamento.foto_url ? (
+                                <img src={equipamento.foto_url} alt={equipamento.nome} className="w-12 h-12 object-cover rounded" />
+                              ) : (
+                                <div className="w-12 h-12 rounded bg-slate-700 flex items-center justify-center text-white"><i className="ri-tools-line"></i></div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-white">{equipamento.nome}</div>
+                              <div className={`text-sm ${getCriticidadeColor(equipamento.criticidade)}`}>{equipamento.criticidade || ''}</div>
+                            </td>
+                                <td className="px-4 py-3 text-sm text-gray-400">{equipamento.setores?.nome || equipamento.setor || 'Sem setor'}</td>
+                                <td className="px-4 py-3">
+                              {equipamento.codigo_interno ? (
+                                <div className={`inline-block px-2 py-0.5 text-xs rounded-full ${darkMode ? 'bg-slate-700 text-white' : 'bg-gray-200 text-gray-800'}`}>{equipamento.codigo_interno}</div>
+                              ) : <span className="text-sm text-gray-400">-</span>}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-400">{equipamento.linha_setor || '-'}</td>
+                            <td className="px-4 py-3 w-56">
+                              <div className="flex items-center gap-3">
+                                <div className="w-full rounded-full h-2 bg-slate-700">
+                                  <div className={`h-2 rounded-full ${getStatusColor(equipamento.status_revisao || 0)}`} style={{ width: `${equipamento.status_revisao || 0}%` }}></div>
+                                </div>
+                                <div className="text-sm font-medium text-white" style={{ minWidth: 36 }}>{equipamento.status_revisao || 0}%</div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button onClick={() => navigate(`/equipamento/${equipamento.id}`)} className="px-3 py-1 bg-green-600 text-white rounded text-sm">Ver</button>
+                                <button onClick={(e) => { e.stopPropagation(); setServiceTargetEquipId(equipamento.id); setServiceName(''); setServiceDesc(''); setShowServiceModal(true); }} className="px-2 py-1 bg-emerald-600 text-white rounded text-sm">+</button>
+                                <button onClick={(e) => { e.stopPropagation(); handleEdit(equipamento.id); }} className="px-2 py-1 bg-blue-600 text-white rounded text-sm">✎</button>
+                                <button onClick={(e) => { e.stopPropagation(); handleDelete(equipamento.id); }} className="px-2 py-1 bg-red-600 text-white rounded text-sm">🗑</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                ))}
+              </table>
             </div>
           )}
 

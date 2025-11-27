@@ -19,15 +19,17 @@ export function usePecas(componenteId?: string) {
   useEffect(() => { fetch() }, [fetch])
 
   const create = async (payload: any) => {
-    const { data: row, error } = await supabase.from('pecas').insert(payload).select().single()
+    const { data, error } = await supabase.from('pecas').insert(payload)
     if (error) throw error
+    const row = (data && data[0]) || payload
     setData((d) => [row, ...d])
     return row
   }
 
   const update = async (id: string, payload: any) => {
-    const { data: row, error } = await supabase.from('pecas').update(payload).eq('id', id).select().single()
+    const { data, error } = await supabase.from('pecas').update(payload).eq('id', id)
     if (error) throw error
+    const row = (data && data[0]) || payload
     setData((d) => d.map((x) => x.id === id ? row : x))
     return row
   }

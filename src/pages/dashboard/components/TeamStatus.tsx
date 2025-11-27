@@ -14,6 +14,7 @@ interface TeamView {
   active: number;
   tasks: number;
   status: 'working' | 'break' | 'offline';
+  membrosList?: Array<any>;
 }
 
 export default function TeamStatus({ darkMode }: TeamStatusProps) {
@@ -62,7 +63,12 @@ export default function TeamStatus({ darkMode }: TeamStatusProps) {
       }
 
       const mapped: TeamView[] = (equipesData || []).map((e: any) => {
-        const membersList = (colabData || []).filter((c: any) => c.equipe_id === e.id);
+        const membersList = (colabData || []).filter((c: any) => c.equipe_id === e.id).map((c: any) => ({
+          id: c.id,
+          nome: c.nome,
+          foto_url: c.foto_url,
+          status: c.status
+        }));
         const active = membersList.filter((m: any) => m.status === 'ativo').length;
         const tasks = ordensCountByEquipe[e.id] || 0;
         // determine status: if most members active -> working, else break/offline
@@ -73,6 +79,7 @@ export default function TeamStatus({ darkMode }: TeamStatusProps) {
           nome: e.nome || e.nome_equipe || 'Equipe',
           lider: e.lider || null,
           members: membersList.length,
+          membrosList: membersList,
           active,
           tasks,
           status,
@@ -110,6 +117,14 @@ export default function TeamStatus({ darkMode }: TeamStatusProps) {
     }
   };
 
+  const findCollaborator = (members: any[] | undefined, key: string | null) => {
+    if (!members || !key) return null;
+    let f = members.find(m => m.id === key);
+    if (f) return f;
+    f = members.find(m => m.nome === key);
+    return f || null;
+  };
+
   return (
     <div className={`rounded-xl p-6 ${
       darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'
@@ -134,8 +149,37 @@ export default function TeamStatus({ darkMode }: TeamStatusProps) {
             <div key={team.id} className={`p-4 rounded-lg ${darkMode ? 'bg-slate-700/50' : 'bg-gray-50'}`}>
               <div className="flex items-start justify-between">
                 <div>
-                  <h4 className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>{team.nome}</h4>
-                  <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Líder: {team.lider || '—'}</p>
+                  <div className="flex items-center gap-3">
+                    <h4 className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>{team.nome}</h4>
+                    <div className="flex -space-x-2">
+                      {team.membrosList && team.membrosList.slice(0,4).map((m) => (
+                        <div key={m.id} className="w-8 h-8 rounded-full ring-2 ring-white overflow-hidden bg-gray-200">
+                          {m.foto_url ? (
+                            <img src={m.foto_url} alt={m.nome} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-xs font-semibold text-gray-700 bg-gray-100">{(m.nome || '').split(' ').map((n: string) => n[0]).slice(0,2).join('')}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'} flex items-center gap-2`}>
+                    {(() => {
+                      const leader = findCollaborator(team.membrosList, team.lider || null);
+                      if (leader) {
+                        return (
+                          <div className="w-7 h-7 rounded-full overflow-hidden bg-gray-200">
+                            {leader.foto_url ? (
+                              <img src={leader.foto_url} alt={leader.nome} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-xs font-semibold text-gray-700 bg-gray-100">{(leader.nome || '').split(' ').map((n: string) => n[0]).slice(0,2).join('')}</div>
+                            )}
+                          </div>
+                        );
+                      }
+                      return <span className="text-xs">—</span>;
+                    })()}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${getStatusColor(team.status)}`}></span>
@@ -143,9 +187,22 @@ export default function TeamStatus({ darkMode }: TeamStatusProps) {
                 </div>
               </div>
               <div className="flex items-center gap-4 mt-3">
-                <div className="flex items-center gap-1">
-                  <i className={`ri-user-line text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}></i>
-                  <span className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{team.active}/{team.members}</span>
+                <div className="flex items-center gap-2">
+                  <div className="flex -space-x-2">
+                    {team.membrosList && team.membrosList.slice(0,4).map((m) => (
+                      <div key={`sm-${m.id}`} className="w-6 h-6 rounded-full ring-1 ring-white overflow-hidden bg-gray-200">
+                        {m.foto_url ? (
+                          <img src={m.foto_url} alt={m.nome} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[9px] font-semibold text-gray-700 bg-gray-100">{(m.nome || '').split(' ').map((n: string) => n[0]).slice(0,2).join('')}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="ml-2 text-sm">
+                    <i className={`ri-user-line text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}></i>
+                    <span className={`ml-1 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>{team.active}/{team.members}</span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-1">
                   <i className={`ri-task-line text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}></i>

@@ -11,6 +11,7 @@ interface EquipamentoModalProps {
   onSuccess: () => void;
   equipamentoId?: string;
   darkMode?: boolean;
+  initialData?: any;
 }
 
 export default function EquipamentoModal({ 
@@ -18,7 +19,8 @@ export default function EquipamentoModal({
   onClose, 
   onSuccess, 
   equipamentoId,
-  darkMode = true 
+  darkMode = true,
+  initialData
 }: EquipamentoModalProps) {
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -31,8 +33,11 @@ export default function EquipamentoModal({
     especificacoes: '',
     fabricante: '',
     modelo: '',
+    serie: '',
+    dimensao: '',
+    peso: '' as any,
     linha_setor: '',
-    ano_fabricacao: new Date().getFullYear(),
+    ano_fabricacao: '' as any,
     criticidade: 'Média' as 'Baixa' | 'Média' | 'Alta' | 'Crítica',
     status_revisao: 0,
     foto_url: '',
@@ -40,7 +45,7 @@ export default function EquipamentoModal({
     data_inicio_revisao: '',
     data_prevista_fim: ''
   });
-  const { success, error: showError } = useToast();
+  const { error: showError } = useToast();
 
   useEffect(() => {
     if (isOpen) {
@@ -51,7 +56,7 @@ export default function EquipamentoModal({
         resetForm();
       }
     }
-  }, [isOpen, equipamentoId]);
+  }, [isOpen, equipamentoId, initialData]);
 
   const loadSetores = async () => {
     try {
@@ -80,8 +85,13 @@ export default function EquipamentoModal({
         fabricante: data.fabricante || '',
         modelo: data.modelo || '',
         linha_setor: data.linha_setor || '',
-        ano_fabricacao: data.ano_fabricacao || new Date().getFullYear(),
-        criticidade: data.criticidade || 'Média',
+        ano_fabricacao: data.ano_fabricacao ?? '',
+        serie: (data as any).serie || '',
+        dimensao: (data as any).dimensao || '',
+        peso: (data as any).peso || '',
+        criticidade: (['Baixa', 'Média', 'Alta', 'Crítica'].includes(data?.criticidade)
+          ? (data.criticidade as 'Baixa' | 'Média' | 'Alta' | 'Crítica')
+          : 'Média'),
         status_revisao: data.status_revisao || 0,
         foto_url: data.foto_url || '',
         mtbf: data.mtbf || 0,
@@ -96,7 +106,7 @@ export default function EquipamentoModal({
   };
 
   const resetForm = () => {
-    setFormData({
+    const base = {
       codigo_interno: '',
       nome: '',
       setor_id: '',
@@ -105,14 +115,34 @@ export default function EquipamentoModal({
       fabricante: '',
       modelo: '',
       linha_setor: '',
-      ano_fabricacao: new Date().getFullYear(),
-      criticidade: 'Média',
+      ano_fabricacao: '' as any,
+      serie: '',
+      dimensao: '',
+      peso: '' as any,
+      criticidade: 'Média' as 'Baixa' | 'Média' | 'Alta' | 'Crítica',
       status_revisao: 0,
       foto_url: '',
       mtbf: 0,
       data_inicio_revisao: '',
       data_prevista_fim: ''
-    });
+    };
+
+    if (initialData && !equipamentoId) {
+      // prevent null values for controlled inputs (e.g., ano_fabricacao)
+      const safe = {
+        ...initialData,
+        ano_fabricacao: (initialData.ano_fabricacao ?? ''),
+        serie: initialData.serie ?? '',
+        dimensao: initialData.dimensao ?? '',
+        peso: initialData.peso ?? '',
+        criticidade: (['Baixa', 'Média', 'Alta', 'Crítica'].includes(initialData?.criticidade)
+          ? (initialData.criticidade as 'Baixa' | 'Média' | 'Alta' | 'Crítica')
+          : 'Média')
+      };
+      setFormData({ ...base, ...safe } as any);
+    } else {
+      setFormData(base as any);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -179,24 +209,6 @@ export default function EquipamentoModal({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                ID / Código Interno *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.codigo_interno}
-                onChange={(e) => setFormData({ ...formData, codigo_interno: e.target.value })}
-                className={`w-full px-4 py-2 rounded-lg border ${
-                  darkMode 
-                    ? 'bg-slate-700 border-slate-600 text-white' 
-                    : 'bg-white border-gray-300 text-gray-900'
-                } focus:outline-none focus:border-blue-500`}
-                placeholder="Ex: EQ-001"
-              />
-            </div>
-
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                 Nome do Equipamento *
               </label>
               <input
@@ -210,6 +222,24 @@ export default function EquipamentoModal({
                     : 'bg-white border-gray-300 text-gray-900'
                 } focus:outline-none focus:border-blue-500`}
                 placeholder="Ex: Descaroçador 1"
+              />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                ID / Código Interno *
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.codigo_interno}
+                onChange={(e) => setFormData({ ...formData, codigo_interno: e.target.value })}
+                className={`w-full px-4 py-2 rounded-lg border ${
+                  darkMode 
+                    ? 'bg-slate-700 border-slate-600 text-white' 
+                    : 'bg-white border-gray-300 text-gray-900'
+                } focus:outline-none focus:border-blue-500`}
+                placeholder="Ex: EQ-001"
               />
             </div>
 
@@ -274,6 +304,57 @@ export default function EquipamentoModal({
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                 Modelo
               </label>
+
+                <div>
+                  <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Série
+                  </label>
+                  <input
+                    type="text"
+                    value={(formData as any).serie || ''}
+                    onChange={(e) => setFormData({ ...formData, serie: e.target.value })}
+                    className={`w-full px-4 py-2 rounded-lg border ${
+                      darkMode 
+                        ? 'bg-slate-700 border-slate-600 text-white' 
+                        : 'bg-white border-gray-300 text-gray-900'
+                    } focus:outline-none focus:border-blue-500`}
+                    placeholder="Ex: S12345"
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Dimensão
+                  </label>
+                  <input
+                    type="text"
+                    value={(formData as any).dimensao || ''}
+                    onChange={(e) => setFormData({ ...formData, dimensao: e.target.value })}
+                    className={`w-full px-4 py-2 rounded-lg border ${
+                      darkMode 
+                        ? 'bg-slate-700 border-slate-600 text-white' 
+                        : 'bg-white border-gray-300 text-gray-900'
+                    } focus:outline-none focus:border-blue-500`}
+                    placeholder="Ex: 120x60x40"
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Peso
+                  </label>
+                  <input
+                    type="text"
+                    value={(formData as any).peso || ''}
+                    onChange={(e) => setFormData({ ...formData, peso: e.target.value })}
+                    className={`w-full px-4 py-2 rounded-lg border ${
+                      darkMode 
+                        ? 'bg-slate-700 border-slate-600 text-white' 
+                        : 'bg-white border-gray-300 text-gray-900'
+                    } focus:outline-none focus:border-blue-500`}
+                    placeholder="Ex: 125 kg"
+                  />
+                </div>
               <input
                 type="text"
                 value={formData.modelo}
@@ -317,7 +398,10 @@ export default function EquipamentoModal({
                 min="1900"
                 max={new Date().getFullYear()}
                 value={formData.ano_fabricacao}
-                onChange={(e) => setFormData({ ...formData, ano_fabricacao: parseInt(e.target.value) })}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFormData({ ...formData, ano_fabricacao: v === '' ? '' : parseInt(v) as any });
+                }}
                 className={`w-full px-4 py-2 rounded-lg border ${
                   darkMode 
                     ? 'bg-slate-700 border-slate-600 text-white' 

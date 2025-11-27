@@ -48,7 +48,7 @@ interface Equipe {
   id: string;
   nome: string;
   turno: string;
-  membros: string[];
+  membros: any[]; // array of collaborator objects {id,nome,foto_url}
   equipamentos: string[];
 }
 
@@ -63,14 +63,24 @@ export default function DashboardTVPage() {
     osConcluidas: 0,
     totalEquipamentos: 0,
   });
-  const [mapaUrl, setMapaUrl] = useState<string>('');
   const [mapImage, setMapImage] = useState<string>('');
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [atividades, setAtividades] = useState<Atividade[]>([]);
-  const [equipes, setEquipes] = useState<Equipe[]>([]);
+  const [, setEquipes] = useState<Equipe[]>([]);
+  const [colaboradores, setColaboradores] = useState<any[]>([]);
+
+  const collaboratorsFind = (colabs: any[], key: string | null) => {
+    if (!key) return null;
+    let found = colabs.find(c => c.id === key);
+    if (found) return found;
+    found = colabs.find(c => c.nome === key);
+    if (found) return found;
+    // try matching by email or username if present
+    found = colabs.find(c => (c.email && c.email === key));
+    return found || null;
+  };
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [currentView, setCurrentView] = useState<'mapa' | 'planejamento'>('mapa');
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState('');
 
@@ -255,19 +265,30 @@ export default function DashboardTVPage() {
       }
 
       // Carregar equipes
+      // carregar colaboradores (para fotos e equipes)
+      const { data: colabData } = await supabase
+        .from('colaboradores')
+        .select('*')
+        .order('nome');
+
+      if (colabData) setColaboradores(colabData);
+
       const { data: equipesData } = await supabase
         .from('equipes')
         .select('*')
         .eq('disponibilidade', true);
 
       if (equipesData) {
-        setEquipes(equipesData.map(e => ({
-          id: e.id,
-          nome: e.nome,
-          turno: e.turno || 'Integral',
-          membros: e.membros || [],
-          equipamentos: [] // Será preenchido com base no planejamento
-        })));
+        setEquipes(equipesData.map(e => {
+          const membrosObjs = (colabData || []).filter((c:any) => Array.isArray(e.membros) ? e.membros.includes(c.id) : c.equipe_id === e.id).map((c:any) => ({ id: c.id, nome: c.nome, foto_url: c.foto_url }));
+          return ({
+            id: e.id,
+            nome: e.nome,
+            turno: e.turno || 'Integral',
+            membros: membrosObjs,
+            equipamentos: [] // Será preenchido com base no planejamento
+          });
+        }));
       }
     } catch (err) {
       console.error('Erro ao carregar dados:', err);
@@ -294,10 +315,6 @@ export default function DashboardTVPage() {
   };
 
   const diasSemana = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-
-  const disponibilidade = stats.totalEquipamentos > 0 
-    ? ((stats.equipamentosOperacionais / stats.totalEquipamentos) * 100).toFixed(1)
-    : '0.0';
 
   const mediaRevisao = stats.totalEquipamentos > 0
     ? (((stats.equipamentosOperacionais + stats.equipamentosManutencao) / stats.totalEquipamentos) * 100).toFixed(1)
@@ -330,27 +347,7 @@ export default function DashboardTVPage() {
         </div>
       </div>
 
-      {/* Stats Compactos - Apenas Média de Revisão */}
-      <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20 mb-4">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="text-center">
-            <div className="text-4xl font-bold text-green-400 mb-1">{mediaRevisao}%</div>
-            <div className="text-green-200 text-sm">Média de Revisão</div>
-          </div>
-          <div className="text-center">
-            <div className="text-4xl font-bold text-blue-400 mb-1">{stats.equipamentosOperacionais}</div>
-            <div className="text-blue-200 text-sm">Operacionais</div>
-          </div>
-          <div className="text-center">
-            <div className="text-4xl font-bold text-orange-400 mb-1">{stats.equipamentosManutencao}</div>
-            <div className="text-orange-200 text-sm">Em Manutenção</div>
-          </div>
-          <div className="text-center">
-            <div className="text-4xl font-bold text-purple-400 mb-1">{stats.totalEquipamentos}</div>
-            <div className="text-purple-200 text-sm">Total</div>
-          </div>
-        </div>
-      </div>
+      {/* Stats Compactos removidos conforme solicitado */}
 
       {/* Grid: Mapa + Planejamento na mesma tela */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -360,13 +357,14 @@ export default function DashboardTVPage() {
             <i className="ri-map-pin-line text-blue-400"></i>
             Mapa Industrial
           </h3>
-          {mapImage ? (
+            {mapImage ? (
             <div className="relative w-full h-[400px] lg:h-[500px] rounded-lg overflow-hidden bg-slate-800/50">
               <img
                 src={mapImage}
                 alt="Mapa Industrial"
-                className="w-full h-full object-cover pointer-events-none"
-                onError={(e) => {
+                className="w-full h-full object-contain pointer-events-none"
+                style={{ objectPosition: 'center' }}
+                onError={() => {
                   console.error('❌ Erro ao carregar imagem do mapa');
                   setMapImage('');
                 }}
@@ -417,7 +415,7 @@ export default function DashboardTVPage() {
                 </div>
               )}
             </div>
-          ) : (
+            ) : (
             <div className="flex items-center justify-center h-[400px] lg:h-[500px] bg-slate-800/50 rounded-lg">
               <div className="text-center">
                 <i className="ri-map-pin-line text-5xl text-gray-500 mb-3"></i>
@@ -470,18 +468,46 @@ export default function DashboardTVPage() {
                   </h4>
                   {atividadesDia.length > 0 ? (
                     <div className="space-y-2">
-                      {atividadesDia.slice(0, 3).map(ativ => (
-                        <div key={ativ.id} className="bg-white/5 rounded p-2 border border-white/10">
-                          <div className="flex items-center gap-2 mb-1">
-                            <i className={`${getTipoIcon(ativ.tipo)} text-blue-400 text-sm`}></i>
-                            <span className="text-xs text-white font-medium truncate flex-1">{ativ.equipamento_nome}</span>
-                            <span className={`px-2 py-0.5 rounded text-xs ${getPrioridadeColor(ativ.prioridade)} text-white`}>
-                              {ativ.prioridade}
-                            </span>
+                      {atividadesDia.slice(0, 3).map(ativ => {
+                        // find responsible collaborator
+                        const resp = collaboratorsFind(colaboradores, ativ.responsavel);
+                        // find team members for responsible's team
+                        const teamForResp = resp ? (colaboradores.filter(c => c.equipe_id === resp.equipe_id)) : [];
+                        return (
+                          <div key={ativ.id} className="bg-white/5 rounded p-2 border border-white/10">
+                            <div className="flex items-center gap-2 mb-1">
+                              <i className={`${getTipoIcon(ativ.tipo)} text-blue-400 text-sm`}></i>
+                              <span className="text-xs text-white font-medium truncate flex-1">{ativ.equipamento_nome}</span>
+                              <span className={`px-2 py-0.5 rounded text-xs ${getPrioridadeColor(ativ.prioridade)} text-white`}>
+                                {ativ.prioridade}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 ml-5">
+                              {resp ? (
+                                <div className="w-8 h-8 rounded-full overflow-hidden bg-white/10">
+                                  {resp.foto_url ? (
+                                    <img src={resp.foto_url} alt={resp.nome} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-xs text-white">{(resp.nome||'').split(' ').map((n: string) => n[0]).slice(0,2).join('')}</div>
+                                  )}
+                                </div>
+                              ) : null}
+                              <div className="flex -space-x-2">
+                                {teamForResp.slice(0,4).map((m:any)=> (
+                                  <div key={m.id} className="w-6 h-6 rounded-full ring-1 ring-white overflow-hidden bg-white/10">
+                                    {m.foto_url ? (
+                                      <img src={m.foto_url} alt={m.nome} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-[9px] text-white">{(m.nome||'').split(' ').map((n: string) => n[0]).slice(0,2).join('')}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <p className="text-xs text-blue-200 truncate ml-5">{ativ.descricao}</p>
                           </div>
-                          <p className="text-xs text-blue-200 truncate ml-5">{ativ.descricao}</p>
-                        </div>
-                      ))}
+                        );
+                      })}
                       {atividadesDia.length > 3 && (
                         <p className="text-xs text-gray-400 text-center">
                           +{atividadesDia.length - 3} atividades

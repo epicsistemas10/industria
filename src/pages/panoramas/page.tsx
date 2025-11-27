@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import useSidebar from '../../hooks/useSidebar';
 import usePanoramas from '../../hooks/usePanoramas';
 import PanoramaViewer from '../../components/PanoramaViewer';
 import { useToast } from '../../hooks/useToast';
 
 export default function PanoramasPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(true);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const { panoramas, loading, uploadAndCreate, remove } = usePanoramas();
@@ -24,7 +25,7 @@ export default function PanoramasPage() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'}`}>
-      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} darkMode={darkMode} />
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
       <div className={`${sidebarOpen ? 'ml-64' : 'ml-20'} transition-all duration-300`}>
         <TopBar darkMode={darkMode} setDarkMode={setDarkMode} />
         <main className="p-6">

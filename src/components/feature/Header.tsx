@@ -1,11 +1,8 @@
 import { useState } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import LanguageSwitcher from './LanguageSwitcher';
 
 function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { signOut, user } = useAuth();
   const navigate = useNavigate();
 
   const scrollToSection = (sectionId: string) => {
@@ -16,14 +13,7 @@ function Header() {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await signOut();
-      navigate('/login');
-    } catch (error) {
-      console.error('Erro ao fazer logout:', error);
-    }
-  };
+  
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 backdrop-blur-sm">

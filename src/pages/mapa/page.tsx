@@ -5,6 +5,8 @@ import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
 import { supabase } from '../../lib/supabase';
+import { grupoEquipamentosAPI } from '../../lib/api';
+import { storageAPI } from '../../lib/storage';
 import useMapaHotspots from '../../hooks/useMapaHotspots';
 import { useToast } from '../../hooks/useToast';
 // PanoramaViewer removed from this file (used elsewhere)
@@ -68,6 +70,13 @@ export default function MapaPage() {
   const [serviceName, setServiceName] = useState('');
   const [serviceDesc, setServiceDesc] = useState('');
   const [selectedEquipmentsForService, setSelectedEquipmentsForService] = useState<string[]>([]);
+  // Group modal states
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<any | null>(null);
+  const [groupForm, setGroupForm] = useState<any>({ nome: '', linha: '', x: 10, y: 10, width: 8, height: 8, color: '#10b981', font_size: 14, icon: 'ri-map-pin-fill', members: [] });
+  const [groupSearch, setGroupSearch] = useState<string>('');
+  const [currentGroup, setCurrentGroup] = useState<any | null>(null);
+  const [currentGroupMembers, setCurrentGroupMembers] = useState<string[]>([]);
 
   const mapa = useMapaHotspots();
   const toast = useToast();
@@ -85,27 +94,55 @@ export default function MapaPage() {
     loadSetores();
     // hotspots will be loaded by hook
     mapa.load();
-    
+
     const savedImage = localStorage.getItem('map_image');
     if (savedImage) setMapImage(savedImage);
-    
+
     const interval = setInterval(() => {
       loadEquipments();
       mapa.load();
     }, 30000);
-    // update rects for image/container when layout changes
+
     const updateRects = () => {
       if (mapRef.current) setContainerRect(mapRef.current.getBoundingClientRect());
       if (imageRef.current) setImgRect(imageRef.current.getBoundingClientRect());
     };
     updateRects();
-    window.addEventListener('resize', updateRects);
+
+    // ResizeObserver to watch image and container size changes (covers fullscreen and layout transitions)
+    let ro: ResizeObserver | null = null;
+    try {
+      ro = new ResizeObserver(() => {
+        setTimeout(updateRects, 40);
+      });
+      if (mapRef.current) ro.observe(mapRef.current);
+      if (imageRef.current) ro.observe(imageRef.current!);
+    } catch (err) {
+      // ResizeObserver may not be available in some environments; fallback to window resize
+      window.addEventListener('resize', updateRects);
+    }
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener('resize', updateRects);
+      if (ro) {
+        try { ro.disconnect(); } catch (e) {}
+      } else {
+        window.removeEventListener('resize', updateRects);
+      }
     };
   }, []);
+
+  // Recompute image/container rects when layout changes (sidebar, panels, image changes)
+  useEffect(() => {
+    const updateRects = () => {
+      if (mapRef.current) setContainerRect(mapRef.current.getBoundingClientRect());
+      if (imageRef.current) setImgRect(imageRef.current.getBoundingClientRect());
+    };
+
+    // small timeout to allow layout transition to finish
+    const t = setTimeout(updateRects, 120);
+    return () => clearTimeout(t);
+  }, [sidebarOpen, selectedEquipment, mapImage, editMode, showAddHotspot]);
 
   useEffect(() => {
     // keep local hotspots in sync with hook
@@ -140,6 +177,7 @@ export default function MapaPage() {
         const mapped = eqData.map((item) => ({
           id: item.id,
           nome: item.nome || 'Sem nome',
+          codigo_interno: item.codigo_interno || '',
           x: 0,
           y: 0,
           status: (item.status_revisao >= 100 ? 'operacional' : 
@@ -168,78 +206,185 @@ export default function MapaPage() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        let result = reader.result as string;
+      // Compress large images client-side before uploading (to satisfy 5MB limit)
+      (async () => {
+        try {
+          let fileToUpload: File = file;
 
-        // Try to save to localStorage; if it fails due to quota, try to compress the image
-        const trySave = async (dataUrl: string) => {
-          try {
-            localStorage.setItem('map_image', dataUrl);
-            return true;
-          } catch (err) {
-            return false;
-          }
-        };
+          const MAX_BYTES = 5 * 1024 * 1024; // 5MB
+          const compressFile = (inputFile: File, maxBytes = MAX_BYTES): Promise<File> => {
+            return new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const img = new Image();
+                img.onload = async () => {
+                  const canvas = document.createElement('canvas');
+                  let { width, height } = img;
+                  const maxWidth = 1920;
+                  if (width > maxWidth) {
+                    const ratio = maxWidth / width;
+                    width = maxWidth;
+                    height = Math.round(height * ratio);
+                  }
+                  canvas.width = width;
+                  canvas.height = height;
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return reject(new Error('Canvas not supported'));
+                  ctx.drawImage(img, 0, 0, width, height);
 
-        const compressDataUrl = (dataUrl: string, maxWidth = 1920, quality = 0.8): Promise<string> => {
-          return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              let { width, height } = img;
-              if (width > maxWidth) {
-                const ratio = maxWidth / width;
-                width = maxWidth;
-                height = height * ratio;
+                  let quality = 0.9;
+                  const attempt = async (): Promise<void> => {
+                    return new Promise((resAttempt, rejAttempt) => {
+                      canvas.toBlob(async (blob) => {
+                        if (!blob) return rejAttempt(new Error('Falha ao gerar blob'));
+                        if (blob.size <= maxBytes || quality <= 0.5) {
+                          const f = new File([blob], inputFile.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+                          fileToUpload = f;
+                          return resAttempt();
+                        }
+                        // reduce quality and retry
+                        quality -= 0.1;
+                        // draw not necessary again as canvas already has pixels
+                        await attempt();
+                        resAttempt();
+                      }, 'image/jpeg', quality);
+                    });
+                  };
+
+                  try {
+                    await attempt();
+                    resolve(fileToUpload);
+                  } catch (err) {
+                    reject(err);
+                  }
+                };
+                img.onerror = (e) => reject(e);
+                img.src = reader.result as string;
+              };
+              reader.onerror = (e) => reject(e);
+              reader.readAsDataURL(inputFile);
+            });
+          };
+
+          if (file.size > MAX_BYTES) {
+            toast.info('Imagem grande — comprimindo antes do upload...');
+            try {
+              fileToUpload = await compressFile(file, MAX_BYTES);
+              toast.success('Compressão concluída — iniciando upload');
+            } catch (err) {
+              console.warn('Falha na compressão:', err);
+              // ask user to fallback to localStorage
+              const saveLocal = window.confirm('Não foi possível comprimir a imagem automaticamente. Deseja salvar localmente como fallback?');
+              if (!saveLocal) {
+                setShowImageUpload(false);
+                return;
               }
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              if (!ctx) return reject(new Error('Canvas not supported'));
-              ctx.drawImage(img, 0, 0, width, height);
-              const compressed = canvas.toDataURL('image/jpeg', quality);
-              resolve(compressed);
+              // proceed to local fallback below
+            }
+          }
+
+          // Try upload
+          try {
+            const publicUrl = await storageAPI.uploadImage(fileToUpload, 'mapas');
+            setMapImage(publicUrl);
+            try { localStorage.setItem('map_image', publicUrl); } catch (e) { /* ignore */ }
+            toast.success('Mapa enviado e salvo no Storage (bucket mapas)');
+            setShowImageUpload(false);
+            return;
+          } catch (err: any) {
+            const msg = (err?.message || '').toString().toLowerCase();
+            if (msg.includes('bucket') && msg.includes('not found')) {
+              toast.error(`Bucket 'mapas' não encontrado no Supabase. Crie o bucket 'mapas' com acesso público no painel do Supabase para que a imagem seja compartilhada entre dispositivos.`);
+              const saveLocal = window.confirm('Deseja salvar o mapa localmente neste navegador como fallback? (Só ficará disponível neste dispositivo).');
+              if (!saveLocal) {
+                setShowImageUpload(false);
+                return;
+              }
+            } else {
+              console.warn('Upload falhou, perguntando ao usuário se deseja fallback local:', err);
+              const saveLocal = window.confirm('Upload para o Storage falhou. Deseja salvar o mapa localmente neste navegador como fallback?');
+              if (!saveLocal) {
+                setShowImageUpload(false);
+                return;
+              }
+            }
+          }
+
+          // Fallback: save in localStorage (visible only on this browser)
+          const reader = new FileReader();
+          reader.onloadend = async () => {
+            let result = reader.result as string;
+
+            const trySave = async (dataUrl: string) => {
+              try {
+                localStorage.setItem('map_image', dataUrl);
+                return true;
+              } catch (err) {
+                return false;
+              }
             };
-            img.onerror = (e) => reject(e);
-            img.src = dataUrl;
-          });
-        };
 
-        // First, try saving the original data URL
-        let saved = await trySave(result);
+            const compressDataUrl = (dataUrl: string, maxWidth = 1920, quality = 0.8): Promise<string> => {
+              return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  let { width, height } = img;
+                  if (width > maxWidth) {
+                    const ratio = maxWidth / width;
+                    width = maxWidth;
+                    height = height * ratio;
+                  }
+                  canvas.width = width;
+                  canvas.height = height;
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return reject(new Error('Canvas not supported'));
+                  ctx.drawImage(img, 0, 0, width, height);
+                  const compressed = canvas.toDataURL('image/jpeg', quality);
+                  resolve(compressed);
+                };
+                img.onerror = (e) => reject(e);
+                img.src = dataUrl;
+              });
+            };
 
-        // If failed, attempt compression and retry a couple times
-        if (!saved) {
-          try {
-            const compressed1 = await compressDataUrl(result, 1920, 0.8);
-            saved = await trySave(compressed1);
-            result = compressed1;
-          } catch (err) {
-            console.warn('Compressão inicial falhou', err);
-          }
-        }
+            let saved = await trySave(result);
+            if (!saved) {
+              try {
+                const compressed1 = await compressDataUrl(result, 1920, 0.8);
+                saved = await trySave(compressed1);
+                result = compressed1;
+              } catch (err) {
+                console.warn('Compressão inicial falhou', err);
+              }
+            }
 
-        if (!saved) {
-          try {
-            const compressed2 = await compressDataUrl(result, 1280, 0.7);
-            saved = await trySave(compressed2);
-            result = compressed2;
-          } catch (err) {
-            console.warn('Segunda tentativa de compressão falhou', err);
-          }
-        }
+            if (!saved) {
+              try {
+                const compressed2 = await compressDataUrl(result, 1280, 0.7);
+                saved = await trySave(compressed2);
+                result = compressed2;
+              } catch (err) {
+                console.warn('Segunda tentativa de compressão falhou', err);
+              }
+            }
 
-        if (!saved) {
-          toast.error('Não foi possível salvar o mapa localmente (tamanho excede o limite do navegador). Reduza a resolução da imagem e tente novamente.');
+            if (!saved) {
+              toast.error('Não foi possível salvar o mapa localmente (tamanho excede o limite do navegador). Reduza a resolução da imagem e tente novamente.');
+              setShowImageUpload(false);
+              return;
+            }
+
+            setMapImage(result);
+            setShowImageUpload(false);
+          };
+          reader.readAsDataURL(file);
+        } catch (err) {
+          console.error('Erro no upload/compressão:', err);
+          toast.error('Erro ao processar a imagem. Veja o console para detalhes.');
           setShowImageUpload(false);
-          return;
         }
-
-        setMapImage(result);
-        setShowImageUpload(false);
-      };
-      reader.readAsDataURL(file);
+      })();
     }
   };
 
@@ -324,19 +469,43 @@ export default function MapaPage() {
       const hotspot = hotspots.find(h => h.id === selectedHotspot);
       if (hotspot) {
         try {
-          await mapa.updateHotspot(hotspot.id, {
-            x: hotspot.x,
-            y: hotspot.y,
-            width: hotspot.width,
-            height: hotspot.height,
-            color: hotspot.color,
-            fontSize: hotspot.fontSize,
-            icon: hotspot.icon,
-          });
+          if ((hotspot as any).isGroup || String(hotspot.id).startsWith('grp-')) {
+            const gid = String(hotspot.id).replace(/^grp-/, '');
+            const updated = await grupoEquipamentosAPI.update(gid, {
+              x: hotspot.x,
+              y: hotspot.y,
+              width: hotspot.width,
+              height: hotspot.height,
+              color: hotspot.color,
+              font_size: hotspot.fontSize,
+              icon: hotspot.icon,
+            });
+            if (!updated) {
+              // No row returned — likely RLS or migration not applied
+              console.warn('grupoEquipamentosAPI.update returned no rows for id', gid);
+              toast.error('Não foi possível salvar o grupo: verifique migrações/permissões no Supabase (RLS).');
+            }
+          } else {
+            await mapa.updateHotspot(hotspot.id, {
+              x: hotspot.x,
+              y: hotspot.y,
+              width: hotspot.width,
+              height: hotspot.height,
+              color: hotspot.color,
+              fontSize: hotspot.fontSize,
+              icon: hotspot.icon,
+            });
+          }
           // success toast handled by hook
         } catch (err) {
           console.error('Erro ao salvar posição:', err);
-          toast.error('Erro ao salvar posição do hotspot');
+          // Provide clearer guidance for common DB/API issues
+          const msg = (err as any)?.message || String(err);
+          if (msg && msg.toString().includes('PGRST116')) {
+            toast.error('Erro ao salvar: o servidor não retornou o registro atualizado (PGRST116). Verifique se a tabela `grupo_equipamentos` existe e as políticas RLS permitem atualização.');
+          } else {
+            toast.error('Erro ao salvar posição do hotspot');
+          }
         }
       }
     }
@@ -348,7 +517,12 @@ export default function MapaPage() {
   const handleDeleteHotspot = async (hotspotId: string) => {
     if (!window.confirm('Deseja remover este hotspot?')) return;
     try {
-      await mapa.deleteHotspot(hotspotId);
+      if (String(hotspotId).startsWith('grp-')) {
+        const gid = String(hotspotId).replace(/^grp-/, '');
+        await grupoEquipamentosAPI.delete(gid);
+      } else {
+        await mapa.deleteHotspot(hotspotId);
+      }
       setSelectedHotspot(null);
     } catch (err) {
       console.error('Erro ao deletar hotspot:', err);
@@ -458,10 +632,129 @@ export default function MapaPage() {
   const handleHotspotClick = async (hotspot: Hotspot) => {
     if (editMode) return;
     
+    // if this is a group hotspot, load group details
+    // hotspot coming from hook may carry `isGroup` and `group`/`members`
+    if ((hotspot as any).isGroup) {
+      await loadGroupDetails(hotspot as any);
+      return;
+    }
+
     const equipment = equipments.find(eq => eq.id === hotspot.equipamento_id);
     if (equipment) {
       setSelectedEquipment(equipment);
       await loadEquipmentDetails(hotspot.equipamento_id);
+    }
+  };
+
+  const loadGroupDetails = async (hotspot: any) => {
+    setLoadingDetails(true);
+    try {
+      const group = hotspot.group || {};
+      const members: string[] = hotspot.members || [];
+      setCurrentGroup(group);
+      setCurrentGroupMembers(members || []);
+
+      // fetch member equipment details
+      let memberData: any[] = [];
+      if (members.length > 0) {
+        const { data: eqRows } = await supabase
+          .from('equipamentos')
+          .select('*, setores(nome)')
+          .in('id', members);
+        memberData = eqRows || [];
+      }
+
+      // synthesize a selectedEquipment object for UI (so right panel can render)
+      const avgProg = memberData.length ? Math.round(memberData.reduce((s: any, e: any) => s + (e.status_revisao || 0), 0) / memberData.length) : 0;
+      const synth = {
+        id: `grp-${group.id}`,
+        nome: group.nome || `Grupo ${group.id}`,
+        setor: group.linha || 'Grupo',
+        progresso: avgProg,
+        status: avgProg >= 100 ? 'operacional' : avgProg >= 50 ? 'manutencao' : avgProg > 0 ? 'alerta' : 'parado',
+      } as Equipment;
+
+      setSelectedEquipment(synth);
+
+      // prepare equipmentDetails similar shape used by loadEquipmentDetails
+      const equipmentDetailsObj: any = {
+        componentes: [],
+        historico: [],
+        ordens_servico: [],
+        custo_total: 0,
+        members: memberData.map((m: any) => ({
+          id: m.id,
+          nome: m.nome,
+          progresso: m.status_revisao || 0,
+          setor: m.setores?.nome || 'Sem setor',
+        })),
+      };
+
+      setEquipmentDetails(equipmentDetailsObj);
+    } catch (err) {
+      console.error('Erro ao carregar detalhes do grupo:', err);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const openCreateGroupModal = () => {
+    setEditingGroup(null);
+    setGroupForm({ nome: '', linha: '', x: 10, y: 10, width: 8, height: 8, color: '#10b981', font_size: 14, icon: 'ri-map-pin-fill', members: [] });
+    setShowGroupModal(true);
+  };
+
+  const openEditGroupModal = (group: any, members: string[]) => {
+    setEditingGroup(group);
+    setGroupForm({ ...group, members: members || [] });
+    setShowGroupModal(true);
+  };
+
+  const saveGroup = async () => {
+    try {
+      let saved: any;
+      if (editingGroup) {
+        saved = await grupoEquipamentosAPI.update(editingGroup.id, {
+          nome: groupForm.nome,
+          linha: groupForm.linha,
+          x: groupForm.x,
+          y: groupForm.y,
+          width: groupForm.width,
+          height: groupForm.height,
+          color: groupForm.color,
+          font_size: groupForm.font_size,
+          icon: groupForm.icon,
+        });
+        // replace members
+        await supabase.from('grupo_equipamentos_members').delete().eq('grupo_id', editingGroup.id);
+        if (groupForm.members && groupForm.members.length > 0) {
+          const toInsert = groupForm.members.map((m: string) => ({ grupo_id: editingGroup.id, equipamento_id: m }));
+          await supabase.from('grupo_equipamentos_members').insert(toInsert);
+        }
+      } else {
+        saved = await grupoEquipamentosAPI.create({
+          nome: groupForm.nome,
+          linha: groupForm.linha,
+          x: groupForm.x,
+          y: groupForm.y,
+          width: groupForm.width,
+          height: groupForm.height,
+          color: groupForm.color,
+          font_size: groupForm.font_size,
+          icon: groupForm.icon,
+        });
+        if (groupForm.members && groupForm.members.length > 0) {
+          const toInsert = groupForm.members.map((m: string) => ({ grupo_id: saved.id, equipamento_id: m }));
+          await supabase.from('grupo_equipamentos_members').insert(toInsert);
+        }
+      }
+
+      toast.success('Grupo salvo');
+      setShowGroupModal(false);
+      await mapa.load();
+    } catch (err) {
+      console.error('Erro ao salvar grupo:', err);
+      toast.error('Erro ao salvar grupo');
     }
   };
 
@@ -475,8 +768,35 @@ export default function MapaPage() {
     }
   };
 
+  const getProgressColor = (prog: number) => {
+    if (prog === 100) return '#10b981'; // green
+    if (prog === 0) return '#3b82f6'; // blue
+    if (prog > 0 && prog <= 50) return '#f59e0b'; // yellow
+    if (prog > 50 && prog < 100) return '#f97316'; // orange
+    return '#6b7280';
+  };
+
   const getFilteredHotspots = () => {
     return hotspots.filter((hotspot) => {
+      // include group hotspots (they have isGroup and group.members)
+      if ((hotspot as any).isGroup) {
+        const group = (hotspot as any).group || {};
+        // setor filtering based on group.linha
+        const setorMatch = filterSetor === 'todos' || (group.linha && group.linha === filterSetor);
+
+        // status filtering: compute average progress of members
+        let statusMatch = true;
+        if (filterStatus !== 'todos') {
+          const members: string[] = (hotspot as any).members || [];
+          const memberProgs = members.map((id) => equipments.find((e) => e.id === id)?.progresso ?? 0);
+          const avgProg = memberProgs.length ? Math.round(memberProgs.reduce((s, v) => s + v, 0) / memberProgs.length) : 0;
+          const status = avgProg >= 100 ? 'operacional' : avgProg >= 50 ? 'manutencao' : avgProg > 0 ? 'alerta' : 'parado';
+          statusMatch = status === filterStatus;
+        }
+
+        return setorMatch && statusMatch;
+      }
+
       const equipment = equipments.find(eq => eq.id === hotspot.equipamento_id);
       if (!equipment) return false;
       
@@ -528,11 +848,21 @@ export default function MapaPage() {
     setHotspots(updatedHotspots);
 
     try {
-      await mapa.updateHotspot(selectedHotspot, {
-        color: hotspotColor,
-        fontSize: hotspotFontSize,
-        icon: hotspotIcon,
-      });
+      const hotspotObj = hotspots.find(h => h.id === selectedHotspot);
+      if (hotspotObj && ((hotspotObj as any).isGroup || String(hotspotObj.id).startsWith('grp-'))) {
+        const gid = String(hotspotObj.id).replace(/^grp-/, '');
+        await grupoEquipamentosAPI.update(gid, {
+          color: hotspotColor,
+          font_size: hotspotFontSize,
+          icon: hotspotIcon,
+        });
+      } else {
+        await mapa.updateHotspot(selectedHotspot, {
+          color: hotspotColor,
+          fontSize: hotspotFontSize,
+          icon: hotspotIcon,
+        });
+      }
       setShowCustomizePanel(false);
       // hook will reload and sync
     } catch (err) {
@@ -565,10 +895,19 @@ export default function MapaPage() {
 
     // Salvar imediatamente
     try {
-      await mapa.updateHotspot(selectedHotspot, {
-        width: newWidth,
-        height: newHeight,
-      });
+      const hotspotObj = hotspots.find(h => h.id === selectedHotspot);
+      if (hotspotObj && ((hotspotObj as any).isGroup || String(hotspotObj.id).startsWith('grp-'))) {
+        const gid = String(hotspotObj.id).replace(/^grp-/, '');
+        await grupoEquipamentosAPI.update(gid, {
+          width: newWidth,
+          height: newHeight,
+        });
+      } else {
+        await mapa.updateHotspot(selectedHotspot, {
+          width: newWidth,
+          height: newHeight,
+        });
+      }
       // success toast from hook
     } catch (err) {
       console.error('Erro ao salvar tamanho:', err);
@@ -598,9 +937,17 @@ export default function MapaPage() {
 
     // Salvar imediatamente
     try {
-      await mapa.updateHotspot(selectedHotspot, {
-        fontSize: newFontSize,
-      });
+      const hotspotObj = hotspots.find(h => h.id === selectedHotspot);
+      if (hotspotObj && ((hotspotObj as any).isGroup || String(hotspotObj.id).startsWith('grp-'))) {
+        const gid = String(hotspotObj.id).replace(/^grp-/, '');
+        await grupoEquipamentosAPI.update(gid, {
+          font_size: newFontSize,
+        });
+      } else {
+        await mapa.updateHotspot(selectedHotspot, {
+          fontSize: newFontSize,
+        });
+      }
       // success toast from hook
     } catch (err) {
       console.error('Erro ao salvar tamanho da fonte:', err);
@@ -612,15 +959,28 @@ export default function MapaPage() {
     // Salvar todos os hotspots antes de sair do modo edição
     try {
       const savePromises = hotspots.map(async (hotspot) => {
-        await mapa.updateHotspot(hotspot.id, {
-          x: hotspot.x,
-          y: hotspot.y,
-          width: hotspot.width,
-          height: hotspot.height,
-          color: hotspot.color,
-          fontSize: hotspot.fontSize,
-          icon: hotspot.icon,
-        });
+        if ((hotspot as any).isGroup || String(hotspot.id).startsWith('grp-')) {
+          const gid = String(hotspot.id).replace(/^grp-/, '');
+          await grupoEquipamentosAPI.update(gid, {
+            x: hotspot.x,
+            y: hotspot.y,
+            width: hotspot.width,
+            height: hotspot.height,
+            color: hotspot.color,
+            font_size: hotspot.fontSize,
+            icon: hotspot.icon,
+          });
+        } else {
+          await mapa.updateHotspot(hotspot.id, {
+            x: hotspot.x,
+            y: hotspot.y,
+            width: hotspot.width,
+            height: hotspot.height,
+            color: hotspot.color,
+            fontSize: hotspot.fontSize,
+            icon: hotspot.icon,
+          });
+        }
       });
 
       await Promise.all(savePromises);
@@ -632,6 +992,52 @@ export default function MapaPage() {
     } catch (err) {
       console.error('Erro ao salvar hotspots:', err);
       toast.error('Erro ao salvar as alterações. Tente novamente.');
+    }
+  };
+
+  const downloadMapImage = async () => {
+    try {
+      let url = mapImage;
+      // try localStorage if mapImage empty
+      if (!url) {
+        try { url = localStorage.getItem('map_image') || ''; } catch (e) { url = ''; }
+      }
+
+      if (!url) {
+        toast.error('Nenhuma imagem do mapa disponível para download');
+        return;
+      }
+
+      if (url.startsWith('data:')) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'mapa.jpg';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        toast.success('Download iniciado');
+        return;
+      }
+
+      // remote URL: fetch blob and download
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        toast.error('Falha ao baixar a imagem remota');
+        return;
+      }
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = 'mapa.jpg';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+      toast.success('Download iniciado');
+    } catch (err) {
+      console.error('Erro ao baixar imagem:', err);
+      toast.error('Erro ao baixar a imagem do mapa');
     }
   };
 
@@ -734,6 +1140,25 @@ export default function MapaPage() {
                 <i className="ri-image-add-line"></i>
               </button>
 
+              {/* Download map (if image saved locally or remote) */}
+              <button
+                onClick={downloadMapImage}
+                title="Baixar Imagem do Mapa"
+                aria-label="Baixar Imagem do Mapa"
+                className="w-10 h-10 flex items-center justify-center bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-all"
+              >
+                <i className="ri-download-line"></i>
+              </button>
+
+              <button
+                onClick={openCreateGroupModal}
+                title="Novo Grupo"
+                aria-label="Novo Grupo"
+                className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-all"
+              >
+                <i className="ri-group-line"></i>
+              </button>
+
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
@@ -834,7 +1259,9 @@ export default function MapaPage() {
 
                 if (!equipment) return null;
 
-                const hotspotColor = hotspot.color || getStatusColor(equipment.status || 'operacional');
+                // Color must follow progress rules: 0% blue, started yellow, >50% orange, 100% green
+                const prog = equipment.progresso ?? 0;
+                const hotspotColor = getProgressColor(prog);
                 const fontSize = hotspot.fontSize || 14;
                 const iconClass = hotspot.icon || 'ri-tools-fill';
                 const circleSize = fontSize * 4;
@@ -935,6 +1362,112 @@ export default function MapaPage() {
               </div>
             </div>
           )}
+
+            {/* Group Edit/Create Modal */}
+            {showGroupModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowGroupModal(false)}>
+                <div className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl p-6 w-full max-w-2xl`} onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{editingGroup ? 'Editar Grupo' : 'Criar Grupo'}</h3>
+                    <button onClick={() => setShowGroupModal(false)} className={`w-8 h-8 rounded flex items-center justify-center ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'}`}>
+                      <i className={`ri-close-line ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}></i>
+                    </button>
+                  </div>
+
+                  <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+                    <div>
+                      <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Nome</label>
+                      <input type="text" value={groupForm.nome} onChange={(e) => setGroupForm((s: any) => ({ ...s, nome: e.target.value }))} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
+                    </div>
+
+                    <div>
+                      <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Linha</label>
+                      <input type="text" value={groupForm.linha} onChange={(e) => setGroupForm((s: any) => ({ ...s, linha: e.target.value }))} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2">
+                      <div>
+                        <label className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>X (%)</label>
+                        <input type="number" value={groupForm.x} onChange={(e) => setGroupForm((s: any) => ({ ...s, x: Number(e.target.value) }))} className="w-full px-3 py-2 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Y (%)</label>
+                        <input type="number" value={groupForm.y} onChange={(e) => setGroupForm((s: any) => ({ ...s, y: Number(e.target.value) }))} className="w-full px-3 py-2 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>W (%)</label>
+                        <input type="number" value={groupForm.width} onChange={(e) => setGroupForm((s: any) => ({ ...s, width: Number(e.target.value) }))} className="w-full px-3 py-2 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>H (%)</label>
+                        <input type="number" value={groupForm.height} onChange={(e) => setGroupForm((s: any) => ({ ...s, height: Number(e.target.value) }))} className="w-full px-3 py-2 rounded-lg" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Cor</label>
+                      <input type="color" value={groupForm.color} onChange={(e) => setGroupForm((s: any) => ({ ...s, color: e.target.value }))} className="w-16 h-10 p-0" />
+                      <p className={`text-xs mt-2 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                        X/Y/W/H são porcentagens relativas à largura/altura da imagem do mapa (0-100%). Cor define a cor do indicador do hotspot.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Membros (equipamentos)</label>
+                      <div className="flex gap-2 mb-2">
+                        <input
+                          type="text"
+                          placeholder="Pesquisar por nome ou IND (codigo_interno)"
+                          value={groupSearch}
+                          onChange={(e) => setGroupSearch(e.target.value)}
+                          className={`flex-1 px-3 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                        />
+                        <select
+                          value={groupForm.linha}
+                          onChange={(e) => setGroupForm((s: any) => ({ ...s, linha: e.target.value }))}
+                          className={`w-40 px-3 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                        >
+                          <option value="">Todas as Linhas</option>
+                          {Array.from(new Set(equipments.map(eq => eq.setor))).map((ln) => (
+                            <option key={ln} value={ln}>{ln}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="mt-2 max-h-48 overflow-y-auto p-2 rounded border">
+                        {equipments
+                          .filter((eq) => {
+                            // filter by selected linha (using eq.setor as linha field)
+                            if (groupForm.linha && eq.setor !== groupForm.linha) return false;
+                            // filter by search term (name or codigo_interno)
+                            if (!groupSearch) return true;
+                            const term = groupSearch.toLowerCase();
+                            return (eq.nome || '').toLowerCase().includes(term) || (eq.codigo_interno || '').toLowerCase().includes(term);
+                          })
+                          .map((eq) => (
+                          <label key={eq.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-50'}`}>
+                            <input type="checkbox" checked={groupForm.members?.includes(eq.id)} onChange={(e) => {
+                              if (e.target.checked) setGroupForm((s: any) => ({ ...s, members: [...(s.members||[]), eq.id] }));
+                              else setGroupForm((s: any) => ({ ...s, members: (s.members||[]).filter((id: string) => id !== eq.id) }));
+                            }} />
+                            <div>
+                              <div className={`${darkMode ? 'text-gray-200' : 'text-gray-900'} font-medium`}>{eq.nome}</div>
+                              <div className="text-xs text-gray-400">IND: {eq.codigo_interno || eq.id.slice(0,8)} • {eq.setor}</div>
+                            </div>
+                          </label>
+                        ))}
+                        {equipments.length === 0 && <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Nenhum equipamento disponível</p>}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                      <button onClick={() => setShowGroupModal(false)} className={`flex-1 px-4 py-2 rounded-lg ${darkMode ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-gray-200 text-gray-900 hover:bg-gray-300'}`}>Cancelar</button>
+                      <button onClick={saveGroup} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Salvar</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
           {/* Modal de Upload de Imagem */}
           {showImageUpload && (
@@ -1213,16 +1746,29 @@ export default function MapaPage() {
                   Detalhes do Equipamento
                 </h3>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={openServiceModalForSelected}
-                    className="px-3 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 text-sm"
-                  >
-                    Cadastrar Serviço Padrão
-                  </button>
+                  {selectedEquipment.id?.toString().startsWith('grp-') ? (
+                    <>
+                      <button
+                        onClick={() => openEditGroupModal(currentGroup, currentGroupMembers)}
+                        className="px-3 py-1 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 text-sm"
+                      >
+                        Editar Grupo
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={openServiceModalForSelected}
+                      className="px-3 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 text-sm"
+                    >
+                      Cadastrar Serviço Padrão
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setSelectedEquipment(null);
                       setEquipmentDetails(null);
+                      setCurrentGroup(null);
+                      setCurrentGroupMembers([]);
                     }}
                     className={`w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer ${
                       darkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'
@@ -1293,20 +1839,25 @@ export default function MapaPage() {
 
                   <div>
                     <label className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                      Componentes ({equipmentDetails.componentes?.length || 0})
+                      {selectedEquipment.id?.toString().startsWith('grp-') ? 'Membros do Grupo' : `Componentes (${equipmentDetails.componentes?.length || 0})`}
                     </label>
                     <div className="mt-2 space-y-2 max-h-40 overflow-y-auto">
-                      {equipmentDetails.componentes?.map((comp: any) => (
-                        <div key={comp.id} className={`p-2 rounded-lg ${darkMode ? 'bg-slate-700' : 'bg-gray-100'}`}>
-                          <p className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                            {comp.componentes?.nome || 'Sem nome'}
-                          </p>
-                          <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                            Qtd: {comp.quantidade || 0}
-                          </p>
-                        </div>
-                      ))}
-                      {(!equipmentDetails.componentes || equipmentDetails.componentes.length === 0) && (
+                      {selectedEquipment.id?.toString().startsWith('grp-') ? (
+                        (equipmentDetails.members || []).map((m: any) => (
+                          <div key={m.id} className={`p-2 rounded-lg ${darkMode ? 'bg-slate-700' : 'bg-gray-100'}`}>
+                            <p className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>{m.nome}</p>
+                            <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Progresso: {m.progresso}% - {m.setor}</p>
+                          </div>
+                        ))
+                      ) : (
+                        (equipmentDetails.componentes || []).map((comp: any) => (
+                          <div key={comp.id} className={`p-2 rounded-lg ${darkMode ? 'bg-slate-700' : 'bg-gray-100'}`}>
+                            <p className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>{comp.componentes?.nome || 'Sem nome'}</p>
+                            <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Qtd: {comp.quantidade || 0}</p>
+                          </div>
+                        ))
+                      )}
+                      {(!selectedEquipment.id?.toString().startsWith('grp-') && (!equipmentDetails.componentes || equipmentDetails.componentes.length === 0)) && (
                         <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                           Nenhum componente vinculado
                         </p>

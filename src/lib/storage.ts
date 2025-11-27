@@ -151,17 +151,24 @@ export const storageAPI = {
    * Criar buckets necessários (executar apenas uma vez)
    */
   async createBuckets() {
-    const buckets = ['equipamentos', 'componentes', 'ordens_servico', 'melhorias', 'usuarios'];
+    // Add 'mapas' to the list so we can attempt creation where appropriate.
+    // Note: creating buckets from the browser often requires elevated permissions (service_role).
+    const buckets = ['equipamentos', 'componentes', 'ordens_servico', 'melhorias', 'usuarios', 'mapas'];
 
     for (const bucket of buckets) {
       try {
-        const { error } = await supabase.storage.createBucket(bucket, {
+        // The SDK exposes createBucket but it will usually fail when executed with the anon key.
+        // We still attempt it and safely ignore failures; the UI will instruct the user to create
+        // the bucket in the Dashboard or via a server-side script if necessary.
+        const res = await (supabase.storage as any).createBucket?.(bucket, {
           public: true,
           fileSizeLimit: 5242880, // 5MB
           allowedMimeTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'],
-        });
+        }).catch((err: any) => ({ error: err }));
 
-        if (error && !error.message.includes('already exists')) {
+        const { error } = res || {};
+
+        if (error && !String(error.message || '').includes('already exists')) {
           console.error(`Erro ao criar bucket ${bucket}:`, error);
         }
       } catch (error) {

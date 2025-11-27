@@ -125,8 +125,49 @@ export default function UsuariosPage() {
     e.preventDefault();
 
     try {
+      // Helper that attempts an insert/update and, on PGRST204 complaining about a missing
+      // column (e.g. "Could not find the 'departamento' column ..."), removes that key
+      // from the payload and retries — up to a few attempts. This avoids failing when the
+      // frontend expects optional columns that are not present in the DB schema.
+      const tryWrite = async (opts: { type: 'insert' | 'update'; payload: any; id?: string }) => {
+        let attempts = 0;
+        const maxAttempts = 6;
+        const payload = { ...opts.payload };
+
+        while (attempts < maxAttempts) {
+          attempts++;
+          try {
+            if (opts.type === 'insert') {
+              const { error } = await supabase.from('usuarios').insert([payload]);
+              if (error) throw error;
+              return;
+            } else {
+              const { error } = await supabase.from('usuarios').update(payload).eq('id', opts.id as string);
+              if (error) throw error;
+              return;
+            }
+          } catch (err: any) {
+            // If PostgREST returns PGRST204 and mentions a missing column, remove it and retry
+            const msg = err?.message || '';
+            const match = msg.match(/Could not find the '([^']+)' column/);
+            if (err?.code === 'PGRST204' && match && match[1]) {
+              const missing = match[1];
+              // remove the offending key and retry
+              if (missing in payload) {
+                // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+                delete payload[missing];
+                console.warn(`Column ${missing} not present in DB; removed from payload and retrying.`);
+                continue;
+              }
+            }
+            // other errors: rethrow
+            throw err;
+          }
+        }
+        throw new Error('Failed to write usuario after multiple attempts');
+      };
+
       if (editingUser) {
-        // Atualizar usuário existente (omitindo `ativo` para evitar PGRST204 se a coluna não existir)
         const payload: any = {
           nome: formData.nome,
           email: formData.email,
@@ -135,29 +176,42 @@ export default function UsuariosPage() {
           departamento: formData.departamento,
           atualizado_em: new Date().toISOString()
         };
-
-        const { error } = await supabase
-          .from('usuarios')
-          .update(payload)
-          .eq('id', editingUser.id);
-
-        if (error) throw error;
+        await tryWrite({ type: 'update', payload, id: editingUser.id });
       } else {
-        // Criar novo usuário (omitindo `ativo` para evitar PGRST204 se a coluna não existir)
+        // If a password was provided, create the auth user first (so DB constraints
+        // like `senha_hash NOT NULL` are satisfied by the auth system). After creating
+        // the auth user, insert the profile into `usuarios` without the raw `senha`.
         const payload: any = {
           nome: formData.nome,
           email: formData.email,
-          senha: formData.senha,
           cargo: formData.cargo,
           telefone: formData.telefone,
           departamento: formData.departamento
         };
 
-        const { error } = await supabase
-          .from('usuarios')
-          .insert([payload]);
+        if (formData.senha) {
+          try {
+            const { data: signData, error: signError } = await supabase.auth.signUp({
+              email: formData.email,
+              password: formData.senha
+            });
+            if (signError) {
+              // If signUp fails, surface the error to the caller
+              throw signError;
+            }
+            // If the auth user was created and an id is available, prefer to set it
+            // on the profile to keep records linked (if the `usuarios` table uses
+            // the auth UID as PK). If not, insertion by email will still work.
+            const authId = (signData as any)?.user?.id;
+            if (authId) payload.id = authId;
+          } catch (authErr) {
+            console.error('Erro ao criar usuário de autenticação:', authErr);
+            throw authErr;
+          }
+        }
 
-        if (error) throw error;
+        // Insert profile without senha field
+        await tryWrite({ type: 'insert', payload });
       }
 
       setShowModal(false);

@@ -68,8 +68,8 @@ export const equipamentosAPI = {
         if (allowed.has(k)) filtered[k] = v;
       });
       // Convert empty date strings to null to avoid Postgres errors
-      if (payload.data_inicio_revisao === '') payload.data_inicio_revisao = null;
-      if (payload.data_prevista_fim === '') payload.data_prevista_fim = null;
+      if (filtered.data_inicio_revisao === '') filtered.data_inicio_revisao = null;
+      if (filtered.data_prevista_fim === '') filtered.data_prevista_fim = null;
 
       // Avoid requesting returned columns via .select() here because
       // some PostgREST setups (and long/complex return queries) can
@@ -104,8 +104,9 @@ export const equipamentosAPI = {
       Object.entries(payload).forEach(([k, v]) => {
         if (allowed.has(k)) filtered[k] = v;
       });
-      if (payload.data_inicio_revisao === '') payload.data_inicio_revisao = null;
-      if (payload.data_prevista_fim === '') payload.data_prevista_fim = null;
+      // Convert empty date strings to null to avoid Postgres errors
+      if (filtered.data_inicio_revisao === '') filtered.data_inicio_revisao = null;
+      if (filtered.data_prevista_fim === '') filtered.data_prevista_fim = null;
 
       // Similar to create: avoid .select() after update to prevent malformed return queries
       const { data, error } = await supabase
@@ -1017,10 +1018,12 @@ export const grupoEquipamentosAPI = {
       .from('grupo_equipamentos')
       .update(grupo)
       .eq('id', id)
-      .select()
-      .single();
+      .select();
+
+    // Some PostgREST setups or RLS/policies may cause update to return 0 rows.
+    // Return the first row when available, otherwise return null (caller should handle).
     if (error) throw error;
-    return data;
+    return (data && data[0]) || null;
   },
 
   delete: async (id: string) => {

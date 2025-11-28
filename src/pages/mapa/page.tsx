@@ -1192,6 +1192,72 @@ export default function MapaPage() {
                 <i className="ri-group-line"></i>
               </button>
 
+              <button
+                onClick={async () => {
+                  if (!confirm('Recalibrar posições de todos os hotspots para a imagem atual? Isso atualizará os valores no banco.')) return;
+                  if (!imageRef.current || !mapRef.current) {
+                    toast.error('Imagem ou área do mapa não disponíveis para recalibragem');
+                    return;
+                  }
+                  try {
+                    toast.info('Recalibrando hotspots...');
+                    const imgR = imageRef.current.getBoundingClientRect();
+                    const containerR = mapRef.current.getBoundingClientRect();
+                    const imgOffsetX = imgR.left - containerR.left;
+                    const imgOffsetY = imgR.top - containerR.top;
+
+                    const promises = hotspots.map(async (h: any) => {
+                      const el = document.querySelector(`[data-hotspot-id="${h.id}"]`) as HTMLElement | null;
+                      if (!el) return null;
+                      const r = el.getBoundingClientRect();
+                      const centerX = r.left - containerR.left + r.width / 2;
+                      const centerY = r.top - containerR.top + r.height / 2;
+                      const newX = ((centerX - imgOffsetX) / imgR.width) * 100;
+                      const newY = ((centerY - imgOffsetY) / imgR.height) * 100;
+                      const newW = (r.width / imgR.width) * 100;
+                      const newH = (r.height / imgR.height) * 100;
+
+                      // clamp
+                      const clamped = {
+                        x: Math.max(0, Math.min(100, newX)),
+                        y: Math.max(0, Math.min(100, newY)),
+                        width: Math.max(1, Math.min(100, newW)),
+                        height: Math.max(1, Math.min(100, newH)),
+                      };
+
+                      try {
+                        await mapa.updateHotspot(h.id, {
+                          x: clamped.x,
+                          y: clamped.y,
+                          width: clamped.width,
+                          height: clamped.height,
+                        });
+                        return { id: h.id, ...clamped };
+                      } catch (err) {
+                        console.error('Erro ao recalibrar hotspot', h.id, err);
+                        return null;
+                      }
+                    });
+
+                    const results = await Promise.all(promises);
+                    const updated = hotspots.map((h) => {
+                      const res = results.find(r => r && r.id === h.id);
+                      return res ? { ...h, x: res.x, y: res.y, width: res.width, height: res.height } : h;
+                    });
+                    setHotspots(updated as Hotspot[]);
+                    toast.success('Recalibração concluída');
+                  } catch (err) {
+                    console.error('Erro na recalibração:', err);
+                    toast.error('Falha ao recalibrar hotspots');
+                  }
+                }}
+                title="Recalibrar Hotspots"
+                aria-label="Recalibrar Hotspots"
+                className="w-10 h-10 flex items-center justify-center bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-all"
+              >
+                <i className="ri-refresh-line"></i>
+              </button>
+
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
@@ -1325,6 +1391,7 @@ export default function MapaPage() {
                 return (
                   <div
                     key={hotspot.id}
+                    data-hotspot-id={hotspot.id}
                     className={`absolute group ${editMode ? 'cursor-move' : 'cursor-pointer'} ${
                       selectedHotspot === hotspot.id ? 'ring-4 ring-blue-500' : ''
                     }`}

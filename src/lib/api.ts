@@ -61,7 +61,7 @@ export const equipamentosAPI = {
       const allowed = new Set([
         'nome', 'setor_id', 'descricao', 'fabricante', 'modelo', 'ano_fabricacao',
         'criticidade', 'status_revisao', 'foto_url', 'mtbf', 'data_inicio_revisao', 'data_prevista_fim',
-        'posicao_x', 'posicao_y', 'codigo_interno', 'linha_setor', 'serie', 'dimensao', 'peso', 'especificacoes'
+        'posicao_x', 'posicao_y', 'codigo_interno', 'linha_setor', 'serie', 'dimensao', 'peso', 'especificacoes', 'motores'
       ]);
       // allow optional equipment number
       allowed.add('numero');
@@ -100,7 +100,7 @@ export const equipamentosAPI = {
       const allowed = new Set([
         'nome', 'setor_id', 'descricao', 'fabricante', 'modelo', 'ano_fabricacao',
         'criticidade', 'status_revisao', 'foto_url', 'mtbf', 'data_inicio_revisao', 'data_prevista_fim',
-        'posicao_x', 'posicao_y', 'codigo_interno', 'linha_setor', 'serie', 'dimensao', 'peso', 'especificacoes'
+        'posicao_x', 'posicao_y', 'codigo_interno', 'linha_setor', 'serie', 'dimensao', 'peso', 'especificacoes', 'motores'
       ]);
       // allow optional equipment number
       allowed.add('numero');

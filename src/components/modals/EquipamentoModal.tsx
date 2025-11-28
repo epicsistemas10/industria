@@ -44,7 +44,8 @@ export default function EquipamentoModal({
     foto_url: '',
     mtbf: 0,
     data_inicio_revisao: '',
-    data_prevista_fim: ''
+    data_prevista_fim: '',
+    motores: [] as any[]
   });
   const { error: showError } = useToast();
 
@@ -102,6 +103,7 @@ export default function EquipamentoModal({
             serie: initialData.serie ?? '',
             dimensao: initialData.dimensao ?? '',
             peso: initialData.peso ?? '',
+            motores: initialData.motores || [],
             criticidade: (['Baixa', 'Média', 'Alta', 'Crítica'].includes(initialData?.criticidade)
               ? (initialData.criticidade as 'Baixa' | 'Média' | 'Alta' | 'Crítica')
               : 'Média')
@@ -125,6 +127,8 @@ export default function EquipamentoModal({
         serie: (data as any).serie || '',
         dimensao: (data as any).dimensao || '',
         peso: (data as any).peso || '',
+        motores: (data as any).motores || [],
+        dimensao: (data as any).dimensao || '',
         criticidade: (['Baixa', 'Média', 'Alta', 'Crítica'].includes(data?.criticidade)
           ? (data.criticidade as 'Baixa' | 'Média' | 'Alta' | 'Crítica')
           : 'Média'),
@@ -156,6 +160,7 @@ export default function EquipamentoModal({
       serie: '',
       dimensao: '',
       peso: '' as any,
+      motores: [] as any[],
       criticidade: 'Média' as 'Baixa' | 'Média' | 'Alta' | 'Crítica',
       status_revisao: 0,
       foto_url: '',
@@ -203,6 +208,29 @@ export default function EquipamentoModal({
     } finally {
       setLoading(false);
     }
+  };
+
+  const addMotor = () => {
+    setFormData(prev => ({
+      ...prev,
+      motores: [...(prev.motores || []), { tipo: 'Motor', quantidade: 1, cv: '', rpm: '', marca: '', especificacao: '', tag: '' }]
+    } as any));
+  };
+
+  const updateMotor = (idx: number, key: string, value: any) => {
+    setFormData(prev => {
+      const m = [...(prev.motores || [])];
+      m[idx] = { ...(m[idx] || {}), [key]: value };
+      return { ...prev, motores: m } as any;
+    });
+  };
+
+  const removeMotor = (idx: number) => {
+    setFormData(prev => {
+      const m = [...(prev.motores || [])];
+      m.splice(idx, 1);
+      return { ...prev, motores: m } as any;
+    });
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -470,22 +498,75 @@ export default function EquipamentoModal({
             </div>
 
             <div className="md:col-span-2">
-              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                Especificações Técnicas
-              </label>
-              <textarea
-                rows={3}
-                value={formData.especificacoes}
-                onChange={(e) => setFormData({ ...formData, especificacoes: e.target.value })}
-                className={`w-full px-4 py-2 rounded-lg border ${
-                  darkMode 
-                    ? 'bg-slate-700 border-slate-600 text-white' 
-                    : 'bg-white border-gray-300 text-gray-900'
-                } focus:outline-none focus:border-blue-500`}
-                placeholder="Potência, voltagem, capacidade, etc..."
-                maxLength={500}
-              />
-            </div>
+                <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Especificações Técnicas
+                </label>
+                <textarea
+                  rows={3}
+                  value={formData.especificacoes}
+                  onChange={(e) => setFormData({ ...formData, especificacoes: e.target.value })}
+                  className={`w-full px-4 py-2 rounded-lg border ${
+                    darkMode 
+                      ? 'bg-slate-700 border-slate-600 text-white' 
+                      : 'bg-white border-gray-300 text-gray-900'
+                  } focus:outline-none focus:border-blue-500`}
+                  placeholder="Potência, voltagem, capacidade, etc..."
+                  maxLength={500}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <div className="flex items-center justify-between">
+                  <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Motores / Motorredutores
+                  </label>
+                  <button type="button" onClick={addMotor} className="text-sm px-3 py-1 bg-emerald-600 text-white rounded">Adicionar</button>
+                </div>
+
+                {(formData.motores || []).length === 0 && (
+                  <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Nenhum motor cadastrado</p>
+                )}
+
+                {(formData.motores || []).map((m: any, idx: number) => (
+                  <div key={`motor-${idx}`} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end mb-2 p-2 border rounded">
+                    <div>
+                      <label className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Tipo</label>
+                      <select value={m.tipo} onChange={(e) => updateMotor(idx, 'tipo', e.target.value)} className="w-full px-2 py-1 rounded">
+                        <option value="Motor">Motor</option>
+                        <option value="Motorredutor">Motorredutor</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Qtd</label>
+                      <input type="number" min={1} value={m.quantidade} onChange={(e) => updateMotor(idx, 'quantidade', Number(e.target.value))} className="w-full px-2 py-1 rounded" />
+                    </div>
+                    <div>
+                      <label className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>CV</label>
+                      <input type="text" value={m.cv} onChange={(e) => updateMotor(idx, 'cv', e.target.value)} className="w-full px-2 py-1 rounded" />
+                    </div>
+                    <div>
+                      <label className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>RPM</label>
+                      <input type="text" value={m.rpm} onChange={(e) => updateMotor(idx, 'rpm', e.target.value)} className="w-full px-2 py-1 rounded" />
+                    </div>
+                    <div>
+                      <label className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Marca</label>
+                      <input type="text" value={m.marca} onChange={(e) => updateMotor(idx, 'marca', e.target.value)} className="w-full px-2 py-1 rounded" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <label className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>TAG</label>
+                        <input type="text" value={m.tag} onChange={(e) => updateMotor(idx, 'tag', e.target.value)} className="w-full px-2 py-1 rounded" />
+                      </div>
+                      <button type="button" onClick={() => removeMotor(idx)} className="px-2 py-1 bg-red-600 text-white rounded">Remover</button>
+                    </div>
+
+                    <div className="md:col-span-6">
+                      <label className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Especificação</label>
+                      <input type="text" value={m.especificacao} onChange={(e) => updateMotor(idx, 'especificacao', e.target.value)} className="w-full px-2 py-1 rounded" />
+                    </div>
+                  </div>
+                ))}
+              </div>
 
             <div className="md:col-span-2">
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>

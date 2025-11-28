@@ -64,6 +64,7 @@ export default function EquipamentoDetalhesPage() {
   const [ordensServico, setOrdensServico] = useState<OrdemServico[]>([]);
   const [historico, setHistorico] = useState<HistoricoRevisao[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showRaw, setShowRaw] = useState(false);
   const [showAddComponenteModal, setShowAddComponenteModal] = useState(false);
   const [componentesDisponiveis, setComponentesDisponiveis] = useState<Componente[]>([]);
   const [selectedComponente, setSelectedComponente] = useState('');
@@ -85,6 +86,7 @@ export default function EquipamentoDetalhesPage() {
       .select('*, setores(nome)')
       .eq('id', equipamentoId)
       .single();
+    console.debug('fetchEquipamento data:', data);
     if (data) setEquipamento(data);
     setLoading(false);
   };
@@ -370,6 +372,18 @@ export default function EquipamentoDetalhesPage() {
                               </div>
                             </div>
                           )}
+                          {/* Debug: mostrar objeto completo quando necessário */}
+                          <div className="mt-4">
+                            <button
+                              onClick={() => setShowRaw(s => !s)}
+                              className="text-sm text-blue-300 hover:underline"
+                            >
+                              {showRaw ? 'Ocultar objeto (raw)' : 'Mostrar objeto (raw)'}
+                            </button>
+                            {showRaw && (
+                              <pre className="mt-2 text-xs text-gray-300 bg-gray-900 p-3 rounded max-h-64 overflow-auto">{JSON.stringify(equipamento, null, 2)}</pre>
+                            )}
+                          </div>
                         </div>
                       </div>
 

@@ -150,7 +150,7 @@ export default function EquipamentosPage() {
     return matchSearch && matchSetor && matchCriticidade && matchSubgrupo && matchLinha;
   });
 
-  // Agrupar por subgrupo -> linha
+  // Agrupar por subgrupo -> linha e ordenar itens por `numero` (numéricos primeiro) e depois por `nome`
   const grouped = filteredEquipamentos.reduce((acc: Record<string, Record<string, Equipamento[]>> , eq) => {
     const sg = (eq.subgrupo || '') as string;
     const ln = (eq.linha_setor || 'Sem linha') as string;
@@ -159,6 +159,30 @@ export default function EquipamentosPage() {
     acc[sg][ln].push(eq);
     return acc;
   }, {});
+
+  // Ordena cada lista dentro do grupo: equipamentos com `numero` aparecem primeiro em ordem asc,
+  // depois os sem `numero` ordenados por `nome`.
+  Object.values(grouped).forEach(linhasMap => {
+    Object.values(linhasMap).forEach((items) => {
+      // Ordenar por nome (alfabética) e, quando o nome for igual, ordenar por `numero`.
+      // Equipamentos com `numero` aparecem primeiro para o mesmo nome, em ordem numérica.
+      items.sort((a: any, b: any) => {
+        const nameA = (a.nome || '').trim();
+        const nameB = (b.nome || '').trim();
+        const cmpName = nameA.localeCompare(nameB, 'pt-BR', { sensitivity: 'base' });
+        if (cmpName !== 0) return cmpName;
+        const na = a.numero;
+        const nb = b.numero;
+        const aHas = typeof na === 'number' && !Number.isNaN(na);
+        const bHas = typeof nb === 'number' && !Number.isNaN(nb);
+        if (aHas && bHas) return na - nb;
+        if (aHas && !bHas) return -1; // a com numero primeiro
+        if (!aHas && bHas) return 1; // b com numero primeiro
+        // ambos sem numero: manter ordem por id para estabilidade
+        return (a.id || '').localeCompare(b.id || '');
+      });
+    });
+  });
 
   const setores = [...new Set(equipamentos.map(eq => eq.setores?.nome || eq.setor).filter(Boolean))];
   const subgrupos = [...new Set(equipamentos.map(eq => eq.subgrupo || '').filter(Boolean))];

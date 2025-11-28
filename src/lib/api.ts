@@ -69,6 +69,43 @@ export const equipamentosAPI = {
       Object.entries(payload).forEach(([k, v]) => {
         if (allowed.has(k)) filtered[k] = v;
       });
+      // Normalize numeric fields: convert empty strings to null and numeric strings to numbers
+      const intFields = ['numero', 'ano_fabricacao', 'mtbf', 'status_revisao', 'frequencia_manutencao'];
+      const floatFields = ['posicao_x', 'posicao_y'];
+      intFields.forEach((f) => {
+        if (Object.prototype.hasOwnProperty.call(filtered, f)) {
+          const val = filtered[f];
+          if (val === null || typeof val === 'undefined') {
+            filtered[f] = null;
+          } else if (typeof val === 'string') {
+            const t = val.trim();
+            if (t === '') filtered[f] = null;
+            else {
+              const n = parseInt(t, 10);
+              filtered[f] = Number.isNaN(n) ? null : n;
+            }
+          } else if (typeof val === 'number') {
+            filtered[f] = Number.isNaN(val) ? null : Math.trunc(val);
+          }
+        }
+      });
+      floatFields.forEach((f) => {
+        if (Object.prototype.hasOwnProperty.call(filtered, f)) {
+          const val = filtered[f];
+          if (val === null || typeof val === 'undefined') {
+            filtered[f] = null;
+          } else if (typeof val === 'string') {
+            const t = val.trim();
+            if (t === '') filtered[f] = null;
+            else {
+              const n = parseFloat(t);
+              filtered[f] = Number.isNaN(n) ? null : n;
+            }
+          } else if (typeof val === 'number') {
+            filtered[f] = Number.isNaN(val) ? null : val;
+          }
+        }
+      });
       // Convert empty date strings to null to avoid Postgres errors
       if (filtered.data_inicio_revisao === '') filtered.data_inicio_revisao = null;
       if (filtered.data_prevista_fim === '') filtered.data_prevista_fim = null;
@@ -107,6 +144,43 @@ export const equipamentosAPI = {
       const filtered: any = {};
       Object.entries(payload).forEach(([k, v]) => {
         if (allowed.has(k)) filtered[k] = v;
+      });
+      // Normalize numeric fields for update as well
+      const intFields = ['numero', 'ano_fabricacao', 'mtbf', 'status_revisao', 'frequencia_manutencao'];
+      const floatFields = ['posicao_x', 'posicao_y'];
+      intFields.forEach((f) => {
+        if (Object.prototype.hasOwnProperty.call(filtered, f)) {
+          const val = filtered[f];
+          if (val === null || typeof val === 'undefined') {
+            filtered[f] = null;
+          } else if (typeof val === 'string') {
+            const t = val.trim();
+            if (t === '') filtered[f] = null;
+            else {
+              const n = parseInt(t, 10);
+              filtered[f] = Number.isNaN(n) ? null : n;
+            }
+          } else if (typeof val === 'number') {
+            filtered[f] = Number.isNaN(val) ? null : Math.trunc(val);
+          }
+        }
+      });
+      floatFields.forEach((f) => {
+        if (Object.prototype.hasOwnProperty.call(filtered, f)) {
+          const val = filtered[f];
+          if (val === null || typeof val === 'undefined') {
+            filtered[f] = null;
+          } else if (typeof val === 'string') {
+            const t = val.trim();
+            if (t === '') filtered[f] = null;
+            else {
+              const n = parseFloat(t);
+              filtered[f] = Number.isNaN(n) ? null : n;
+            }
+          } else if (typeof val === 'number') {
+            filtered[f] = Number.isNaN(val) ? null : val;
+          }
+        }
       });
       // Convert empty date strings to null to avoid Postgres errors
       if (filtered.data_inicio_revisao === '') filtered.data_inicio_revisao = null;

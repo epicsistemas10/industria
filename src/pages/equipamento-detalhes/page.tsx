@@ -22,6 +22,7 @@ interface Equipamento {
   data_prevista_fim: string;
   mtbf: number;
   setores?: { nome: string };
+  motores?: any[];
 }
 
 interface Componente {
@@ -346,6 +347,29 @@ export default function EquipamentoDetalhesPage() {
                             <span className="text-gray-400">MTBF:</span>
                             <span className="text-white font-medium">{equipamento.mtbf || 'N/A'} horas</span>
                           </div>
+                          {/* Motores list */}
+                          {(equipamento as any).motores && (equipamento as any).motores.length > 0 && (
+                            <div className="mt-4">
+                              <h4 className="text-sm text-gray-300 mb-2">Motores / Motorredutores</h4>
+                              <div className="space-y-2">
+                                {(equipamento as any).motores.map((m: any, i: number) => (
+                                  <div key={`motor-${i}`} className="p-3 bg-gray-900 rounded">
+                                    <div className="flex flex-wrap gap-4">
+                                      <div className="flex items-center gap-2"><span className="text-gray-400 text-xs">Tipo:</span><span className="text-white text-sm font-medium">{m.tipo || '-'}</span></div>
+                                      <div className="flex items-center gap-2"><span className="text-gray-400 text-xs">Qtd:</span><span className="text-white text-sm font-medium">{m.quantidade ?? '-'}</span></div>
+                                      <div className="flex items-center gap-2"><span className="text-gray-400 text-xs">CV:</span><span className="text-white text-sm font-medium">{m.cv || '-'}</span></div>
+                                      <div className="flex items-center gap-2"><span className="text-gray-400 text-xs">RPM:</span><span className="text-white text-sm font-medium">{m.rpm || '-'}</span></div>
+                                      <div className="flex items-center gap-2"><span className="text-gray-400 text-xs">Marca:</span><span className="text-white text-sm font-medium">{m.marca || '-'}</span></div>
+                                      <div className="flex items-center gap-2"><span className="text-gray-400 text-xs">TAG:</span><span className="text-white text-sm font-medium">{m.tag || '-'}</span></div>
+                                    </div>
+                                    {m.especificacao && (
+                                      <div className="mt-2 text-sm text-gray-300">{m.especificacao}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
 

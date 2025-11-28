@@ -468,9 +468,11 @@ export default function MapaPage() {
     const hotspot = hotspots.find(h => h.id === selectedHotspot);
     if (!hotspot || !mapRef.current) return;
 
-    const rect = mapRef.current.getBoundingClientRect();
-    const deltaX = ((e.clientX - dragStart.x) / rect.width) * 100;
-    const deltaY = ((e.clientY - dragStart.y) / rect.height) * 100;
+    // Use the displayed image rect for percent calculations so hotspots keep relative position
+    // when the image is letterboxed or scaled inside the container
+    const imgDisplayedRect = imageRef.current?.getBoundingClientRect() || mapRef.current.getBoundingClientRect();
+    const deltaX = ((e.clientX - dragStart.x) / imgDisplayedRect.width) * 100;
+    const deltaY = ((e.clientY - dragStart.y) / imgDisplayedRect.height) * 100;
 
     const updatedHotspots = hotspots.map(h => {
       if (h.id === selectedHotspot) {

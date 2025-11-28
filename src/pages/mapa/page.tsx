@@ -1315,6 +1315,7 @@ export default function MapaPage() {
                 onMouseLeave={handleMouseUp}
               >
                 {mapImage ? (
+                <>
                 <img 
                   ref={imageRef}
                   onLoad={() => {
@@ -1327,6 +1328,124 @@ export default function MapaPage() {
                   alt="Mapa Industrial" 
                   className="w-full h-full object-contain pointer-events-none"
                 />
+                {/* Overlay positioned exactly over the displayed image area. Hotspots rendered inside as percentages. */}
+                {imgRect && containerRect && (
+                  <div
+                    className="absolute"
+                    style={{
+                      left: `${imgRect.left - containerRect.left}px`,
+                      top: `${imgRect.top - containerRect.top}px`,
+                      width: `${imgRect.width}px`,
+                      height: `${imgRect.height}px`,
+                      pointerEvents: 'none'
+                    }}
+                  >
+                    {/* Hotspots rendered relative to overlay using percentages */}
+                    {getFilteredHotspots().map((hotspot: any) => {
+                      const isGroup = !!hotspot.isGroup;
+                      let equipment: any = null;
+                      if (!isGroup) equipment = equipments.find((eq) => eq.id === hotspot.equipamento_id);
+
+                      if (isGroup) {
+                        const group = hotspot.group || {};
+                        const members: string[] = hotspot.members || [];
+                        const memberProgs = members.map((id) => equipments.find((e) => e.id === id)?.progresso ?? 0);
+                        const avgProg = memberProgs.length ? Math.round(memberProgs.reduce((s, v) => s + v, 0) / memberProgs.length) : 0;
+                        equipment = {
+                          nome: group.nome || `Grupo ${group.id}`,
+                          setor: group.linha || 'Grupo',
+                          progresso: avgProg,
+                          criticidade: null,
+                        };
+                      }
+
+                      if (!equipment) return null;
+
+                      const prog = equipment.progresso ?? 0;
+                      const hotspotColor = getProgressColor(prog);
+                      const fontSize = hotspot.fontSize || 14;
+                      const iconClass = hotspot.icon || 'ri-tools-fill';
+                      const circleSize = fontSize * 4;
+
+                      // Use percent positions relative to overlay container
+                      const stylePos: any = {
+                        left: `${hotspot.x}%`,
+                        top: `${hotspot.y}%`,
+                        width: `${hotspot.width}%`,
+                        height: `${hotspot.height}%`,
+                        pointerEvents: editMode ? 'auto' : 'auto'
+                      };
+
+                      return (
+                        <div
+                          key={hotspot.id}
+                          data-hotspot-id={hotspot.id}
+                          className={`absolute group ${editMode ? 'cursor-move' : 'cursor-pointer'} ${
+                            selectedHotspot === hotspot.id ? 'ring-4 ring-blue-500' : ''
+                          }`}
+                          style={{
+                            ...stylePos
+                          }}
+                          onMouseDown={(e) => handleMouseDown(e, hotspot.id)}
+                          onClick={() => !editMode && handleHotspotClick(hotspot)}
+                        >
+                          <div
+                            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 rounded-full flex flex-col items-center justify-center shadow-lg transition-transform group-hover:scale-125"
+                            style={{
+                              backgroundColor: hotspotColor,
+                              width: `${circleSize}px`,
+                              height: `${circleSize}px`,
+                              pointerEvents: 'none'
+                            }}
+                          >
+                            <i className={`${iconClass} text-white mb-1`} style={{ fontSize: `${fontSize + 4}px` }}></i>
+                            <span className="text-white font-bold" style={{ fontSize: `${fontSize - 2}px` }}>
+                              {equipment.progresso}%
+                            </span>
+                          </div>
+
+                          {!editMode && (
+                            <div
+                              className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 ${
+                                darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'
+                              } border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}
+                            >
+                              <div className="font-bold"><EquipamentoName equipamento={equipment} numberClassName="text-amber-300" /></div>
+                              <div className="text-sm">{equipment.setor}</div>
+                              <div className="text-xs">Revisão: {equipment.progresso}%</div>
+                            </div>
+                          )}
+
+                          {(equipment.criticidade?.toLowerCase() === 'critica' || equipment.criticidade?.toLowerCase() === 'crítica') && (
+                            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                              <i className="ri-alert-fill text-white text-xs"></i>
+                            </div>
+                          )}
+
+                          {editMode && selectedHotspot === hotspot.id && (
+                            <>
+                              <div
+                                className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 cursor-se-resize"
+                                onMouseDown={(e) => handleMouseDown(e, hotspot.id, true)}
+                              ></div>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteHotspot(hotspot.id);
+                                }}
+                                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 cursor-pointer"
+                              >
+                                <i className="ri-close-line text-xs"></i>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                </>
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-slate-700/30">
                   <div className="text-center">

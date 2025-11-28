@@ -131,7 +131,7 @@ export default function MapaPage() {
     const interval = setInterval(() => {
       loadEquipments();
       mapa.load();
-    }, 30000);
+    }, 5 * 60 * 1000); // every 5 minutes
 
     const updateRects = () => {
       if (mapRef.current) setContainerRect(mapRef.current.getBoundingClientRect());
@@ -1304,10 +1304,13 @@ export default function MapaPage() {
                 if (imgRect && containerRect) {
                   const imgOffsetX = imgRect.left - containerRect.left;
                   const imgOffsetY = imgRect.top - containerRect.top;
-                  const leftPx = imgOffsetX + (hotspot.x / 100) * imgRect.width;
-                  const topPx = imgOffsetY + (hotspot.y / 100) * imgRect.height;
                   const widthPx = (hotspot.width / 100) * imgRect.width;
                   const heightPx = (hotspot.height / 100) * imgRect.height;
+                  // position by center so the hotspot anchor remains centered on the intended point
+                  const centerX = imgOffsetX + (hotspot.x / 100) * imgRect.width;
+                  const centerY = imgOffsetY + (hotspot.y / 100) * imgRect.height;
+                  const leftPx = centerX - widthPx / 2;
+                  const topPx = centerY - heightPx / 2;
                   stylePos.left = `${leftPx}px`;
                   stylePos.top = `${topPx}px`;
                   stylePos.width = `${widthPx}px`;

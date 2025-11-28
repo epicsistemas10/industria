@@ -134,8 +134,16 @@ export default function MapaPage() {
     }, 5 * 60 * 1000); // every 5 minutes
 
     const updateRects = () => {
-      if (mapRef.current) setContainerRect(mapRef.current.getBoundingClientRect());
-      if (imageRef.current) setImgRect(imageRef.current.getBoundingClientRect());
+      const newContainerRect = mapRef.current ? mapRef.current.getBoundingClientRect() : null;
+      const newImgRect = imageRef.current ? imageRef.current.getBoundingClientRect() : null;
+      if (newContainerRect) {
+        console.debug('map updateRects containerRect', newContainerRect);
+        setContainerRect(newContainerRect);
+      }
+      if (newImgRect) {
+        console.debug('map updateRects imgRect', newImgRect);
+        setImgRect(newImgRect);
+      }
     };
     updateRects();
 
@@ -165,8 +173,16 @@ export default function MapaPage() {
   // Recompute image/container rects when layout changes (sidebar, panels, image changes)
   useEffect(() => {
     const updateRects = () => {
-      if (mapRef.current) setContainerRect(mapRef.current.getBoundingClientRect());
-      if (imageRef.current) setImgRect(imageRef.current.getBoundingClientRect());
+      const newContainerRect = mapRef.current ? mapRef.current.getBoundingClientRect() : null;
+      const newImgRect = imageRef.current ? imageRef.current.getBoundingClientRect() : null;
+      if (newContainerRect) {
+        console.debug('map effect updateRects containerRect', newContainerRect);
+        setContainerRect(newContainerRect);
+      }
+      if (newImgRect) {
+        console.debug('map effect updateRects imgRect', newImgRect);
+        setImgRect(newImgRect);
+      }
     };
 
     // small timeout to allow layout transition to finish

@@ -1,527 +1,226 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import React, { useEffect, useRef, useState } from 'react';
 
-interface Equipment {
-  id: string;
-  nome: string;
-  status: string;
-  progresso?: number;
-  setor?: string;
-  criticidade?: string;
-  imagem_url?: string;
-}
+type Equipment = { id: string; nome?: string; progresso?: number; setor?: string; imagem_url?: string };
+type Hotspot = { id: string; equipamento_id?: string; x: number; y: number; width: number; height: number; color?: string; fontSize?: number; icon?: string };
 
-interface Hotspot {
-  id: string;
-  equipamento_id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  color?: string;
-  fontSize?: number;
-  icon?: string;
-}
-
-interface Stats {
-  equipamentosOperacionais: number;
-  equipamentosManutencao: number;
-  equipamentosParados: number;
-  equipamentosAlerta: number;
-  osAbertas: number;
-  osEmAndamento: number;
-  osConcluidas: number;
-  totalEquipamentos: number;
-}
-
-interface Atividade {
-  id: string;
-  equipamento_nome: string;
-  tipo: string;
-  descricao: string;
-  data_inicio: string;
-  responsavel: string;
-  prioridade: string;
-}
-
-interface Equipe {
-  id: string;
-  nome: string;
-  turno: string;
-  membros: any[]; // array of collaborator objects {id,nome,foto_url}
-  equipamentos: string[];
-}
-
-export default function DashboardTVPage() {
-  const [stats, setStats] = useState<Stats>({
-    equipamentosOperacionais: 0,
-    equipamentosManutencao: 0,
-    equipamentosParados: 0,
-    equipamentosAlerta: 0,
-    osAbertas: 0,
-    osEmAndamento: 0,
-    osConcluidas: 0,
-    totalEquipamentos: 0,
-  });
+export default function DashboardTVPage(): JSX.Element {
+  // TV dashboard with hotspots (percentual), reduced sidebars and auto-rotate (40s)
   const [mapImage, setMapImage] = useState<string>('');
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
-  const [atividades, setAtividades] = useState<Atividade[]>([]);
-  const [, setEquipes] = useState<Equipe[]>([]);
-  const [colaboradores, setColaboradores] = useState<any[]>([]);
-
-  const collaboratorsFind = (colabs: any[], key: string | null) => {
-    if (!key) return null;
-    let found = colabs.find(c => c.id === key);
-    if (found) return found;
-    found = colabs.find(c => c.nome === key);
-    if (found) return found;
-    // try matching by email or username if present
-    found = colabs.find(c => (c.email && c.email === key));
-    return found || null;
-  };
+  const [tvView, setTvView] = useState<'map' | 'plan'>('map');
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
-  const [companyName, setCompanyName] = useState('');
 
+  const imageRefTV = useRef<HTMLImageElement | null>(null);
+  const overlayRefTV = useRef<HTMLDivElement | null>(null);
+  const [imgRectTV, setImgRectTV] = useState<DOMRect | null>(null);
+
+  const recomputeImgRectTV = () => {
+    try {
+      if (imageRefTV.current) setImgRectTV(imageRefTV.current.getBoundingClientRect());
+    } catch (e) {}
+  };
+
+  const getProgressColor = (prog = 0) => {
+    if (prog >= 100) return '#10b981';
+    if (prog === 0) return '#3b82f6';
+    if (prog > 0 && prog <= 50) return '#f59e0b';
+    if (prog > 50 && prog < 100) return '#f97316';
+    return '#6b7280';
+  };
+
+  // Load data from localStorage first; attempt Supabase if available (non-blocking)
   useEffect(() => {
-    loadData();
-    
-    // Carregar logo e nome da empresa
-    const savedLogo = localStorage.getItem('company_logo');
-    const savedName = localStorage.getItem('company_name');
-    if (savedLogo) setCompanyLogo(savedLogo);
-    if (savedName) setCompanyName(savedName);
-    
-    // Carregar mapa industrial do localStorage (mesmo local que a página Mapa Industrial)
-    console.log('🔍 Tentando carregar mapa do localStorage...');
-    const savedMapImage = localStorage.getItem('map_image');
-    console.log('📦 Valor encontrado no localStorage:', savedMapImage ? 'Imagem encontrada' : 'Nenhuma imagem');
-    
-    if (savedMapImage) {
-      console.log('✅ Mapa carregado com sucesso!');
-      console.log('📏 Tamanho da imagem:', savedMapImage.length, 'caracteres');
-      setMapImage(savedMapImage);
-    } else {
-      console.log('⚠️ Nenhum mapa encontrado no localStorage');
-      console.log('💡 Dica: Faça upload do mapa em "Mapa Industrial" primeiro');
-    }
-    
-    const interval = setInterval(() => {
-      loadData();
-      setCurrentTime(new Date());
-      
-      // Recarregar mapa a cada 30 segundos
-      const updatedMapImage = localStorage.getItem('map_image');
-      if (updatedMapImage && updatedMapImage !== mapImage) {
-        console.log('🔄 Mapa atualizado detectado');
-        setMapImage(updatedMapImage);
-      }
-    }, 30000);
+    // map image from localStorage
+    const savedMap = typeof window !== 'undefined' ? localStorage.getItem('map_image') : null;
+    if (savedMap) setMapImage(savedMap);
 
-    const timeInterval = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
+    // hotspots saved as JSON in localStorage under 'hotspots'
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('hotspots') : null;
+      if (saved) {
+        const parsed = JSON.parse(saved) as Hotspot[];
+        setHotspots(parsed || []);
+      }
+    } catch (e) {
+      console.warn('Não foi possível ler hotspots do localStorage', e);
+    }
+
+    // equipments fallback from localStorage
+    try {
+      const eqSaved = typeof window !== 'undefined' ? localStorage.getItem('equipments') : null;
+      if (eqSaved) setEquipments(JSON.parse(eqSaved) as Equipment[]);
+    } catch (e) {
+      console.warn('Falha ao ler equipments do localStorage', e);
+    }
+
+    // Try to fetch from Supabase if lib is available (best-effort, do not fail if blocked)
+    (async () => {
+      try {
+        const mod = await import('../../lib/supabase');
+        const supabase = (mod as any).supabase;
+        if (supabase) {
+          const { data: hs } = await supabase.from('equipamento_mapa').select('*');
+          if (hs) {
+            const hotspotsData = hs.map((item: any) => ({
+              id: item.id,
+              equipamento_id: item.equipamento_id,
+              x: item.x ?? 10,
+              y: item.y ?? 10,
+              width: item.width ?? 6,
+              height: item.height ?? 6,
+              color: item.color,
+              fontSize: item.font_size,
+              icon: item.icon,
+            }));
+            setHotspots(hotspotsData);
+            try { localStorage.setItem('hotspots', JSON.stringify(hotspotsData)); } catch (e) {}
+          }
+
+          const { data: eqData } = await supabase.from('equipamentos').select('id,nome,status_revisao,imagem_url');
+          if (eqData) {
+            const mapped = eqData.map((i: any) => ({ id: i.id, nome: i.nome, progresso: i.status_revisao || 0, imagem_url: i.imagem_url }));
+            setEquipments(mapped);
+            try { localStorage.setItem('equipments', JSON.stringify(mapped)); } catch (e) {}
+          }
+        }
+      } catch (e) {
+        // ignore; we have localStorage fallback
+      }
+    })();
+
+    // Resize observer for image
+    const obs = new ResizeObserver(() => setTimeout(recomputeImgRectTV, 60));
+    try { if (imageRefTV.current) obs.observe(imageRefTV.current); } catch (e) {}
+
+    // time and rotation intervals
+    const timeI = setInterval(() => setCurrentTime(new Date()), 1000);
+    const rotI = setInterval(() => setTvView(prev => (prev === 'map' ? 'plan' : 'map')), 40000);
 
     return () => {
-      clearInterval(interval);
-      clearInterval(timeInterval);
+      try { obs.disconnect(); } catch (e) {}
+      clearInterval(timeI);
+      clearInterval(rotI);
     };
   }, []);
 
-  useEffect(() => {
-    // carregar equipamentos e hotspots também
-    loadEquipments();
-    loadHotspots();
-  }, []);
+  useEffect(() => { recomputeImgRectTV(); }, [mapImage]);
 
-  const loadEquipments = async () => {
-    try {
-      const { data: eqData, error: eqError } = await supabase
-        .from('equipamentos')
-        .select('*, setores(nome)');
-
-      if (!eqError && eqData) {
-        const mapped = eqData.map((item: any) => ({
-          id: item.id,
-          nome: item.nome || 'Sem nome',
-          status: item.status || 'parado',
-          progresso: item.status_revisao || 0,
-          setor: item.setores?.nome || 'Sem setor',
-          criticidade: item.criticidade,
-          imagem_url: item.imagem_url,
-        }));
-        setEquipments(mapped);
-      } else {
-        setEquipments([]);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar equipamentos (TV):', err);
-      setEquipments([]);
-    }
-  };
-
-  const loadHotspots = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('equipamento_mapa')
-        .select('*');
-
-      if (!error && data) {
-        const hotspotsData = data.map((item: any) => ({
-          id: item.id,
-          equipamento_id: item.equipamento_id,
-          x: item.x || 10,
-          y: item.y || 10,
-          width: item.width || 8,
-          height: item.height || 8,
-          color: item.color || '#10b981',
-          fontSize: item.font_size || 14,
-          icon: item.icon || 'ri-tools-fill',
-        }));
-        setHotspots(hotspotsData);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar hotspots (TV):', err);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'operacional': return '#10b981';
-      case 'manutencao': return '#f59e0b';
-      case 'parado': return '#ef4444';
-      case 'alerta': return '#eab308';
-      default: return '#6b7280';
-    }
-  };
-
-  const loadData = async () => {
-    try {
-      // Carregar estatísticas de equipamentos
-      const { data: equipamentos } = await supabase
-        .from('equipamentos')
-        .select('status, criticidade, imagem_url');
-
-      if (equipamentos) {
-        const total = equipamentos.length;
-        const operacionais = equipamentos.filter(e => e.status === 'operacional').length;
-        const manutencao = equipamentos.filter(e => e.status === 'manutencao').length;
-        const parados = equipamentos.filter(e => e.status === 'parado').length;
-        const alerta = equipamentos.filter(e => e.status === 'alerta').length;
-
-        setStats(prev => ({
-          ...prev,
-          totalEquipamentos: total,
-          equipamentosOperacionais: operacionais,
-          equipamentosManutencao: manutencao,
-          equipamentosParados: parados,
-          equipamentosAlerta: alerta,
-        }));
-      }
-
-      // Carregar estatísticas de OS
-      const { data: os } = await supabase
-        .from('ordens_servico')
-        .select('status, data_abertura');
-
-      if (os) {
-        const hoje = new Date();
-        hoje.setHours(0, 0, 0, 0);
-
-        const abertas = os.filter(o => o.status === 'aberta').length;
-        const emAndamento = os.filter(o => o.status === 'em_andamento').length;
-        const concluidasHoje = os.filter(o => {
-          if (o.status !== 'concluida') return false;
-          const dataOS = new Date(o.data_abertura);
-          return dataOS >= hoje;
-        }).length;
-
-        setStats(prev => ({
-          ...prev,
-          osAbertas: abertas,
-          osEmAndamento: emAndamento,
-          osConcluidas: concluidasHoje,
-        }));
-      }
-
-      // Carregar planejamento semanal
-      const { data: planejamento } = await supabase
-        .from('planejamento_semana')
-        .select('*, equipamentos(nome)')
-        .eq('semana', 0)
-        .order('data_inicio');
-
-      if (planejamento) {
-        setAtividades(planejamento.map(p => ({
-          id: p.id,
-          equipamento_nome: p.equipamentos?.nome || 'Sem equipamento',
-          tipo: p.tipo,
-          descricao: p.descricao,
-          data_inicio: p.data_inicio,
-          responsavel: p.responsavel,
-          prioridade: p.prioridade
-        })));
-      }
-
-      // Carregar equipes
-      // carregar colaboradores (para fotos e equipes)
-      const { data: colabData } = await supabase
-        .from('colaboradores')
-        .select('*')
-        .order('nome');
-
-      if (colabData) setColaboradores(colabData);
-
-      const { data: equipesData } = await supabase
-        .from('equipes')
-        .select('*')
-        .eq('disponibilidade', true);
-
-      if (equipesData) {
-        setEquipes(equipesData.map(e => {
-          const membrosObjs = (colabData || []).filter((c:any) => Array.isArray(e.membros) ? e.membros.includes(c.id) : c.equipe_id === e.id).map((c:any) => ({ id: c.id, nome: c.nome, foto_url: c.foto_url }));
-          return ({
-            id: e.id,
-            nome: e.nome,
-            turno: e.turno || 'Integral',
-            membros: membrosObjs,
-            equipamentos: [] // Será preenchido com base no planejamento
-          });
-        }));
-      }
-    } catch (err) {
-      console.error('Erro ao carregar dados:', err);
-    }
-  };
-
-  const getPrioridadeColor = (prioridade: string) => {
-    switch (prioridade) {
-      case 'alta': return 'bg-red-500';
-      case 'media': return 'bg-yellow-500';
-      case 'baixa': return 'bg-green-500';
-      default: return 'bg-gray-500';
-    }
-  };
-
-  const getTipoIcon = (tipo: string) => {
-    switch (tipo) {
-      case 'revisao': return 'ri-tools-line';
-      case 'manutencao': return 'ri-hammer-line';
-      case 'inspecao': return 'ri-search-eye-line';
-      case 'limpeza': return 'ri-brush-line';
-      default: return 'ri-file-list-line';
-    }
-  };
-
-  const diasSemana = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-
-  const mediaRevisao = stats.totalEquipamentos > 0
-    ? (((stats.equipamentosOperacionais + stats.equipamentosManutencao) / stats.totalEquipamentos) * 100).toFixed(1)
-    : '0.0';
-
+  // Render
   return (
-    <div className="min-h-screen w-full bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 p-4 md:p-6 lg:p-8">
-      {/* Header Compacto */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
-          {companyLogo ? (
-            <img src={companyLogo} alt="Logo" className="w-16 h-16 rounded-lg object-contain bg-white/10 p-2" />
-          ) : (
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-              <i className="ri-plant-line text-white text-3xl"></i>
+    <div className="min-h-screen w-full bg-[#090F1A] p-3">
+      <div className="grid" style={{ gridTemplateColumns: '200px 1fr 200px', gridTemplateRows: '80px 1fr 100px', height: '100vh', gap: '12px' }}>
+        <header className="col-span-3 flex items-center justify-between px-6 h-[80px]" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-blue-600 rounded flex items-center justify-center"><i className="ri-plant-line text-white" /></div>
+            <div>
+              <div className="text-white font-semibold">ALGODOEIRA IBA SANTA LUZIA</div>
+              <div className="text-xs text-blue-200">Centro de Comando</div>
             </div>
-          )}
-          <div>
-            <h1 className="text-2xl font-bold text-white">Dashboard Manutenção</h1>
-            <p className="text-blue-200 text-base font-bold">{companyName}</p>
           </div>
-        </div>
-        <div className="text-right">
-          <div className="text-3xl font-bold text-white">
-            {currentTime.toLocaleTimeString('pt-BR')}
+
+          <div className="flex items-center gap-3">
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex items-center justify-center text-sm">Produção</div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex items-center justify-center text-sm">Eficiência</div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex items-center justify-center text-sm">OS</div>
           </div>
-          <div className="text-blue-200 text-base">
-            {currentTime.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-          </div>
-        </div>
-      </div>
+        </header>
 
-      {/* Stats Compactos removidos conforme solicitado */}
-
-      {/* Grid: Mapa + Planejamento na mesma tela */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Mapa Industrial */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20">
-          <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-            <i className="ri-map-pin-line text-blue-400"></i>
-            Mapa Industrial
-          </h3>
-            {mapImage ? (
-            <div className="relative w-full h-[400px] lg:h-[500px] rounded-lg overflow-hidden bg-slate-800/50">
-              <img
-                src={mapImage}
-                alt="Mapa Industrial"
-                className="w-full h-full object-contain pointer-events-none"
-                style={{ objectPosition: 'center' }}
-                onError={() => {
-                  console.error('❌ Erro ao carregar imagem do mapa');
-                  setMapImage('');
-                }}
-                onLoad={() => {
-                  console.log('✅ Imagem do mapa carregada com sucesso no Dashboard TV');
-                }}
-              />
-              {/* Hotspots overlay (apenas visualização) */}
-              {hotspots.length > 0 && equipments.length > 0 && (
-                <div className="absolute inset-0 pointer-events-none">
-                  {hotspots.map((hotspot) => {
-                    const equipment = equipments.find(eq => eq.id === hotspot.equipamento_id);
-                    if (!equipment) return null;
-
-                    const hotspotColor = hotspot.color || getStatusColor(equipment.status);
-                    const fontSize = hotspot.fontSize || 14;
-                    const iconClass = hotspot.icon || 'ri-tools-fill';
-                    const circleSize = fontSize * 4;
-
-                    return (
-                      <div
-                        key={hotspot.id}
-                        className="absolute"
-                        style={{
-                          left: `${hotspot.x}%`,
-                          top: `${hotspot.y}%`,
-                          width: `${hotspot.width}%`,
-                          height: `${hotspot.height}%`,
-                          transform: 'translate(-50%, -50%)',
-                        }}
-                      >
-                        <div
-                          className="rounded-full flex flex-col items-center justify-center shadow-lg"
-                          style={{
-                            backgroundColor: hotspotColor,
-                            width: `${circleSize}px`,
-                            height: `${circleSize}px`,
-                          }}
-                        >
-                          <i className={`${iconClass} text-white mb-1`} style={{ fontSize: `${fontSize + 4}px` }}></i>
-                          <span className="text-white font-bold" style={{ fontSize: `${fontSize - 2}px` }}>
-                            {equipment.progresso}%
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+        {/* Left Sidebar */}
+        <aside className="col-start-1 col-end-2 row-start-2 row-end-3 px-3">
+          <div className="space-y-3">
+            <div className="w-full h-[120px] rounded-lg bg-white/5 border" style={{ borderColor: 'rgba(255,255,255,0.08)', boxShadow: '0 6px 18px rgba(0,0,0,0.4)' }}>
+              <div className="p-4 text-sm text-gray-200">Equipamentos</div>
             </div>
-            ) : (
-            <div className="flex items-center justify-center h-[400px] lg:h-[500px] bg-slate-800/50 rounded-lg">
-              <div className="text-center">
-                <i className="ri-map-pin-line text-5xl text-gray-500 mb-3"></i>
-                <p className="text-gray-400 text-sm font-medium">Nenhum mapa disponível</p>
-                <p className="text-gray-500 text-xs mt-2">Faça upload do mapa em "Mapa Industrial"</p>
-                <button
-                  onClick={() => {
-                    console.log('🔄 Tentando recarregar mapa...');
-                    const reloadedMap = localStorage.getItem('map_image');
-                    if (reloadedMap) {
-                      console.log('✅ Mapa encontrado! Carregando...');
-                      setMapImage(reloadedMap);
-                    } else {
-                      console.log('❌ Ainda não há mapa no localStorage');
-                      alert('Nenhum mapa encontrado. Por favor, faça upload em "Mapa Industrial"');
-                    }
-                  }}
-                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer text-sm"
-                >
-                  <i className="ri-refresh-line mr-2"></i>
-                  Tentar Recarregar
-                </button>
-              </div>
+            <div className="w-full h-[120px] rounded-lg bg-white/5 border" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+              <div className="p-4 text-sm text-gray-200">Status Geral</div>
             </div>
-          )}
-        </div>
+          </div>
+        </aside>
 
-        {/* Planejamento Semanal */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20">
-          <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-            <i className="ri-calendar-line text-blue-400"></i>
-            Planejamento Semanal
-          </h3>
-          
-          <div className="space-y-3 max-h-[400px] lg:max-h-[500px] overflow-y-auto pr-2">
-            {diasSemana.map((dia, index) => {
-              const atividadesDia = atividades.filter(a => {
-                const dataAtividade = new Date(a.data_inicio);
-                return dataAtividade.getDay() === index + 1;
-              });
+        {/* Center - Map / Planning */}
+        <main className="col-start-2 col-end-3 row-start-2 row-end-3 flex items-center justify-center px-2">
+          <div className="w-full h-full rounded-xl overflow-hidden border shadow-xl bg-[#0E1525] p-1 flex items-center justify-center" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+            {tvView === 'map' ? (
+              mapImage ? (
+                <div ref={overlayRefTV} className="w-full h-full flex items-center justify-center relative">
+                  <img
+                    ref={imageRefTV}
+                    src={mapImage}
+                    alt="Mapa Industrial"
+                    className="w-full h-full object-cover rounded-lg"
+                    style={{ maxHeight: '78vh' }}
+                    onLoad={() => recomputeImgRectTV()}
+                  />
 
-              return (
-                <div key={dia} className="bg-white/5 rounded-lg p-3 border border-white/10">
-                  <h4 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
-                    <i className="ri-calendar-check-line text-blue-400"></i>
-                    {dia}
-                    <span className="ml-auto text-xs bg-blue-500/30 px-2 py-1 rounded-full">
-                      {atividadesDia.length} atividades
-                    </span>
-                  </h4>
-                  {atividadesDia.length > 0 ? (
-                    <div className="space-y-2">
-                      {atividadesDia.slice(0, 3).map(ativ => {
-                        // find responsible collaborator
-                        const resp = collaboratorsFind(colaboradores, ativ.responsavel);
-                        // find team members for responsible's team
-                        const teamForResp = resp ? (colaboradores.filter(c => c.equipe_id === resp.equipe_id)) : [];
+                  {/* Hotspots (percentual) */}
+                  {hotspots.length > 0 && (
+                    <div className="absolute inset-0 pointer-events-none">
+                      {hotspots.map(h => {
+                        const equipment = equipments.find(e => e.id === h.equipamento_id);
+                        const prog = equipment?.progresso ?? 0;
+                        const color = getProgressColor(prog);
+                        const fontSize = h.fontSize || 12;
+                        const circleSize = Math.max(28, (fontSize + 8));
+
+                        const leftPercent = (h.x ?? 0) - ((h.width ?? 0) / 2);
+                        const topPercent = (h.y ?? 0) - ((h.height ?? 0) / 2);
+
                         return (
-                          <div key={ativ.id} className="bg-white/5 rounded p-2 border border-white/10">
-                            <div className="flex items-center gap-2 mb-1">
-                              <i className={`${getTipoIcon(ativ.tipo)} text-blue-400 text-sm`}></i>
-                              <span className="text-xs text-white font-medium truncate flex-1">{ativ.equipamento_nome}</span>
-                              <span className={`px-2 py-0.5 rounded text-xs ${getPrioridadeColor(ativ.prioridade)} text-white`}>
-                                {ativ.prioridade}
-                              </span>
+                          <div key={h.id} className="absolute" style={{ left: `${leftPercent}%`, top: `${topPercent}%`, width: `${h.width}%`, height: `${h.height}%`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div className="rounded-full flex flex-col items-center justify-center shadow-lg" style={{ background: color, width: `${circleSize}px`, height: `${circleSize}px` }}>
+                              <i className={`${h.icon || 'ri-tools-fill'} text-white`} style={{ fontSize: `${fontSize + 4}px` }} />
                             </div>
-                            <div className="flex items-center gap-3 ml-5">
-                              {resp ? (
-                                <div className="w-8 h-8 rounded-full overflow-hidden bg-white/10">
-                                  {resp.foto_url ? (
-                                    <img src={resp.foto_url} alt={resp.nome} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-xs text-white">{(resp.nome||'').split(' ').map((n: string) => n[0]).slice(0,2).join('')}</div>
-                                  )}
-                                </div>
-                              ) : null}
-                              <div className="flex -space-x-2">
-                                {teamForResp.slice(0,4).map((m:any)=> (
-                                  <div key={m.id} className="w-6 h-6 rounded-full ring-1 ring-white overflow-hidden bg-white/10">
-                                    {m.foto_url ? (
-                                      <img src={m.foto_url} alt={m.nome} className="w-full h-full object-cover" />
-                                    ) : (
-                                      <div className="w-full h-full flex items-center justify-center text-[9px] text-white">{(m.nome||'').split(' ').map((n: string) => n[0]).slice(0,2).join('')}</div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                            <p className="text-xs text-blue-200 truncate ml-5">{ativ.descricao}</p>
                           </div>
                         );
                       })}
-                      {atividadesDia.length > 3 && (
-                        <p className="text-xs text-gray-400 text-center">
-                          +{atividadesDia.length - 3} atividades
-                        </p>
-                      )}
                     </div>
-                  ) : (
-                    <p className="text-xs text-gray-400 ml-5">Sem atividades planejadas</p>
                   )}
                 </div>
-              );
-            })}
+              ) : (
+                <div className="text-center text-gray-400">Mapa não encontrado. Faça upload na página Mapa Industrial.</div>
+              )
+            ) : (
+              // Planning view (simplified)
+              <div className="w-full h-full overflow-auto p-4 text-white">
+                <h3 className="text-xl mb-2">Planejamento Semanal</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-white/5 rounded p-3">Segunda</div>
+                  <div className="bg-white/5 rounded p-3">Terça</div>
+                  <div className="bg-white/5 rounded p-3">Quarta</div>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        </main>
+
+        {/* Right Sidebar */}
+        <aside className="col-start-3 col-end-4 row-start-2 row-end-3 px-3">
+          <div className="space-y-3">
+            <div className="w-full h-[120px] rounded-lg bg-white/5 border" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+              <div className="p-4 text-sm text-gray-200">OS Abertas</div>
+            </div>
+            <div className="w-full h-[120px] rounded-lg bg-white/5 border" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+              <div className="p-4 text-sm text-gray-200">Alertas / Críticos</div>
+            </div>
+          </div>
+        </aside>
+
+        <footer className="col-span-3 row-start-3 row-end-4 px-6 py-4" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="flex items-center justify-between">
+            <div className="flex gap-3">
+              <div className="w-40 h-16 rounded-md bg-white/5 border flex flex-col justify-center px-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <div className="text-xs text-gray-300">Temperatura</div>
+                <div className="text-sm font-bold text-white">—</div>
+              </div>
+              <div className="w-40 h-16 rounded-md bg-white/5 border flex flex-col justify-center px-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <div className="text-xs text-gray-300">Consumo</div>
+                <div className="text-sm font-bold text-white">—</div>
+              </div>
+            </div>
+            <div className="text-sm text-gray-300">% Eficiência: <span className="text-[#00FFB0] font-bold">—</span></div>
+          </div>
+        </footer>
       </div>
     </div>
   );

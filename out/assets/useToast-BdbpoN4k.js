@@ -1,2 +1,0 @@
-import{r as o}from"./index-FRp6wVcD.js";function C(){const[c,r]=o.useState([]),t=o.useCallback((s,a="info")=>{const n=Math.random().toString(36).substring(7);r(f=>[...f,{id:n,message:s,type:a}])},[]),e=o.useCallback(s=>{r(a=>a.filter(n=>n.id!==s))},[]),u=o.useCallback(s=>t(s,"success"),[t]),l=o.useCallback(s=>t(s,"error"),[t]),i=o.useCallback(s=>t(s,"info"),[t]),b=o.useCallback(s=>t(s,"warning"),[t]);return{toasts:c,showToast:t,removeToast:e,success:u,error:l,info:i,warning:b}}export{C as u};
-//# sourceMappingURL=useToast-BdbpoN4k.js.map

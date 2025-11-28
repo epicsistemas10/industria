@@ -55,6 +55,13 @@ export function useMapaHotspots() {
         };
       }));
 
+      // debug: log loaded hotspots
+      try {
+        // eslint-disable-next-line no-console
+        console.log('[useMapaHotspots] loaded', { equipmentHotspots, groupHotspots });
+      } catch (e) {}
+
+      // ensure we set a single array (groups first so groups overlay members)
       setHotspots([...groupHotspots, ...equipmentHotspots]);
     } catch (err: any) {
       console.error('Erro ao carregar hotspots via hook:', err);

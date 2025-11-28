@@ -20,7 +20,15 @@ const Melhorias = lazy(() => import('../pages/melhorias/page'));
 const Panoramas = lazy(() => import('../pages/panoramas/page'));
 const Usuarios = lazy(() => import('../pages/usuarios/page'));
 const Setores = lazy(() => import('../pages/setores/page'));
-const Mapa = lazy(() => import('../pages/mapa/page'));
+const Mapa = lazy(() =>
+  import('../pages/mapa/page').catch((err) => {
+    // log to console and provide a minimal fallback component so the app doesn't crash
+    // when the dynamic import fails (useful during dev when HMR or compile errors occur)
+    // eslint-disable-next-line no-console
+    console.error('Falha ao carregar módulo /pages/mapa/page:', err);
+    return { default: () => <div className="p-6">Erro ao carregar o módulo do mapa. Veja o console para detalhes.</div> };
+  })
+);
 const Notificacoes = lazy(() => import('../pages/notificacoes/page'));
 const PrevisaoFalhas = lazy(() => import('../pages/previsao-falhas/page'));
 const EstrategicoPecas = lazy(() => import('../pages/estrategico-pecas/page'));

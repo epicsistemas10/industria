@@ -128,7 +128,6 @@ export default function EquipamentoModal({
         dimensao: (data as any).dimensao || '',
         peso: (data as any).peso || '',
         motores: (data as any).motores || [],
-        dimensao: (data as any).dimensao || '',
         criticidade: (['Baixa', 'Média', 'Alta', 'Crítica'].includes(data?.criticidade)
           ? (data.criticidade as 'Baixa' | 'Média' | 'Alta' | 'Crítica')
           : 'Média'),

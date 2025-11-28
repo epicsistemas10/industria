@@ -66,6 +66,20 @@ export default function MapaPage() {
   const [hotspotIcon, setHotspotIcon] = useState('ri-tools-fill');
   const mapRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  // helper to recompute container/image rects
+  const recomputeRects = () => {
+    try {
+      if (mapRef.current) setContainerRect(mapRef.current.getBoundingClientRect());
+      if (imageRef.current) setImgRect(imageRef.current.getBoundingClientRect());
+      // debug: log when recompute runs
+      // eslint-disable-next-line no-console
+      console.log('[MAPA] recomputeRects', { imgRect: imageRef.current?.getBoundingClientRect(), containerRect: mapRef.current?.getBoundingClientRect() });
+    } catch (e) {
+      // ignore
+    }
+  };
+  const [debugMarkers, setDebugMarkers] = useState<any[]>([]);
   const [imgRect, setImgRect] = useState<DOMRect | null>(null);
   const [containerRect, setContainerRect] = useState<DOMRect | null>(null);
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -125,74 +139,81 @@ export default function MapaPage() {
       } catch (e) {
         // ignore storage errors
       }
+      // no image found in storage or local, signal to show upload modal
+      setShowImageUpload(true);
     };
-    init();
+    (async () => { await init(); })();
 
     const interval = setInterval(() => {
       loadEquipments();
       mapa.load();
     }, 5 * 60 * 1000); // every 5 minutes
 
-    const updateRects = () => {
-      const newContainerRect = mapRef.current ? mapRef.current.getBoundingClientRect() : null;
-      const newImgRect = imageRef.current ? imageRef.current.getBoundingClientRect() : null;
-      if (newContainerRect) {
-        console.debug('map updateRects containerRect', newContainerRect);
-        setContainerRect(newContainerRect);
-      }
-      if (newImgRect) {
-        console.debug('map updateRects imgRect', newImgRect);
-        setImgRect(newImgRect);
-      }
-    };
-    updateRects();
+    // initial compute
+    recomputeRects();
 
     // ResizeObserver to watch image and container size changes (covers fullscreen and layout transitions)
     let ro: ResizeObserver | null = null;
     try {
       ro = new ResizeObserver(() => {
-        setTimeout(updateRects, 40);
+        // small delay to allow layout/composition to settle
+        setTimeout(recomputeRects, 40);
       });
       if (mapRef.current) ro.observe(mapRef.current);
       if (imageRef.current) ro.observe(imageRef.current!);
     } catch (err) {
       // ResizeObserver may not be available in some environments; fallback to window resize
-      window.addEventListener('resize', updateRects);
+      window.addEventListener('resize', recomputeRects);
     }
+
+    // fullscreen change: recompute when entering/exiting fullscreen
+    const fsEvent = (document as any).fullscreenEnabled ? 'fullscreenchange' : 'fullscreenchange';
+    const onFs = () => setTimeout(recomputeRects, 120);
+    try { document.addEventListener(fsEvent, onFs); } catch (e) {}
+
+    // devicePixelRatio changes (some zooms affect DPR). Poll for changes.
+    let lastDpr = window.devicePixelRatio;
+    const dprInterval = setInterval(() => {
+      if (window.devicePixelRatio !== lastDpr) {
+        lastDpr = window.devicePixelRatio;
+        recomputeRects();
+      }
+    }, 300);
 
     return () => {
       clearInterval(interval);
       if (ro) {
         try { ro.disconnect(); } catch (e) {}
       } else {
-        window.removeEventListener('resize', updateRects);
+        window.removeEventListener('resize', recomputeRects);
       }
+      try { document.removeEventListener(fsEvent, onFs); } catch (e) {}
+      clearInterval(dprInterval);
     };
   }, []);
 
   // Recompute image/container rects when layout changes (sidebar, panels, image changes)
   useEffect(() => {
-    const updateRects = () => {
-      const newContainerRect = mapRef.current ? mapRef.current.getBoundingClientRect() : null;
-      const newImgRect = imageRef.current ? imageRef.current.getBoundingClientRect() : null;
-      if (newContainerRect) {
-        console.debug('map effect updateRects containerRect', newContainerRect);
-        setContainerRect(newContainerRect);
-      }
-      if (newImgRect) {
-        console.debug('map effect updateRects imgRect', newImgRect);
-        setImgRect(newImgRect);
-      }
-    };
-
-    // small timeout to allow layout transition to finish
-    const t = setTimeout(updateRects, 120);
-    return () => clearTimeout(t);
+    // Recompute rects now and after short delays to cover CSS transitions
+    recomputeRects();
+    const t1 = setTimeout(recomputeRects, 120);
+    const t2 = setTimeout(recomputeRects, 350);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [sidebarOpen, selectedEquipment, mapImage, editMode, showAddHotspot]);
 
   useEffect(() => {
     // keep local hotspots in sync with hook
     setHotspots(mapa.hotspots);
+    // debug: expose and log hotspot arrays when the hook updates
+    try {
+      if (typeof document !== 'undefined') {
+        // eslint-disable-next-line no-console
+        console.log('[MAPA] hook hotspots updated', { mapaHotspots: mapa.hotspots, localHotspots: hotspots, domCount: document.querySelectorAll('[data-hotspot-id]').length });
+      } else {
+        // eslint-disable-next-line no-console
+        console.log('[MAPA] hook hotspots updated', { mapaHotspots: mapa.hotspots, localHotspots: hotspots });
+      }
+    } catch (e) {}
   }, [mapa.hotspots]);
 
   const loadSetores = async () => {
@@ -484,11 +505,33 @@ export default function MapaPage() {
     const hotspot = hotspots.find(h => h.id === selectedHotspot);
     if (!hotspot || !mapRef.current) return;
 
-    // Use the displayed image rect for percent calculations so hotspots keep relative position
-    // when the image is letterboxed or scaled inside the container
-    const imgDisplayedRect = imageRef.current?.getBoundingClientRect() || mapRef.current.getBoundingClientRect();
-    const deltaX = ((e.clientX - dragStart.x) / imgDisplayedRect.width) * 100;
-    const deltaY = ((e.clientY - dragStart.y) / imgDisplayedRect.height) * 100;
+    // Use the overlay rect (visible image area) for percent calculations so hotspots
+    // keep relative position when the image is letterboxed or scaled inside the container
+    const overlayRect = overlayRef.current?.getBoundingClientRect() || imageRef.current?.getBoundingClientRect() || mapRef.current.getBoundingClientRect();
+    const deltaX = ((e.clientX - dragStart.x) / overlayRect.width) * 100;
+    const deltaY = ((e.clientY - dragStart.y) / overlayRect.height) * 100;
+
+    // debug
+    try {
+      if (typeof document !== 'undefined') {
+        // eslint-disable-next-line no-console
+        console.log('[MAPA] handleMouseMove', {
+          selectedHotspot,
+          dragging,
+          resizing,
+          dragStart,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          overlayRect: { w: overlayRect.width, h: overlayRect.height, left: overlayRect.left, top: overlayRect.top },
+          deltaX,
+          deltaY,
+          domCount: document.querySelectorAll('[data-hotspot-id]').length,
+        });
+      } else {
+        // eslint-disable-next-line no-console
+        console.log('[MAPA] handleMouseMove', { selectedHotspot, dragging, resizing, dragStart, deltaX, deltaY });
+      }
+    } catch (e) {}
 
     const updatedHotspots = hotspots.map(h => {
       if (h.id === selectedHotspot) {
@@ -826,6 +869,12 @@ export default function MapaPage() {
   };
 
   const getFilteredHotspots = () => {
+    // Prevent showing equipment-level hotspots that are part of a group hotspot
+    // (this avoids duplicate markers when a group and its member also have individual hotspots)
+    const groupMemberIds = hotspots
+      .filter((h: any) => (h as any).isGroup)
+      .flatMap((g: any) => (g.members || []));
+
     return hotspots.filter((hotspot) => {
       // include group hotspots (they have isGroup and group.members)
       if ((hotspot as any).isGroup) {
@@ -845,6 +894,9 @@ export default function MapaPage() {
 
         return setorMatch && statusMatch;
       }
+
+      // If this equipment is part of a group hotspot currently present, skip its individual hotspot
+      if (groupMemberIds.includes(hotspot.equipamento_id)) return false;
 
       const equipment = equipments.find(eq => eq.id === hotspot.equipamento_id);
       if (!equipment) return false;
@@ -1090,6 +1142,9 @@ export default function MapaPage() {
     }
   };
 
+  // dedupe hotspots by id to avoid rendering duplicates from the hook
+  const uniqueHotspots = Array.from(new Map(getFilteredHotspots().map((h: any) => [h.id, h])).values());
+
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
       <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
@@ -1217,21 +1272,46 @@ export default function MapaPage() {
                   }
                   try {
                     toast.info('Recalibrando hotspots...');
-                    const imgR = imageRef.current.getBoundingClientRect();
-                    const containerR = mapRef.current.getBoundingClientRect();
-                    const imgOffsetX = imgR.left - containerR.left;
-                    const imgOffsetY = imgR.top - containerR.top;
+                    const overlayR = overlayRef.current?.getBoundingClientRect();
+                      if (!overlayR) {
+                        toast.error('Área da imagem não disponível para recalibragem');
+                        return;
+                      }
 
-                    const promises = hotspots.map(async (h: any) => {
-                      const el = document.querySelector(`[data-hotspot-id="${h.id}"]`) as HTMLElement | null;
-                      if (!el) return null;
-                      const r = el.getBoundingClientRect();
-                      const centerX = r.left - containerR.left + r.width / 2;
-                      const centerY = r.top - containerR.top + r.height / 2;
-                      const newX = ((centerX - imgOffsetX) / imgR.width) * 100;
-                      const newY = ((centerY - imgOffsetY) / imgR.height) * 100;
-                      const newW = (r.width / imgR.width) * 100;
-                      const newH = (r.height / imgR.height) * 100;
+
+                      // debug: log before recalibration
+                      try {
+                        if (typeof document !== 'undefined') {
+                          // eslint-disable-next-line no-console
+                          console.log('[MAPA] recalibrate start', { overlayR, hotspots, domCount: document.querySelectorAll('[data-hotspot-id]').length });
+                        } else {
+                          // eslint-disable-next-line no-console
+                          console.log('[MAPA] recalibrate start', { overlayR, hotspots });
+                        }
+                      } catch (e) {}
+
+                      const promises = hotspots.map(async (h: any) => {
+                        const el = document.querySelector(`[data-hotspot-id="${h.id}"]`) as HTMLElement | null;
+                        if (!el) return null;
+                        const r = el.getBoundingClientRect();
+                        // compute element center relative to overlay so we store center-based x/y
+                        const centerX = r.left - overlayR.left + r.width / 2;
+                        const centerY = r.top - overlayR.top + r.height / 2;
+                        const newX = (centerX / overlayR.width) * 100;
+                        const newY = (centerY / overlayR.height) * 100;
+                        const newW = (r.width / overlayR.width) * 100;
+                        const newH = (r.height / overlayR.height) * 100;
+
+                        // debug per-hotspot
+                        try {
+                          if (typeof document !== 'undefined') {
+                            // eslint-disable-next-line no-console
+                            console.log('[MAPA] recalibrate hotspot', { id: h.id, rect: r, centerX, centerY, newX, newY, newW, newH, domCount: document.querySelectorAll(`[data-hotspot-id="${h.id}"]`).length });
+                          } else {
+                            // eslint-disable-next-line no-console
+                            console.log('[MAPA] recalibrate hotspot', { id: h.id, rect: r, centerX, centerY, newX, newY, newW, newH });
+                          }
+                        } catch (e) {}
 
                       // clamp
                       const clamped = {
@@ -1256,6 +1336,13 @@ export default function MapaPage() {
                     });
 
                     const results = await Promise.all(promises);
+                    // debug: create visual markers for computed centers vs rendered centers
+                    try {
+                      const markers = results.filter(Boolean).map((res: any) => ({ id: res.id, x: res.x, y: res.y }));
+                      setDebugMarkers(markers);
+                      // clear after 4s
+                      setTimeout(() => setDebugMarkers([]), 4000);
+                    } catch (e) {}
                     const updated = hotspots.map((h) => {
                       const res = results.find(r => r && r.id === h.id);
                       return res ? { ...h, x: res.x, y: res.y, width: res.width, height: res.height } : h;
@@ -1310,7 +1397,7 @@ export default function MapaPage() {
           {/* Loading */}
           {loading && (
             <div className="-mx-6">
-              <div className={`rounded-xl overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex items-center justify-center`} style={{ height: 'calc(100vh - 100px)' }}>
+              <div className={`rounded-xl overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex items-center justify-center`} style={{ height: 'calc(100vh - 140px)' }}>
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
                   <p className={darkMode ? 'text-gray-400' : 'text-gray-600'}>Carregando mapa...</p>
@@ -1325,39 +1412,37 @@ export default function MapaPage() {
               <div 
                 ref={mapRef}
                 className={`rounded-xl overflow-hidden ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl relative ${editMode ? 'cursor-crosshair' : 'cursor-default'}`} 
-                style={{ height: 'calc(100vh - 100px)' }}
+                style={{ height: 'calc(100vh - 140px)' }}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
               >
                 {mapImage ? (
-                <>
-                <img 
-                  ref={imageRef}
-                  onLoad={() => {
-                    if (mapRef.current && imageRef.current) {
-                      setContainerRect(mapRef.current.getBoundingClientRect());
-                      setImgRect(imageRef.current.getBoundingClientRect());
-                    }
-                  }}
-                  src={mapImage} 
-                  alt="Mapa Industrial" 
-                  className="w-full h-full object-contain pointer-events-none"
-                />
-                {/* Overlay positioned exactly over the displayed image area. Hotspots rendered inside as percentages. */}
-                {imgRect && containerRect && (
+                <div className="w-full h-full flex items-center justify-center">
                   <div
-                    className="absolute"
-                    style={{
-                      left: `${imgRect.left - containerRect.left}px`,
-                      top: `${imgRect.top - containerRect.top}px`,
-                      width: `${imgRect.width}px`,
-                      height: `${imgRect.height}px`,
-                      pointerEvents: 'none'
-                    }}
+                    ref={overlayRef}
+                    style={
+                      imgRect
+                        ? { position: 'relative', width: `${imgRect.width}px`, height: `${imgRect.height}px` }
+                        : { position: 'relative', display: 'inline-block', maxWidth: '100%', maxHeight: '100%' }
+                    }
                   >
-                    {/* Hotspots rendered relative to overlay using percentages */}
-                    {getFilteredHotspots().map((hotspot: any) => {
+                    <img
+                      ref={imageRef}
+                      onLoad={() => {
+                        if (mapRef.current && imageRef.current) {
+                          setContainerRect(mapRef.current.getBoundingClientRect());
+                          setImgRect(imageRef.current.getBoundingClientRect());
+                        }
+                      }}
+                      src={mapImage}
+                      alt="Mapa Industrial"
+                      className="block w-full h-auto pointer-events-none"
+                      style={{ display: mapImage ? 'block' : 'none' }}
+                    />
+
+                    {/* Hotspots rendered as children of the overlay so they scale with the image */}
+                    {uniqueHotspots.map((hotspot: any) => {
                       const isGroup = !!hotspot.isGroup;
                       let equipment: any = null;
                       if (!isGroup) equipment = equipments.find((eq) => eq.id === hotspot.equipamento_id);
@@ -1383,14 +1468,9 @@ export default function MapaPage() {
                       const iconClass = hotspot.icon || 'ri-tools-fill';
                       const circleSize = fontSize * 4;
 
-                      // Use percent positions relative to overlay container
-                      const stylePos: any = {
-                        left: `${hotspot.x}%`,
-                        top: `${hotspot.y}%`,
-                        width: `${hotspot.width}%`,
-                        height: `${hotspot.height}%`,
-                        pointerEvents: editMode ? 'auto' : 'auto'
-                      };
+                      // compute top-left from center-based stored x/y
+                      const leftPercent = (hotspot.x ?? 0) - ((hotspot.width ?? 0) / 2);
+                      const topPercent = (hotspot.y ?? 0) - ((hotspot.height ?? 0) / 2);
 
                       return (
                         <div
@@ -1400,18 +1480,25 @@ export default function MapaPage() {
                             selectedHotspot === hotspot.id ? 'ring-4 ring-blue-500' : ''
                           }`}
                           style={{
-                            ...stylePos
+                            left: `${leftPercent}%`,
+                            top: `${topPercent}%`,
+                            width: `${hotspot.width}%`,
+                            height: `${hotspot.height}%`,
+                            backgroundColor: editMode ? 'rgba(59, 130, 246, 0.18)' : 'transparent',
+                            border: editMode ? '2px dashed #3b82f6' : 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                           }}
                           onMouseDown={(e) => handleMouseDown(e, hotspot.id)}
                           onClick={() => !editMode && handleHotspotClick(hotspot)}
                         >
                           <div
-                            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 rounded-full flex flex-col items-center justify-center shadow-lg transition-transform group-hover:scale-125"
+                            className="rounded-full flex flex-col items-center justify-center shadow-lg transition-transform group-hover:scale-125"
                             style={{
                               backgroundColor: hotspotColor,
                               width: `${circleSize}px`,
                               height: `${circleSize}px`,
-                              pointerEvents: 'none'
                             }}
                           >
                             <i className={`${iconClass} text-white mb-1`} style={{ fontSize: `${fontSize + 4}px` }}></i>
@@ -1459,9 +1546,18 @@ export default function MapaPage() {
                         </div>
                       );
                     })}
+
+                    {debugMarkers.length > 0 && (
+                      <div className="absolute inset-0 pointer-events-none">
+                        {debugMarkers.map((m) => (
+                          <div key={`dbg-${m.id}`} style={{ position: 'absolute', left: `${m.x}%`, top: `${m.y}%`, transform: 'translate(-50%, -50%)' }}>
+                            <div style={{ width: 10, height: 10, borderRadius: 5, background: 'rgba(255,0,0,0.9)', border: '2px solid white' }}></div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-                </>
+                </div>
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-slate-700/30">
                   <div className="text-center">
@@ -1471,7 +1567,8 @@ export default function MapaPage() {
                 </div>
               )}
               
-              
+              {/* single hotspots rendering handled above as children of the image overlay */}
+              </div>
             </div>
           )}
 

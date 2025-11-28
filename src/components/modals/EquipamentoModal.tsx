@@ -325,17 +325,21 @@ export default function EquipamentoModal({
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                 Linha / Setor Específico
               </label>
-              <input
-                type="text"
+              {/* Opções pré-definidas para facilitar seleção */}
+              <select
                 value={formData.linha_setor}
                 onChange={(e) => setFormData({ ...formData, linha_setor: e.target.value })}
-                className={`w-full px-4 py-2 rounded-lg border ${
+                className={`w-full px-4 py-2 rounded-lg border cursor-pointer ${
                   darkMode 
                     ? 'bg-slate-700 border-slate-600 text-white' 
                     : 'bg-white border-gray-300 text-gray-900'
-                } focus:outline-none focus:border-blue-500`}
-                placeholder="Ex: Linha A, Setor 2"
-              />
+                } focus:outline-none focus:border-blue-500 pr-8`}
+              >
+                <option value="">Selecione a Linha/Setor</option>
+                <option value="Linha 1">Linha 1</option>
+                <option value="Linha 2">Linha 2</option>
+                <option value="IBA">IBA</option>
+              </select>
             </div>
 
             <div>

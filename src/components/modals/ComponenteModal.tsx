@@ -146,31 +146,55 @@ export default function ComponenteModal({
         }
         const created = await componentesAPI.create(payload);
         success('Componente criado');
-        // after create, insert associations
+        // after create, insert associations and surface errors to the user
         try {
           const compId = created?.id;
           if (compId && selectedEquipamentos.length) {
-            await supabase.from('equipamentos_componentes').insert(
+            const { error: assocError } = await supabase.from('equipamentos_componentes').insert(
               selectedEquipamentos.map(eid => ({ equipamento_id: eid, componente_id: compId, quantidade_usada: 1 }))
             );
+            if (assocError) {
+              console.error('Erro ao criar associações equipamento-componente:', assocError);
+              showError('Componente salvo, mas não foi possível associá-lo aos equipamentos. Tente novamente.');
+              setLoading(false);
+              return; // keep modal open so user can retry
+            }
           }
         } catch (err) {
-          console.warn('Não foi possível criar associações equipamento-componente:', err);
+          console.error('Não foi possível criar associações equipamento-componente:', err);
+          showError('Componente salvo, mas não foi possível associá-lo aos equipamentos. Tente novamente.');
+          setLoading(false);
+          return;
         }
       } else {
         // edição: não altera o código interno
         await componentesAPI.update(componenteId, payload);
         success('Componente atualizado');
-        // update associations: remove existing and recreate
+        // update associations: remove existing and recreate (report errors)
         try {
-          await supabase.from('equipamentos_componentes').delete().eq('componente_id', componenteId);
+          const { error: delErr } = await supabase.from('equipamentos_componentes').delete().eq('componente_id', componenteId);
+          if (delErr) {
+            console.error('Erro ao remover associações antigas:', delErr);
+            showError('Componente atualizado, porém falha ao atualizar associações. Verifique.');
+            setLoading(false);
+            return;
+          }
           if (selectedEquipamentos.length) {
-            await supabase.from('equipamentos_componentes').insert(
+            const { error: insErr } = await supabase.from('equipamentos_componentes').insert(
               selectedEquipamentos.map(eid => ({ equipamento_id: eid, componente_id: componenteId, quantidade_usada: 1 }))
             );
+            if (insErr) {
+              console.error('Erro ao recriar associações equipamento-componente:', insErr);
+              showError('Componente atualizado, porém falha ao atualizar associações. Verifique.');
+              setLoading(false);
+              return;
+            }
           }
         } catch (err) {
-          console.warn('Não foi possível atualizar associações equipamento-componente:', err);
+          console.error('Não foi possível atualizar associações equipamento-componente:', err);
+          showError('Componente atualizado, porém falha ao atualizar associações. Verifique.');
+          setLoading(false);
+          return;
         }
       }
       onSuccess();

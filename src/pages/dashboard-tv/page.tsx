@@ -13,6 +13,7 @@ export default function DashboardTVPage(): JSX.Element {
 
   const imageRefTV = useRef<HTMLImageElement | null>(null);
   const overlayRefTV = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
   const [imgRectTV, setImgRectTV] = useState<DOMRect | null>(null);
 
   const recomputeImgRectTV = () => {
@@ -176,29 +177,42 @@ export default function DashboardTVPage(): JSX.Element {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex items-center justify-center text-sm">Produção</div>
-            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex items-center justify-center text-sm">Eficiência</div>
-            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex items-center justify-center text-sm">OS</div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Produção</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Eficiência</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>OS</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+
+            {/* Moved side cards into header for TV view */}
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Equipamentos</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Status Geral</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>OS Abertas</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Alertas</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
           </div>
         </header>
 
-        {/* Left Sidebar */}
-        {/* Left column - collapses under central on small screens; hidden for planning view */}
-        {tvView === 'map' && (
-          <aside className="col-start-1 col-end-2 row-start-2 row-end-3 px-2">
-          <div className="space-y-3">
-            <div className="w-full rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md min-h-[160px]">
-              <div className="text-sm uppercase tracking-wide text-white/60">Equipamentos</div>
-            </div>
-            <div className="w-full rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md min-h-[160px]">
-              <div className="text-sm uppercase tracking-wide text-white/60">Status Geral</div>
-            </div>
-          </div>
-          </aside>
-        )}
 
         {/* Center - Map / Planning */}
-        <main className="col-start-2 col-end-3 row-start-2 row-end-3 flex items-center justify-center px-2">
+        <main className={tvView === 'plan' ? 'col-start-1 col-end-4 row-start-2 row-end-3 flex items-center justify-center px-2' : 'col-start-2 col-end-3 row-start-2 row-end-3 flex items-center justify-center px-2'}>
           <div className="w-full h-full rounded-xl overflow-hidden border border-white/10 shadow-xl bg-[#0E1525] p-0 flex items-center justify-center">
             {tvView === 'map' ? (
               mapImage ? (
@@ -241,42 +255,37 @@ export default function DashboardTVPage(): JSX.Element {
                 <div className="text-center text-gray-400">Mapa não encontrado. Faça upload na página Mapa Industrial.</div>
               )
             ) : (
-              // Planning view (simplified)
+              // Planning view (full width across columns) - show Monday..Saturday
               <div className="w-full h-full overflow-auto p-4 text-white">
                 <h3 className="text-xl mb-2">Planejamento Semanal</h3>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                   <div className="bg-white/5 rounded p-3">Segunda</div>
                   <div className="bg-white/5 rounded p-3">Terça</div>
                   <div className="bg-white/5 rounded p-3">Quarta</div>
+                  <div className="bg-white/5 rounded p-3">Quinta</div>
+                  <div className="bg-white/5 rounded p-3">Sexta</div>
+                  <div className="bg-white/5 rounded p-3">Sábado</div>
                 </div>
               </div>
             )}
           </div>
         </main>
 
-        {/* Right Sidebar - hidden in planning view */}
-        {tvView === 'map' && (
-          <aside className="col-start-3 col-end-4 row-start-2 row-end-3 px-2">
-            <div className="space-y-3">
-              <div className="w-full rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md min-h-[160px]">
-                <div className="text-sm uppercase tracking-wide text-white/60">OS Abertas</div>
-              </div>
-              <div className="w-full rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md min-h-[160px]">
-                <div className="text-sm uppercase tracking-wide text-white/60">Alertas / Críticos</div>
-              </div>
-            </div>
-          </aside>
-        )}
+        {/* Right Sidebar removed for TV: content moved into header (see above) */}
 
         <footer className="col-span-3 row-start-3 row-end-4 px-4 py-4" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-center justify-between">
-            <div className="flex gap-3">
-              <div className="w-40 h-16 rounded-md bg-white/5 border flex flex-col justify-center px-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+            <div ref={(el) => { footerRef.current = el; }} className="flex gap-3 overflow-x-auto no-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <div className="inline-flex w-40 h-16 rounded-md bg-white/5 border flex-shrink-0 flex flex-col justify-center px-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
                 <div className="text-xs text-gray-300">Temperatura</div>
                 <div className="text-sm font-bold text-white">—</div>
               </div>
-              <div className="w-40 h-16 rounded-md bg-white/5 border flex flex-col justify-center px-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+              <div className="inline-flex w-40 h-16 rounded-md bg-white/5 border flex-shrink-0 flex flex-col justify-center px-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
                 <div className="text-xs text-gray-300">Consumo</div>
+                <div className="text-sm font-bold text-white">—</div>
+              </div>
+              <div className="inline-flex w-40 h-16 rounded-md bg-white/5 border flex-shrink-0 flex flex-col justify-center px-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <div className="text-xs text-gray-300">OS Abertas</div>
                 <div className="text-sm font-bold text-white">—</div>
               </div>
             </div>

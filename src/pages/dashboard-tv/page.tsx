@@ -21,6 +21,25 @@ export default function DashboardTVPage(): JSX.Element {
     } catch (e) {}
   };
 
+  // responsive grid columns: use JS to choose layout so we can target TVs and small screens
+  const [gridCols, setGridCols] = useState<string>(() => {
+    try {
+      return window.innerWidth < 1024 ? '1fr' : '15% 70% 15%';
+    } catch (e) {
+      return '15% 70% 15%';
+    }
+  });
+
+  useEffect(() => {
+    const onResize = () => {
+      try {
+        setGridCols(window.innerWidth < 1024 ? '1fr' : '15% 70% 15%');
+      } catch (e) {}
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   const getProgressColor = (prog = 0) => {
     if (prog >= 100) return '#10b981';
     if (prog === 0) return '#3b82f6';
@@ -146,7 +165,7 @@ export default function DashboardTVPage(): JSX.Element {
   // Render
   return (
     <div className="min-h-screen w-full bg-[#090F1A] p-2">
-      <div className="grid" style={{ gridTemplateColumns: '200px 1fr 200px', gridTemplateRows: '80px 1fr 100px', height: '100vh', gap: '12px' }}>
+      <div className="grid" style={{ gridTemplateColumns: gridCols, gridTemplateRows: '80px 1fr 100px', height: '100vh', gap: '12px', paddingLeft: 8, paddingRight: 8 }}>
         <header className="col-span-3 flex items-center justify-between px-4 h-[80px]" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 bg-blue-600 rounded flex items-center justify-center"><i className="ri-plant-line text-white" /></div>
@@ -164,13 +183,14 @@ export default function DashboardTVPage(): JSX.Element {
         </header>
 
         {/* Left Sidebar */}
+        {/* Left column - collapses under central on small screens */}
         <aside className="col-start-1 col-end-2 row-start-2 row-end-3 px-2">
           <div className="space-y-3">
-            <div className="w-full h-[160px] rounded-xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md">
-              <div className="text-sm text-gray-200">Equipamentos</div>
+            <div className="w-full rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md min-h-[160px]">
+              <div className="text-sm uppercase tracking-wide text-white/60">Equipamentos</div>
             </div>
-            <div className="w-full h-[160px] rounded-xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md">
-              <div className="text-sm text-gray-200">Status Geral</div>
+            <div className="w-full rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md min-h-[160px]">
+              <div className="text-sm uppercase tracking-wide text-white/60">Status Geral</div>
             </div>
           </div>
         </aside>
@@ -181,14 +201,16 @@ export default function DashboardTVPage(): JSX.Element {
             {tvView === 'map' ? (
               mapImage ? (
                 <div ref={overlayRefTV} className="w-full h-full flex items-center justify-center relative">
-                  <img
-                    ref={imageRefTV}
-                    src={mapImage}
-                    alt="Mapa Industrial"
-                    className="w-full h-full object-cover rounded-lg"
-                    style={{ maxWidth: '92%', margin: '0 auto', maxHeight: '79vh' }}
-                    onLoad={() => recomputeImgRectTV()}
-                  />
+                  <div style={{ width: '100%', aspectRatio: '16/9', display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="p-2 rounded-xl overflow-hidden shadow-inner bg-[#0D1322]">
+                    <img
+                      ref={imageRefTV}
+                      src={mapImage}
+                      alt="Mapa Industrial"
+                      className="w-full h-full object-cover rounded-lg"
+                      style={{ maxWidth: '92%', margin: '0 auto', maxHeight: '90vh' }}
+                      onLoad={() => recomputeImgRectTV()}
+                    />
+                  </div>
 
                   {/* Hotspots (percentual) */}
                   {hotspots.length > 0 && (

@@ -18,6 +18,9 @@ export default function DashboardTVPage(): JSX.Element {
   const [imgRectTV, setImgRectTV] = useState<DOMRect | null>(null);
   const [overlayRectTV, setOverlayRectTV] = useState<DOMRect | null>(null);
 
+  // hook that loads equipment and group hotspots
+  const mapa = useMapaHotspots();
+
   const recomputeImgRectTV = () => {
     try {
       const imgR = imageRefTV.current ? imageRefTV.current.getBoundingClientRect() : null;
@@ -142,18 +145,7 @@ export default function DashboardTVPage(): JSX.Element {
         console.warn('Não foi possível ler hotspots do localStorage', e);
       }
 
-    // use hook that merges equipment and group hotspots
-    const mapa = useMapaHotspots();
-
-    // sync hook hotspots into local state so existing rendering code continues to work
-    useEffect(() => {
-      try {
-        if (mapa.hotspots && mapa.hotspots.length > 0) {
-          setHotspots(mapa.hotspots as any);
-          try { localStorage.setItem('hotspots', JSON.stringify(mapa.hotspots)); } catch (e) {}
-        }
-      } catch (e) {}
-    }, [mapa.hotspots]);
+    
 
     // equipments fallback from localStorage
     try {
@@ -345,6 +337,16 @@ export default function DashboardTVPage(): JSX.Element {
   }, []);
 
   useEffect(() => { recomputeImgRectTV(); }, [mapImage]);
+
+  // sync hotspots from hook (includes groups + equipment-level hotspots)
+  useEffect(() => {
+    try {
+      if (mapa.hotspots && mapa.hotspots.length > 0) {
+        setHotspots(mapa.hotspots as any);
+        try { localStorage.setItem('hotspots', JSON.stringify(mapa.hotspots)); } catch (e) {}
+      }
+    } catch (e) {}
+  }, [mapa.hotspots]);
 
   // Render
   // prepare grouped equipment for right panel (list all equipments, highlight hotspots)

@@ -49,12 +49,15 @@ export default function MapaPage() {
   const [filterSetor, setFilterSetor] = useState<string>('todos');
   const [setores, setSetores] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [equipmentLoadInfo, setEquipmentLoadInfo] = useState<string | null>(null);
   const [mapImage, setMapImage] = useState<string>('');
   const [showImageUpload, setShowImageUpload] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [selectedHotspot, setSelectedHotspot] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
+  const [recentlySaved, setRecentlySaved] = useState(false);
+  const [lastLocalSaveAt, setLastLocalSaveAt] = useState<number | null>(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [showAddHotspot, setShowAddHotspot] = useState(false);
   const [selectedEquipmentForHotspot, setSelectedEquipmentForHotspot] = useState<string>('');
@@ -75,6 +78,47 @@ export default function MapaPage() {
       // debug: log when recompute runs
       // eslint-disable-next-line no-console
       console.log('[MAPA] recomputeRects', { imgRect: imageRef.current?.getBoundingClientRect(), containerRect: mapRef.current?.getBoundingClientRect() });
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  // Reconcile visual positions: when layout/reflow changes (fullscreen, resize)
+  // some hotspots might render a few pixels off. This function computes the
+  // expected pixel center from percentage coords and applies a temporary
+  // CSS transform offset to align the element visually without writing to DB.
+  const reconcileHotspots = () => {
+    try {
+      const overlayR = overlayRef.current?.getBoundingClientRect();
+      if (!overlayR) return;
+      hotspots.forEach((h: any) => {
+        try {
+          const el = document.querySelector(`[data-hotspot-id="${h.id}"]`) as HTMLElement | null;
+          if (!el) return;
+          const r = el.getBoundingClientRect();
+          const expectedCenterX = overlayR.left + (Number(h.x) / 100) * overlayR.width;
+          const expectedCenterY = overlayR.top + (Number(h.y) / 100) * overlayR.height;
+          const actualCenterX = r.left + r.width / 2;
+          const actualCenterY = r.top + r.height / 2;
+          const deltaX = Math.round(expectedCenterX - actualCenterX);
+          const deltaY = Math.round(expectedCenterY - actualCenterY);
+
+          // apply small-threshold correction (only if > 2px)
+          if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+            // merge with existing translate(-50%,-50%) by using calc
+            el.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+            el.dataset.reconciled = '1';
+          } else {
+            if (el.dataset.reconciled) {
+              // remove reconciliation
+              el.style.transform = 'translate(-50%, -50%)';
+              delete el.dataset.reconciled;
+            }
+          }
+        } catch (e) {
+          // ignore per-hotspot errors
+        }
+      });
     } catch (e) {
       // ignore
     }
@@ -176,10 +220,39 @@ export default function MapaPage() {
       window.addEventListener('resize', recomputeRects);
     }
 
+    // MutationObserver to detect DOM/layout changes inside mapRef (sidebar toggles can change layout)
+    let mo: MutationObserver | null = null;
+    try {
+      if (mapRef.current) {
+        mo = new MutationObserver(() => {
+          setTimeout(recomputeRects, 40);
+          setTimeout(recomputeRects, 200);
+        });
+        mo.observe(mapRef.current, { attributes: true, childList: true, subtree: true });
+      }
+    } catch (e) {
+      // ignore
+    }
+
     // fullscreen change: recompute when entering/exiting fullscreen
     const fsEvent = (document as any).fullscreenEnabled ? 'fullscreenchange' : 'fullscreenchange';
     const onFs = () => setTimeout(recomputeRects, 120);
     try { document.addEventListener(fsEvent, onFs); } catch (e) {}
+
+    // Also listen for fullscreenchange (with vendor prefixes) and multiple delayed recomputes
+    const onFullScreenChange = () => {
+      recomputeRects();
+      setTimeout(recomputeRects, 80);
+      setTimeout(recomputeRects, 300);
+      setTimeout(recomputeRects, 800);
+    };
+    try { document.addEventListener('fullscreenchange', onFullScreenChange); } catch (e) {}
+    try { document.addEventListener('webkitfullscreenchange', onFullScreenChange); } catch (e) {}
+    try { document.addEventListener('mozfullscreenchange', onFullScreenChange); } catch (e) {}
+    try { document.addEventListener('MSFullscreenChange', onFullScreenChange); } catch (e) {}
+
+    // ensure resize also triggers recompute (some browsers change inner size on F11)
+    try { window.addEventListener('resize', recomputeRects); } catch (e) {}
 
     // devicePixelRatio changes (some zooms affect DPR). Poll for changes.
     let lastDpr = window.devicePixelRatio;
@@ -198,8 +271,29 @@ export default function MapaPage() {
         window.removeEventListener('resize', recomputeRects);
       }
       try { document.removeEventListener(fsEvent, onFs); } catch (e) {}
+      try { document.removeEventListener('fullscreenchange', onFullScreenChange); } catch (e) {}
+      try { document.removeEventListener('webkitfullscreenchange', onFullScreenChange); } catch (e) {}
+      try { document.removeEventListener('mozfullscreenchange', onFullScreenChange); } catch (e) {}
+      try { document.removeEventListener('MSFullscreenChange', onFullScreenChange); } catch (e) {}
+      try { window.removeEventListener('resize', recomputeRects); } catch (e) {}
+      if (mo) {
+        try { mo.disconnect(); } catch (e) {}
+      }
       clearInterval(dprInterval);
     };
+  }, []);
+
+  // ensure reconcile runs after layout changes
+  useEffect(() => {
+    try {
+      if (!overlayRef.current) return;
+      const obs = new ResizeObserver(() => {
+        setTimeout(reconcileHotspots, 40);
+        setTimeout(reconcileHotspots, 200);
+      });
+      obs.observe(overlayRef.current);
+      return () => { try { obs.disconnect(); } catch (e) {} };
+    } catch (e) { }
   }, []);
 
   // Recompute image/container rects when layout changes (sidebar, panels, image changes)
@@ -213,18 +307,56 @@ export default function MapaPage() {
 
   useEffect(() => {
     // keep local hotspots in sync with hook
-    setHotspots(mapa.hotspots);
-    // debug: expose and log hotspot arrays when the hook updates
+    // BUT avoid clobbering local edits while the user is dragging/resizing or in editMode
     try {
-      if (typeof document !== 'undefined') {
+      if (dragging || resizing || editMode) {
         // eslint-disable-next-line no-console
-        console.log('[MAPA] hook hotspots updated', { mapaHotspots: mapa.hotspots, localHotspots: hotspots, domCount: document.querySelectorAll('[data-hotspot-id]').length });
-      } else {
+        console.log('[MAPA] skipping external hotspot sync while editing', { dragging, resizing, editMode });
+        return;
+      }
+      if (recentlySaved) {
         // eslint-disable-next-line no-console
-        console.log('[MAPA] hook hotspots updated', { mapaHotspots: mapa.hotspots, localHotspots: hotspots });
+        console.log('[MAPA] skipping external hotspot sync due to recent local save', { recentlySaved });
+        return;
       }
     } catch (e) {}
-  }, [mapa.hotspots]);
+
+    // Prefer a recently saved local copy (within 10s) to avoid races when exiting fullscreen
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('hotspots_local') : null;
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as { ts: number; data: any };
+          if (parsed && parsed.ts && (Date.now() - parsed.ts) < 10_000) {
+            setHotspots(parsed.data || mapa.hotspots);
+            // eslint-disable-next-line no-console
+            console.log('[MAPA] using recent local hotspots instead of hook (within 10s)', { ageMs: Date.now() - parsed.ts });
+            return;
+          }
+        } catch (e) {
+          // malformed local storage, ignore
+        }
+      }
+
+      setHotspots(mapa.hotspots);
+      // debug: expose and log hotspot arrays when the hook updates
+      try {
+        if (typeof document !== 'undefined') {
+          // eslint-disable-next-line no-console
+          console.log('[MAPA] hook hotspots updated', { mapaHotspots: mapa.hotspots, localHotspots: hotspots, domCount: document.querySelectorAll('[data-hotspot-id]').length });
+        } else {
+          // eslint-disable-next-line no-console
+          console.log('[MAPA] hook hotspots updated', { mapaHotspots: mapa.hotspots, localHotspots: hotspots });
+        }
+      } catch (e) {}
+    } catch (e) {}
+    // schedule reconciliation after rect updates
+    try {
+      setTimeout(reconcileHotspots, 60);
+      setTimeout(reconcileHotspots, 200);
+      setTimeout(reconcileHotspots, 600);
+    } catch (e) {}
+  }, [mapa.hotspots, dragging, resizing, editMode, recentlySaved]);
 
   const loadSetores = async () => {
     try {
@@ -245,37 +377,112 @@ export default function MapaPage() {
   const loadEquipments = async () => {
     try {
       setLoading(true);
-      
+      setEquipmentLoadInfo('Carregando equipamentos...');
       const { data: eqData, error: eqError } = await supabase
         .from('equipamentos')
-        .select('*, setores(nome)');
+        .select('*'); // use wildcard to avoid column-not-found errors and help debugging
+
+      if (eqError) {
+        console.error('Supabase equipamentos error:', eqError);
+        setEquipmentLoadInfo(`Erro Supabase: ${eqError.message || JSON.stringify(eqError)}`);
+      }
 
       if (!eqError && eqData && eqData.length > 0) {
-        const mapped = eqData.map((item) => ({
-          id: item.id,
-          nome: item.nome || 'Sem nome',
-          codigo_interno: item.codigo_interno || '',
-          x: 0,
-          y: 0,
-          status: (item.status_revisao >= 100 ? 'operacional' : 
-                 item.status_revisao >= 50 ? 'manutencao' : 
-                 item.status_revisao > 0 ? 'alerta' : 'parado') as Equipment['status'],
-          setor: item.setores?.nome || 'Sem setor',
-          progresso: item.status_revisao || 0,
-          criticidade: item.criticidade,
-          fabricante: item.fabricante,
-          modelo: item.modelo,
-        }));
+        const mapped = eqData.map((item: any) => {
+          // The canonical schema may not have a numeric 'status_revisao'.
+          // Use 'status' text when present and default progresso to 0.
+          const rawStatus = item.status || '';
+          const progresso = typeof item.status_revisao === 'number' ? item.status_revisao : (item.progresso || 0);
+          const statusMapped = ((): Equipment['status'] => {
+            if (typeof progresso === 'number') {
+              if (progresso >= 100) return 'operacional';
+              if (progresso >= 50) return 'manutencao';
+              if (progresso > 0) return 'alerta';
+              return 'parado';
+            }
+            // fallback based on textual status
+            if (/ativo|operacional/i.test(rawStatus)) return 'operacional';
+            if (/manutenc/i.test(rawStatus)) return 'manutencao';
+            if (/parad|parado/i.test(rawStatus)) return 'parado';
+            return 'parado';
+          })();
+
+          // normalize setor: some payloads return an object ({ nome }) or a plain string
+          const setorVal = ((): string => {
+            // prefer explicit `linha_setor` column if present, otherwise fall back to `setor`
+            const raw = item.linha_setor ?? item.setor;
+            if (!raw) return '';
+            if (typeof raw === 'string') return raw;
+            if (typeof raw === 'object') {
+              return raw.nome || raw.name || '';
+            }
+            return String(raw);
+          })();
+
+          return {
+            id: item.id,
+            nome: item.nome || 'Sem nome',
+            codigo_interno: item.codigo_interno || '',
+            x: 0,
+            y: 0,
+            status: statusMapped,
+            setor: setorVal || '',
+            linha_setor: setorVal || '',
+            progresso: typeof progresso === 'number' ? progresso : 0,
+            criticidade: item.criticidade,
+            fabricante: item.fabricante,
+            modelo: item.modelo,
+          } as Equipment;
+        });
         setEquipments(mapped as Equipment[]);
+        try { localStorage.setItem('equipments', JSON.stringify(mapped)); } catch (e) { /* ignore */ }
+        setEquipmentLoadInfo(`${mapped.length} equipamentos carregados (Supabase)`);
       } else {
+        // attempt to recover from localStorage fallback
+        try {
+          const eqSaved = typeof window !== 'undefined' ? localStorage.getItem('equipments') : null;
+          if (eqSaved) {
+            setEquipments(JSON.parse(eqSaved) as Equipment[]);
+            const items = JSON.parse(eqSaved) as Equipment[];
+            setEquipmentLoadInfo(`Usando localStorage: ${items.length} equipamentos`);
+            return;
+          }
+        } catch (e) {
+          console.warn('Falha ao ler equipments do localStorage', e);
+        }
+        setEquipmentLoadInfo('Nenhum equipamento encontrado (supabase retornou vazio)');
         setEquipments([]);
       }
     } catch (err) {
       console.error('Erro ao carregar equipamentos:', err);
-      setEquipments([]);
+      // fallback to localStorage
+      try {
+        const eqSaved = typeof window !== 'undefined' ? localStorage.getItem('equipments') : null;
+        if (eqSaved) {
+          setEquipments(JSON.parse(eqSaved) as Equipment[]);
+          const items = JSON.parse(eqSaved) as Equipment[];
+          setEquipmentLoadInfo(`Usando localStorage: ${items.length} equipamentos (após erro)`);
+        } else {
+          setEquipmentLoadInfo(`Erro ao carregar equipamentos: ${(err as any)?.message || String(err)}`);
+          setEquipments([]);
+        }
+      } catch (e) {
+        console.error('Erro ao recuperar equipamentos do localStorage:', e);
+        setEquipments([]);
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  // ensure equipments are fresh when opening the Add Hotspot modal
+  const openAddHotspot = async () => {
+    try {
+      await loadEquipments();
+    } catch (e) {
+      // ignore
+    }
+    setShowAddHotspot(true);
   };
 
   // hotspots are handled by `useMapaHotspots` hook
@@ -599,6 +806,17 @@ export default function MapaPage() {
             });
           }
           // success toast handled by hook
+          try {
+            // persist a local copy immediately to prefer it over quick external reloads
+            const now = Date.now();
+            setLastLocalSaveAt(now);
+            try { localStorage.setItem('hotspots_local', JSON.stringify({ ts: now, data: hotspots })); } catch (e) {}
+            setRecentlySaved(true);
+            setTimeout(() => setRecentlySaved(false), 2000); // extend to 2s to be safer
+            // debug
+            // eslint-disable-next-line no-console
+            console.log('[MAPA] hotspot saved locally and lock set', { id: hotspot.id, ts: now });
+          } catch (e) {}
         } catch (err) {
           console.error('Erro ao salvar posição:', err);
           // Provide clearer guidance for common DB/API issues
@@ -878,6 +1096,14 @@ export default function MapaPage() {
     return '#6b7280';
   };
 
+  const formatLinhaLabel = (setor?: string) => {
+    if (!setor) return 'Sem Setor';
+    const s = String(setor).trim();
+    if (/^linha\s*/i.test(s)) return s;
+    if (/^\d+$/.test(s)) return `Linha ${s}`;
+    return s;
+  };
+
   const getFilteredHotspots = () => {
     // Prevent showing equipment-level hotspots that are part of a group hotspot
     // (this avoids duplicate markers when a group and its member also have individual hotspots)
@@ -1154,6 +1380,8 @@ export default function MapaPage() {
 
   // dedupe hotspots by id to avoid rendering duplicates from the hook
   const uniqueHotspots = Array.from(new Map(getFilteredHotspots().map((h: any) => [h.id, h])).values());
+  // set of equipment ids that already have a hotspot (used to disable options in Add Hotspot modal)
+  const hotspotEqIds = new Set(uniqueHotspots.map((h: any) => String(h.equipamento_id)));
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
@@ -1188,7 +1416,7 @@ export default function MapaPage() {
               {editMode && (
                 <>
                   <button
-                    onClick={() => setShowAddHotspot(true)}
+                    onClick={() => openAddHotspot()}
                     title="Adicionar Hotspot"
                     aria-label="Adicionar Hotspot"
                     className="w-10 h-10 flex items-center justify-center bg-green-600 text-white rounded-md hover:bg-green-700 transition-all"
@@ -1429,14 +1657,7 @@ export default function MapaPage() {
               >
                 {mapImage ? (
                 <div className="w-full h-full flex items-center justify-center">
-                  <div
-                    ref={overlayRef}
-                    style={
-                      imgRect
-                        ? { position: 'relative', width: `${imgRect.width}px`, height: `${imgRect.height}px` }
-                        : { position: 'relative', display: 'inline-block', maxWidth: '100%', maxHeight: '100%' }
-                    }
-                  >
+                  <div ref={overlayRef} className="relative w-full h-full">
                     <img
                       ref={imageRef}
                       onLoad={() => {
@@ -1447,12 +1668,23 @@ export default function MapaPage() {
                       }}
                       src={mapImage}
                       alt="Mapa Industrial"
-                      className="block w-full h-auto pointer-events-none"
-                      style={{ display: mapImage ? 'block' : 'none' }}
+                      className="block w-full h-full object-contain pointer-events-none"
+                      style={{ display: mapImage ? 'block' : 'none', aspectRatio: '16/9' }}
                     />
 
-                    {/* Hotspots rendered as children of the overlay so they scale with the image */}
-                    {uniqueHotspots.map((hotspot: any) => {
+                    {/* Hotspots rendered inside a box matching the actual rendered image area
+                        This prevents hotspots from moving when the surrounding layout (sidebar) changes. */}
+                    {imgRect && containerRect ? (
+                      <div
+                        className="absolute"
+                        style={{
+                          left: `${imgRect.left - containerRect.left}px`,
+                          top: `${imgRect.top - containerRect.top}px`,
+                          width: `${imgRect.width}px`,
+                          height: `${imgRect.height}px`,
+                        }}
+                      >
+                        {uniqueHotspots.map((hotspot: any) => {
                       const isGroup = !!hotspot.isGroup;
                       let equipment: any = null;
                       if (!isGroup) equipment = equipments.find((eq) => eq.id === hotspot.equipamento_id);
@@ -1476,43 +1708,45 @@ export default function MapaPage() {
                       const hotspotColor = getProgressColor(prog);
                       const fontSize = hotspot.fontSize || 14;
                       const iconClass = hotspot.icon || 'ri-tools-fill';
-                      const circleSize = fontSize * 4;
+                      const circleSize = Math.max(36, fontSize * 3);
 
                       // compute top-left from center-based stored x/y
-                      const leftPercent = (hotspot.x ?? 0) - ((hotspot.width ?? 0) / 2);
-                      const topPercent = (hotspot.y ?? 0) - ((hotspot.height ?? 0) / 2);
+                            const leftCenter = (hotspot.x ?? 0);
+                            const topCenter = (hotspot.y ?? 0);
 
-                      return (
-                        <div
-                          key={hotspot.id}
-                          data-hotspot-id={hotspot.id}
-                          className={`absolute group ${editMode ? 'cursor-move' : 'cursor-pointer'} ${
-                            selectedHotspot === hotspot.id ? 'ring-4 ring-blue-500' : ''
-                          }`}
-                          style={{
-                            left: `${leftPercent}%`,
-                            top: `${topPercent}%`,
-                            width: `${hotspot.width}%`,
-                            height: `${hotspot.height}%`,
-                            backgroundColor: editMode ? 'rgba(59, 130, 246, 0.18)' : 'transparent',
-                            border: editMode ? '2px dashed #3b82f6' : 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                          onMouseDown={(e) => handleMouseDown(e, hotspot.id)}
-                          onClick={() => !editMode && handleHotspotClick(hotspot)}
-                        >
+                            return (
+                              <div
+                                key={hotspot.id}
+                                data-hotspot-id={hotspot.id}
+                                className={`absolute group ${editMode ? 'cursor-move' : 'cursor-pointer'} ${
+                                  selectedHotspot === hotspot.id ? 'ring-4 ring-blue-500' : ''
+                                }`}
+                                style={{
+                                  left: `${leftCenter}%`,
+                                  top: `${topCenter}%`,
+                                  transform: 'translate(-50%, -50%)',
+                                  width: `${hotspot.width}%`,
+                                  height: `${hotspot.height}%`,
+                                  backgroundColor: editMode ? 'rgba(59, 130, 246, 0.18)' : 'transparent',
+                                  border: editMode ? '2px dashed #3b82f6' : 'none',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                                onMouseDown={(e) => handleMouseDown(e, hotspot.id)}
+                                onClick={() => !editMode && handleHotspotClick(hotspot)}
+                              >
                           <div
-                            className="rounded-full flex flex-col items-center justify-center shadow-lg transition-transform group-hover:scale-125"
+                            className="rounded-full flex flex-col items-center justify-center shadow-2xl transition-transform group-hover:scale-125"
                             style={{
                               backgroundColor: hotspotColor,
                               width: `${circleSize}px`,
                               height: `${circleSize}px`,
+                              boxShadow: '0 0 12px rgba(0,229,255,0.9)'
                             }}
                           >
                             <i className={`${iconClass} text-white mb-1`} style={{ fontSize: `${fontSize + 4}px` }}></i>
-                            <span className="text-white font-bold" style={{ fontSize: `${fontSize - 2}px` }}>
+                            <span className="text-white font-bold" style={{ fontSize: `${Math.max(10, fontSize - 2)}px` }}>
                               {equipment.progresso}%
                             </span>
                           </div>
@@ -1555,16 +1789,107 @@ export default function MapaPage() {
                           )}
                         </div>
                       );
+                      return (
+                        <div
+                          key={hotspot.id}
+                          data-hotspot-id={hotspot.id}
+                          className={`absolute group ${editMode ? 'cursor-move' : 'cursor-pointer'} ${
+                            selectedHotspot === hotspot.id ? 'ring-4 ring-blue-500' : ''
+                          }`}
+                          style={{
+                            left: `${leftPercent}%`,
+                            top: `${topPercent}%`,
+                            width: `${hotspot.width}%`,
+                            height: `${hotspot.height}%`,
+                            backgroundColor: editMode ? 'rgba(59, 130, 246, 0.18)' : 'transparent',
+                            border: editMode ? '2px dashed #3b82f6' : 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onMouseDown={(e) => handleMouseDown(e, hotspot.id)}
+                          onClick={() => !editMode && handleHotspotClick(hotspot)}
+                        >
+                          <div
+                            className="rounded-full flex flex-col items-center justify-center shadow-2xl transition-transform group-hover:scale-125"
+                            style={{
+                              backgroundColor: hotspotColor,
+                              width: `${circleSize}px`,
+                              height: `${circleSize}px`,
+                              boxShadow: '0 0 12px rgba(0,229,255,0.9)'
+                            }}
+                          >
+                            <i className={`${iconClass} text-white mb-1`} style={{ fontSize: `${fontSize + 4}px` }}></i>
+                            <span className="text-white font-bold" style={{ fontSize: `${Math.max(10, fontSize - 2)}px` }}>
+                              {equipment.progresso}%
+                            </span>
+                          </div>
+                        </div>
+                      );
                     })}
 
-                    {debugMarkers.length > 0 && (
-                      <div className="absolute inset-0 pointer-events-none">
-                        {debugMarkers.map((m) => (
-                          <div key={`dbg-${m.id}`} style={{ position: 'absolute', left: `${m.x}%`, top: `${m.y}%`, transform: 'translate(-50%, -50%)' }}>
-                            <div style={{ width: 10, height: 10, borderRadius: 5, background: 'rgba(255,0,0,0.9)', border: '2px solid white' }}></div>
+                        {debugMarkers.length > 0 && (
+                          <div className="absolute inset-0 pointer-events-none">
+                            {debugMarkers.map((m) => (
+                              <div key={`dbg-${m.id}`} style={{ position: 'absolute', left: `${m.x}%`, top: `${m.y}%`, transform: 'translate(-50%, -50%)' }}>
+                                <div style={{ width: 10, height: 10, borderRadius: 5, background: 'rgba(255,0,0,0.9)', border: '2px solid white' }}></div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
+                    ) : (
+                      // fallback: render hotspots relative to full overlay (legacy behavior)
+                      uniqueHotspots.map((hotspot: any) => {
+                        const isGroup = !!hotspot.isGroup;
+                        let equipment: any = null;
+                        if (!isGroup) equipment = equipments.find((eq) => eq.id === hotspot.equipamento_id);
+                        if (!equipment) return null;
+                        const prog = equipment.progresso ?? 0;
+                        const hotspotColor = getProgressColor(prog);
+                        const fontSize = hotspot.fontSize || 14;
+                        const iconClass = hotspot.icon || 'ri-tools-fill';
+                        const circleSize = Math.max(36, fontSize * 3);
+                        const leftCenter = (hotspot.x ?? 0);
+                        const topCenter = (hotspot.y ?? 0);
+
+                        return (
+                          <div
+                            key={hotspot.id}
+                            data-hotspot-id={hotspot.id}
+                            className={`absolute group ${editMode ? 'cursor-move' : 'cursor-pointer'} ${selectedHotspot === hotspot.id ? 'ring-4 ring-blue-500' : ''}`}
+                            style={{
+                              left: `${leftCenter}%`,
+                              top: `${topCenter}%`,
+                              transform: 'translate(-50%, -50%)',
+                              width: `${hotspot.width}%`,
+                              height: `${hotspot.height}%`,
+                              backgroundColor: editMode ? 'rgba(59, 130, 246, 0.18)' : 'transparent',
+                              border: editMode ? '2px dashed #3b82f6' : 'none',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                            onMouseDown={(e) => handleMouseDown(e, hotspot.id)}
+                            onClick={() => !editMode && handleHotspotClick(hotspot)}
+                          >
+                            <div
+                              className="rounded-full flex flex-col items-center justify-center shadow-2xl transition-transform group-hover:scale-125"
+                              style={{
+                                backgroundColor: hotspotColor,
+                                width: `${circleSize}px`,
+                                height: `${circleSize}px`,
+                                boxShadow: '0 0 12px rgba(0,229,255,0.9)'
+                              }}
+                            >
+                              <i className={`${iconClass} text-white mb-1`} style={{ fontSize: `${fontSize + 4}px` }}></i>
+                              <span className="text-white font-bold" style={{ fontSize: `${Math.max(10, fontSize - 2)}px` }}>
+                                {equipment.progresso}%
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -1647,7 +1972,7 @@ export default function MapaPage() {
                           className={`w-40 px-3 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                         >
                           <option value="">Todas as Linhas</option>
-                          {Array.from(new Set(equipments.map(eq => eq.setor))).map((ln) => (
+                          {Array.from(new Set(equipments.map(eq => eq.linha_setor ?? eq.setor))).map((ln) => (
                             <option key={ln} value={ln}>{ln}</option>
                           ))}
                         </select>
@@ -1656,8 +1981,9 @@ export default function MapaPage() {
                       <div className="mt-2 max-h-48 overflow-y-auto p-2 rounded border">
                         {equipments
                           .filter((eq) => {
-                            // filter by selected linha (using eq.setor as linha field)
-                            if (groupForm.linha && eq.setor !== groupForm.linha) return false;
+                            // filter by selected linha (using eq.linha_setor as linha field)
+                            const linhaVal = eq.linha_setor ?? eq.setor;
+                            if (groupForm.linha && linhaVal !== groupForm.linha) return false;
                             // filter by search term (name or codigo_interno)
                             if (!groupSearch) return true;
                             const term = groupSearch.toLowerCase();
@@ -1671,7 +1997,7 @@ export default function MapaPage() {
                             }} />
                             <div>
                               <div className={`${darkMode ? 'text-gray-200' : 'text-gray-900'} font-medium`}><EquipamentoName equipamento={eq} numberClassName="text-amber-300" /></div>
-                              <div className="text-xs text-gray-400">IND: {eq.codigo_interno || eq.id.slice(0,8)} • {eq.setor}</div>
+                                <div className="text-xs text-gray-400">IND: {eq.codigo_interno || eq.id.slice(0,8)} • {eq.linha_setor ?? eq.setor}</div>
                             </div>
                           </label>
                         ))}
@@ -1761,12 +2087,44 @@ export default function MapaPage() {
                       } focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer`}
                     >
                       <option value="">Selecione...</option>
-                      {equipments.map((eq) => (
-                        <option key={eq.id} value={eq.id}>
-                          {formatEquipamentoName(eq)} - {eq.setor}
-                        </option>
-                      ))}
+                      {loading && <option value="" disabled>Carregando equipamentos...</option>}
+                      {
+                        // group equipments by setor (linha) to help selection
+                        Object.entries(equipments.reduce((acc: Record<string, any[]>, eq) => {
+                          const key = eq.linha_setor ?? eq.setor ?? 'Sem Setor';
+                          if (!acc[key]) acc[key] = [];
+                          acc[key].push(eq);
+                          return acc;
+                        }, {})).map(([linha, group]) => {
+                          const label = formatLinhaLabel(linha);
+                          return (
+                            <optgroup key={linha} label={label}>
+                              {group.map((eq: any) => {
+                                const hasHotspot = hotspotEqIds.has(String(eq.id));
+                                return (
+                                  <option key={eq.id} value={eq.id} disabled={hasHotspot}>
+                                    {`${label} • ${formatEquipamentoName(eq)} • ${eq.codigo_interno || (eq.id || '').slice(0,8)}${hasHotspot ? ' • (Já possui hotspot)' : ''}`}
+                                  </option>
+                                );
+                              })}
+                            </optgroup>
+                          );
+                        })
+                      }
                     </select>
+                    <div className="mt-2 flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => loadEquipments()}
+                          className="px-3 py-1 rounded bg-slate-700 text-white text-sm hover:bg-slate-600"
+                          type="button"
+                        >Recarregar</button>
+                        <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{!loading && equipments.length === 0 ? 'Nenhum equipamento disponível' : ''}</div>
+                      </div>
+                      {equipmentLoadInfo && (
+                        <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{equipmentLoadInfo}</div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex gap-3">

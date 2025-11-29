@@ -142,7 +142,7 @@ export default function EquipamentosPage() {
     const nome = eq.nome?.toLowerCase() || '';
     const codigo = (eq.codigo_interno || '').toLowerCase();
     const matchSearch = q === '' || nome.includes(q) || codigo.includes(q);
-    const setorNome = eq.setores?.nome || eq.setor || '';
+    const setorNome = eq.setores?.nome || eq.linha_setor || eq.setor || '';
     const matchSetor = !filterSetor || setorNome === filterSetor;
     const matchCriticidade = !filterCriticidade || eq.criticidade === filterCriticidade;
     const matchSubgrupo = !filterSubgrupo || (eq.subgrupo || '') === filterSubgrupo;
@@ -184,7 +184,7 @@ export default function EquipamentosPage() {
     });
   });
 
-  const setores = [...new Set(equipamentos.map(eq => eq.setores?.nome || eq.setor).filter(Boolean))];
+  const setores = [...new Set(equipamentos.map(eq => eq.setores?.nome || eq.linha_setor || eq.setor).filter(Boolean))];
   const subgrupos = [...new Set(equipamentos.map(eq => eq.subgrupo || '').filter(Boolean))];
   const linhas = [...new Set(equipamentos.map(eq => eq.linha_setor || 'Sem linha').filter(Boolean))];
   const criticidades = ['Baixa', 'Média', 'Alta', 'Crítica'];

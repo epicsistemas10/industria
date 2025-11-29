@@ -66,20 +66,28 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     e.preventDefault();
     try {
       setLoading(true);
-      // normalize numeric / nullable fields
-      const payload = {
-        ...formData,
-        quantidade_minima: formData.quantidade_minima === '' || formData.quantidade_minima === null ? null : Number(formData.quantidade_minima) || 0,
-        preco_unitario: formData.preco_unitario === '' || formData.preco_unitario === null ? null : Number(formData.preco_unitario) || null,
-        componente_id: formData.componente_id ? formData.componente_id : null,
-        foto_url: formData.foto_url || null,
+      // Build payload mapping to actual DB columns in `pecas` table to avoid PostgREST 400 errors
+      const payload: any = {
+        componente_id: formData.componente_id || null,
+        nome: formData.nome,
+        // map 'fabricante' -> 'codigo_fabricante' (DB column)
+        codigo_fabricante: formData.fabricante || null,
+        // map 'preco_unitario' -> 'custo_medio'
+        custo_medio: formData.preco_unitario ? Number(formData.preco_unitario) : null,
+        // map 'foto_url' -> 'foto'
+        foto: formData.foto_url || null,
+        // map 'fornecedor' -> 'observacoes' (best-fit)
+        observacoes: formData.fornecedor || null
       };
 
       if (pecaId) {
-        await supabase.from('pecas').update(payload).eq('id', pecaId);
+        const { error } = await supabase.from('pecas').update(payload).eq('id', pecaId).select();
+        if (error) throw error;
         success('Peça atualizada');
       } else {
-        await supabase.from('pecas').insert(payload);
+        const { data, error } = await supabase.from('pecas').insert(payload).select().single();
+        if (error) throw error;
+        // ensure we have the created row
         success('Peça criada');
       }
       onSuccess();

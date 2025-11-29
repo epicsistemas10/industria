@@ -24,16 +24,16 @@ export default function DashboardTVPage(): JSX.Element {
   // responsive grid columns: use JS to choose layout so we can target TVs and small screens
   const [gridCols, setGridCols] = useState<string>(() => {
     try {
-      return window.innerWidth < 1024 ? '1fr' : '15% 70% 15%';
+      return window.innerWidth < 1024 ? '1fr' : '5% 90% 5%';
     } catch (e) {
-      return '15% 70% 15%';
+      return '5% 90% 5%';
     }
   });
 
   useEffect(() => {
     const onResize = () => {
       try {
-        setGridCols(window.innerWidth < 1024 ? '1fr' : '15% 70% 15%');
+        setGridCols(window.innerWidth < 1024 ? '1fr' : '5% 90% 5%');
       } catch (e) {}
     };
     window.addEventListener('resize', onResize);
@@ -183,8 +183,9 @@ export default function DashboardTVPage(): JSX.Element {
         </header>
 
         {/* Left Sidebar */}
-        {/* Left column - collapses under central on small screens */}
-        <aside className="col-start-1 col-end-2 row-start-2 row-end-3 px-2">
+        {/* Left column - collapses under central on small screens; hidden for planning view */}
+        {tvView === 'map' && (
+          <aside className="col-start-1 col-end-2 row-start-2 row-end-3 px-2">
           <div className="space-y-3">
             <div className="w-full rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md min-h-[160px]">
               <div className="text-sm uppercase tracking-wide text-white/60">Equipamentos</div>
@@ -193,25 +194,26 @@ export default function DashboardTVPage(): JSX.Element {
               <div className="text-sm uppercase tracking-wide text-white/60">Status Geral</div>
             </div>
           </div>
-        </aside>
+          </aside>
+        )}
 
         {/* Center - Map / Planning */}
         <main className="col-start-2 col-end-3 row-start-2 row-end-3 flex items-center justify-center px-2">
-          <div className="w-full h-full rounded-xl overflow-hidden border border-white/10 shadow-xl bg-[#0E1525] p-2 flex items-center justify-center">
+          <div className="w-full h-full rounded-xl overflow-hidden border border-white/10 shadow-xl bg-[#0E1525] p-0 flex items-center justify-center">
             {tvView === 'map' ? (
               mapImage ? (
                 <div ref={overlayRefTV} className="w-full h-full flex items-center justify-center relative">
-                  <div style={{ width: '100%', aspectRatio: '16/9', display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="p-2 rounded-xl overflow-hidden shadow-inner bg-[#0D1322]">
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'stretch', justifyContent: 'center' }} className="rounded-xl overflow-hidden bg-[#0D1322]">
                     <img
                       ref={imageRefTV}
                       src={mapImage}
                       alt="Mapa Industrial"
-                      className="w-full h-full object-cover rounded-lg"
-                      style={{ maxWidth: '92%', margin: '0 auto', maxHeight: '90vh' }}
+                      className="w-full h-full object-cover rounded-none"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       onLoad={() => recomputeImgRectTV()}
                     />
                   </div>
-
+                </div>
                   {/* Hotspots (percentual) */}
                   {hotspots.length > 0 && (
                     <div className="absolute inset-0 pointer-events-none">
@@ -253,17 +255,19 @@ export default function DashboardTVPage(): JSX.Element {
           </div>
         </main>
 
-        {/* Right Sidebar */}
-        <aside className="col-start-3 col-end-4 row-start-2 row-end-3 px-2">
-          <div className="space-y-3">
-            <div className="w-full h-[160px] rounded-xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md">
-              <div className="text-sm text-gray-200">OS Abertas</div>
+        {/* Right Sidebar - hidden in planning view */}
+        {tvView === 'map' && (
+          <aside className="col-start-3 col-end-4 row-start-2 row-end-3 px-2">
+            <div className="space-y-3">
+              <div className="w-full rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md min-h-[160px]">
+                <div className="text-sm uppercase tracking-wide text-white/60">OS Abertas</div>
+              </div>
+              <div className="w-full rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md min-h-[160px]">
+                <div className="text-sm uppercase tracking-wide text-white/60">Alertas / Críticos</div>
+              </div>
             </div>
-            <div className="w-full h-[160px] rounded-xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md">
-              <div className="text-sm text-gray-200">Alertas / Críticos</div>
-            </div>
-          </div>
-        </aside>
+          </aside>
+        )}
 
         <footer className="col-span-3 row-start-3 row-end-4 px-4 py-4" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-center justify-between">

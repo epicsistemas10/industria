@@ -232,7 +232,8 @@ export default function DashboardTVPage(): JSX.Element {
     const reloadData = async () => {
       try {
         // reload hotspots via hook (includes groups)
-        await mapa.load();
+          console.debug('[TV] reloadData: calling mapa.load()');
+          await mapa.load();
       } catch (e) {
         // ignore
       }
@@ -321,6 +322,7 @@ export default function DashboardTVPage(): JSX.Element {
   useEffect(() => {
     try {
       if (mapa.hotspots && mapa.hotspots.length > 0) {
+        console.debug('[TV] sync hotspots from hook', { count: (mapa.hotspots || []).length, groups: (mapa.hotspots || []).filter((h:any)=>h.isGroup).length });
         setHotspots(mapa.hotspots as any);
         try { localStorage.setItem('hotspots', JSON.stringify(mapa.hotspots)); } catch (e) {}
       }

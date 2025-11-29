@@ -37,8 +37,8 @@ export default function DashboardTVPage(): JSX.Element {
   // fullscreen or layout changes.
   const reconcileHotspotsTV = () => {
     try {
-      const imgR = imgRectTV;
-      const overlayR = overlayRectTV;
+      const imgR = (imageRefTV.current ? imageRefTV.current.getBoundingClientRect() : null) || imgRectTV;
+      const overlayR = (overlayRefTV.current ? overlayRefTV.current.getBoundingClientRect() : null) || overlayRectTV;
       if (!imgR || !overlayR) return;
 
       hotspots.forEach((h: any) => {
@@ -350,7 +350,14 @@ export default function DashboardTVPage(): JSX.Element {
 
   // Render
   // prepare grouped equipment for right panel (list all equipments, highlight hotspots)
-  const hotspotEqIds = new Set(hotspots.map(h => String(h.equipamento_id)));
+  const hotspotEqIds = new Set<string>();
+  hotspots.forEach((h: any) => {
+    if (!h) return;
+    if ((h as any).isGroup && Array.isArray((h as any).members)) {
+      (h as any).members.forEach((m: any) => hotspotEqIds.add(String(m)));
+    }
+    if (h.equipamento_id) hotspotEqIds.add(String(h.equipamento_id));
+  });
   const allEquipments = equipments || [];
   // Only include equipments that have hotspots when in TV map view.
   const equipmentsForPanel = tvView === 'map' ? allEquipments.filter(eq => hotspotEqIds.has(String(eq.id))) : allEquipments;
@@ -367,6 +374,30 @@ export default function DashboardTVPage(): JSX.Element {
   const leftGroupItems: Equipment[] = (groupsAll['Linha 1'] || []) as Equipment[];
   const rightOverlayItems: Equipment[] = (groupsAll['Linha 2'] || []) as Equipment[];
   const rightGroupKeys: string[] = groupKeys.filter(k => k !== 'Linha 1' && k !== 'Linha 2');
+
+  // Compute inner image box (live rects preferred) so hotspots render even when
+  // stored `imgRectTV`/`overlayRectTV` are stale or null.
+  const innerBox = (() => {
+    try {
+      const img = imageRefTV.current?.getBoundingClientRect() || null;
+      const over = overlayRefTV.current?.getBoundingClientRect() || null;
+      if (img && over) return { left: img.left - over.left, top: img.top - over.top, width: img.width, height: img.height };
+      if (imgRectTV && overlayRectTV) return { left: imgRectTV.left - overlayRectTV.left, top: imgRectTV.top - overlayRectTV.top, width: imgRectTV.width, height: imgRectTV.height };
+      return null;
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  // If there are hotspots but we couldn't compute innerBox, schedule a recompute
+  useEffect(() => {
+    try {
+      if (hotspots.length > 0 && !innerBox) {
+        setTimeout(recomputeImgRectTV, 60);
+        setTimeout(recomputeImgRectTV, 200);
+      }
+    } catch (e) {}
+  }, [hotspots.length, mapImage, innerBox]);
   return (
     <div className="min-h-screen w-full bg-[#090F1A] p-4">
       <div className="flex flex-col h-screen gap-4">
@@ -465,16 +496,16 @@ export default function DashboardTVPage(): JSX.Element {
 
                       {/* Hotspots overlay: render inside a pixel-sized box matching the actual rendered image rect so
                           positions (percent x/y) map consistently between Mapa and Dashboard TV */}
-                      {hotspots.length > 0 && imgRectTV && overlayRectTV && (
+                      {hotspots.length > 0 && innerBox && (
                         <div className="absolute inset-0 pointer-events-none">
                           {/* inner box positioned over the image in pixels */}
                           <div
                             style={{
                               position: 'absolute',
-                              left: `${imgRectTV.left - overlayRectTV.left}px`,
-                              top: `${imgRectTV.top - overlayRectTV.top}px`,
-                              width: `${imgRectTV.width}px`,
-                              height: `${imgRectTV.height}px`,
+                              left: `${innerBox.left}px`,
+                              top: `${innerBox.top}px`,
+                              width: `${innerBox.width}px`,
+                              height: `${innerBox.height}px`,
                               pointerEvents: 'none'
                             }}
                           >

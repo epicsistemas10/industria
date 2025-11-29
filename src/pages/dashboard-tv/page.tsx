@@ -355,8 +355,12 @@ export default function DashboardTVPage(): JSX.Element {
   const groupMemberIds = new Set<string>();
   hotspots.forEach((h: any) => {
     if (!h) return;
-    if ((h as any).isGroup && Array.isArray((h as any).members)) {
-      (h as any).members.forEach((m: any) => {
+    const idRaw = h.id ?? '';
+    const idStr = String(idRaw);
+    // if group hotspot uses nested group object (hook uses `group`), capture members accordingly
+    const members = Array.isArray(h.members) ? h.members : (h.group && Array.isArray(h.group.members) ? h.group.members : []);
+    if (h.isGroup && members.length > 0) {
+      members.forEach((m: any) => {
         hotspotEqIds.add(String(m));
         groupMemberIds.add(String(m));
       });
@@ -422,6 +426,26 @@ export default function DashboardTVPage(): JSX.Element {
       }
     } catch (e) {}
   }, [hotspots.length, mapImage, innerBox]);
+
+  // Sanitize hotspots for rendering: ensure numeric x/y/width/height and safe id strings
+  const sanitizedHotspots = (hotspots || []).map((h: any) => {
+    const idRaw = h && (h.id ?? (h.group && h.group.id) ?? '') || '';
+    const idStr = String(idRaw);
+    const isGroup = Boolean(h && h.isGroup);
+    const x = Number(h?.x ?? 0);
+    const y = Number(h?.y ?? 0);
+    const width = Number(h?.width ?? 6);
+    const height = Number(h?.height ?? 6);
+    const safe = {
+      ...h,
+      id: isGroup && !idStr.startsWith('grp-') ? `grp-${idStr}` : idStr,
+      x: Math.max(0, Math.min(100, isNaN(x) ? 0 : x)),
+      y: Math.max(0, Math.min(100, isNaN(y) ? 0 : y)),
+      width: Math.max(1, Math.min(100, isNaN(width) ? 6 : width)),
+      height: Math.max(1, Math.min(100, isNaN(height) ? 6 : height)),
+    } as any;
+    return safe;
+  });
   return (
     <div className="min-h-screen w-full bg-[#090F1A] p-4">
       <div className="flex flex-col h-screen gap-4">
@@ -533,7 +557,7 @@ export default function DashboardTVPage(): JSX.Element {
                               pointerEvents: 'none'
                             }}
                           >
-                            {hotspots.map(h => {
+                            {sanitizedHotspots.map(h => {
                               const isGroup = (h as any).isGroup;
                               let equipment = equipments.find(e => e.id === h.equipamento_id);
                               const fontSize = h.fontSize || 12;

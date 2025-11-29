@@ -31,6 +31,57 @@ export default function DashboardTVPage(): JSX.Element {
     } catch (e) {}
   };
 
+  // Tooltip state for hotspots: shows OS (open/closed) and recent manutencoes
+  const [tooltipId, setTooltipId] = useState<string | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number } | null>(null);
+  const [tooltipCache, setTooltipCache] = useState<Record<string, any>>({});
+
+  const fetchTooltipForHotspot = async (h: any) => {
+    try {
+      const id = String(h.id);
+      if (tooltipCache[id]) return tooltipCache[id];
+
+      const ids: string[] = [];
+      if (h.isGroup && Array.isArray(h.members)) ids.push(...h.members.map(String));
+      if (h.group && Array.isArray(h.group.members)) ids.push(...h.group.members.map(String));
+      if (h.equipamento_id) ids.push(String(h.equipamento_id));
+
+      // dedupe
+      const uniqueIds = Array.from(new Set(ids));
+
+      const mod = await import('../../lib/supabase');
+      const supabase = (mod as any).supabase;
+      const result: any = { equipamentos: uniqueIds, ordens: [], manutencoes: [], counts: { open: 0, closed: 0 } };
+      if (!supabase || uniqueIds.length === 0) {
+        setTooltipCache((s) => ({ ...s, [id]: result }));
+        return result;
+      }
+
+      // fetch ordens_servico for these equipamentos
+      try {
+        const { data: os } = await supabase.from('ordens_servico').select('id,titulo,status,descricao,created_at,equipamento_id').in('equipamento_id', uniqueIds).order('created_at', { ascending: false }).limit(10);
+        if (os) {
+          result.ordens = os;
+          result.counts.open = os.filter((o: any) => (o.status || '').toLowerCase() !== 'concluida' && (o.status || '').toLowerCase() !== 'fechada').length;
+          result.counts.closed = os.length - result.counts.open;
+        }
+      } catch (e) {
+        // ignore per-fetch
+      }
+
+      // fetch recent manutencoes
+      try {
+        const { data: m } = await supabase.from('manutencoes').select('id,tecnico,observacoes,created_at,equipamento_id').in('equipamento_id', uniqueIds).order('created_at', { ascending: false }).limit(5);
+        if (m) result.manutencoes = m;
+      } catch (e) {}
+
+      setTooltipCache((s) => ({ ...s, [id]: result }));
+      return result;
+    } catch (e) {
+      return null;
+    }
+  };
+
   // Reconcile small pixel drift for TV: align DOM elements to expected centers calculated
   // from percentage coordinates and the current image rect. This mirrors the logic
   // used in the main `mapa` page and helps keep hotspots visually stable after
@@ -372,7 +423,8 @@ export default function DashboardTVPage(): JSX.Element {
       // determine which linha to show the group under (use first member or default)
       const linhaKey = (memberEquipments[0]?.linha_setor ?? memberEquipments[0]?.setor) || 'Sem Setor';
       if (!groupsAll[linhaKey]) groupsAll[linhaKey] = [];
-      groupsAll[linhaKey].push({ id: grp.id, nome: 'DESCAROCADOR', progresso: avg, setor: linhaKey } as any);
+      const groupName = (grp && (grp.group?.nome ?? grp.group?.titulo ?? grp.nome ?? grp.titulo)) || 'Grupo';
+      groupsAll[linhaKey].push({ id: grp.id, nome: groupName, progresso: avg, setor: linhaKey, isGroup: true } as any);
     } catch (e) {
       // ignore
     }
@@ -557,14 +609,65 @@ export default function DashboardTVPage(): JSX.Element {
                               const topPercent = (h.y ?? 0);
 
                               return (
-                                <div key={h.id} data-hotspot-id={h.id} className="absolute" style={{ left: `${leftPercent}%`, top: `${topPercent}%`, transform: 'translate(-50%, -50%)', width: `${h.width}%`, height: `${h.height}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto' }}>
+                                <div
+                                  key={h.id}
+                                  data-hotspot-id={h.id}
+                                  className="absolute"
+                                  style={{ left: `${leftPercent}%`, top: `${topPercent}%`, transform: 'translate(-50%, -50%)', width: `${h.width}%`, height: `${h.height}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto' }}
+                                  onMouseEnter={async (ev) => {
+                                    try {
+                                      setTooltipId(String(h.id));
+                                      if (innerBox) {
+                                        const px = innerBox.left + (leftPercent / 100) * innerBox.width;
+                                        const py = innerBox.top + (topPercent / 100) * innerBox.height;
+                                        setTooltipPos({ left: px, top: py });
+                                      }
+                                      await fetchTooltipForHotspot(h);
+                                    } catch (e) {}
+                                  }}
+                                  onMouseLeave={() => { setTooltipId(null); }}
+                                >
                                   <div className="rounded-full relative flex flex-col items-center justify-center shadow-2xl overflow-hidden" style={{ background: getProgressColor(displayProgress), width: `${circleSize}px`, height: `${circleSize}px`, boxShadow: '0 0 10px rgba(0,229,255,0.35)' }}>
-                                          {/* percentage centered inside the circle (icon removed) */}
-                                          <span className="flex items-center justify-center text-white font-bold" style={{ fontSize: `${Math.max(10, Math.floor(circleSize * 0.42))}px`, lineHeight: 1, zIndex: 1 }}>{displayProgress}%</span>
-                                        </div>
+                                    {/* percentage centered inside the circle (icon removed) */}
+                                    <span className="flex items-center justify-center text-white font-bold" style={{ fontSize: `${Math.max(10, Math.floor(circleSize * 0.42))}px`, lineHeight: 1, zIndex: 1 }}>{displayProgress}%</span>
+                                  </div>
                                 </div>
                               );
                             })}
+                          </div>
+                        </div>
+                      )}
+                      {/* Tooltip rendered relative to overlayRefTV using innerBox coords */}
+                      {tooltipId && tooltipPos && (tooltipCache[tooltipId]) && (
+                        <div style={{ position: 'absolute', left: `${tooltipPos.left + 12}px`, top: `${tooltipPos.top + 12}px`, zIndex: 60, pointerEvents: 'auto' }}>
+                          <div className="bg-black/80 text-white rounded-lg p-3 w-64 shadow-lg">
+                            <div className="text-sm font-semibold">Informações</div>
+                            <div className="text-xs text-gray-300 mt-1">Equipamentos: {(tooltipCache[tooltipId].equipamentos || []).length}</div>
+                            <div className="flex items-center gap-2 text-xs mt-2">
+                              <div className="text-emerald-400 font-bold">Abertas: {tooltipCache[tooltipId].counts?.open ?? 0}</div>
+                              <div className="text-gray-400">Fechadas: {tooltipCache[tooltipId].counts?.closed ?? 0}</div>
+                            </div>
+                            <div className="mt-2 text-xs">
+                              <div className="font-medium">Ordens recentes</div>
+                              <div className="mt-1 space-y-1 max-h-28 overflow-auto">
+                                {(tooltipCache[tooltipId].ordens || []).slice(0,4).map((o:any) => (
+                                  <div key={o.id} className="text-xs">
+                                    <div className="font-semibold">{o.titulo}</div>
+                                    <div className="text-gray-300">{(o.status||'').toString()}</div>
+                                  </div>
+                                ))}
+                                {(tooltipCache[tooltipId].ordens || []).length === 0 && <div className="text-xs text-gray-400">Nenhuma OS</div>}
+                              </div>
+                            </div>
+                            <div className="mt-2 text-xs">
+                              <div className="font-medium">Manutenções recentes</div>
+                              <div className="mt-1 space-y-1">
+                                {(tooltipCache[tooltipId].manutencoes || []).slice(0,3).map((m:any) => (
+                                  <div key={m.id} className="text-xs text-gray-300">{m.tecnico || '—'} — {new Date(m.created_at).toLocaleString()}</div>
+                                ))}
+                                {(tooltipCache[tooltipId].manutencoes || []).length === 0 && <div className="text-xs text-gray-400">Nenhuma manutenção</div>}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       )}

@@ -155,32 +155,22 @@ export default function DashboardTVPage(): JSX.Element {
       console.warn('Falha ao ler equipments do localStorage', e);
     }
 
-    // Try to fetch from Supabase if lib is available (best-effort, do not fail if blocked)
+    // Use the hotspots hook to load both equipment and group hotspots, and
+    // fetch equipments with a defensive `select('*')` so we don't fail on missing columns.
     (async () => {
+      try {
+        await mapa.load();
+      } catch (e) {
+        // ignore
+      }
+
       try {
         const mod = await import('../../lib/supabase');
         const supabase = (mod as any).supabase;
         if (supabase) {
-          const { data: hs } = await supabase.from('equipamento_mapa').select('*');
-          if (hs) {
-            const hotspotsData = hs.map((item: any) => ({
-              id: item.id,
-              equipamento_id: item.equipamento_id,
-              x: item.x ?? 10,
-              y: item.y ?? 10,
-              width: item.width ?? 6,
-              height: item.height ?? 6,
-              color: item.color,
-              fontSize: item.font_size,
-              icon: item.icon,
-            }));
-            setHotspots(hotspotsData);
-            try { localStorage.setItem('hotspots', JSON.stringify(hotspotsData)); } catch (e) {}
-          }
-
-          const { data: eqData } = await supabase.from('equipamentos').select('id,nome,status_revisao,imagem_url,codigo_interno,setor,linha_setor');
+          const { data: eqData } = await supabase.from('equipamentos').select('*');
           if (eqData) {
-            const mapped = eqData.map((i: any) => ({ id: i.id, nome: i.nome, progresso: i.status_revisao || 0, imagem_url: i.imagem_url, codigo_interno: i.codigo_interno, setor: i.linha_setor ?? i.setor ?? '', linha_setor: i.linha_setor ?? i.setor ?? '' }));
+            const mapped = eqData.map((i: any) => ({ id: i.id, nome: i.nome, progresso: i.status_revisao ?? i.status ?? 0, imagem_url: i.imagem_url, codigo_interno: i.codigo_interno, setor: i.linha_setor ?? i.setor ?? '', linha_setor: i.linha_setor ?? i.setor ?? '' }));
             setEquipments(mapped);
             try { localStorage.setItem('equipments', JSON.stringify(mapped)); } catch (e) {}
           }
@@ -241,30 +231,19 @@ export default function DashboardTVPage(): JSX.Element {
     let refreshI: number | null = null;
     const reloadData = async () => {
       try {
+        // reload hotspots via hook (includes groups)
+        await mapa.load();
+      } catch (e) {
+        // ignore
+      }
+
+      try {
         const mod = await import('../../lib/supabase');
         const supabase = (mod as any).supabase;
         if (!supabase) return;
-
-        const { data: hs } = await supabase.from('equipamento_mapa').select('*');
-        if (hs) {
-          const hotspotsData = hs.map((item: any) => ({
-            id: item.id,
-            equipamento_id: item.equipamento_id,
-            x: item.x ?? 10,
-            y: item.y ?? 10,
-            width: item.width ?? 6,
-            height: item.height ?? 6,
-            color: item.color,
-            fontSize: item.font_size,
-            icon: item.icon,
-          }));
-          setHotspots(hotspotsData);
-          try { localStorage.setItem('hotspots', JSON.stringify(hotspotsData)); } catch (e) {}
-        }
-
-        const { data: eqData } = await supabase.from('equipamentos').select('id,nome,status,codigo_interno,setor,linha_setor,imagem_url');
+        const { data: eqData } = await supabase.from('equipamentos').select('*');
         if (eqData) {
-          const mapped = eqData.map((i: any) => ({ id: i.id, nome: i.nome, progresso: i.status_revisao || 0, imagem_url: i.imagem_url, codigo_interno: i.codigo_interno, setor: i.linha_setor ?? i.setor ?? '', linha_setor: i.linha_setor ?? i.setor ?? '' }));
+          const mapped = eqData.map((i: any) => ({ id: i.id, nome: i.nome, progresso: i.status_revisao ?? i.status ?? 0, imagem_url: i.imagem_url, codigo_interno: i.codigo_interno, setor: i.linha_setor ?? i.setor ?? '', linha_setor: i.linha_setor ?? i.setor ?? '' }));
           setEquipments(mapped);
           try { localStorage.setItem('equipments', JSON.stringify(mapped)); } catch (e) {}
         }

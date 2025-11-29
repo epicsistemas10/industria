@@ -281,7 +281,7 @@ export const componentesAPI = {
     try {
       // Only send known/expected columns to avoid PostgREST 400/PGRST204 errors
       const allowed = new Set([
-        'nome', 'codigo_interno', 'codigo_fabricante', 'marca', 'tipo_componente_id',
+        'nome', 'codigo_interno', 'codigo_fabricante', 'marca', 'tipo_id',
         'preco_unitario', 'foto_url'
       ]);
       const payload: any = {};
@@ -345,7 +345,7 @@ export const componentesAPI = {
   async update(id: string, componente: any) {
     try {
       const allowed = new Set([
-        'nome', 'codigo_interno', 'codigo_fabricante', 'marca', 'tipo_componente_id',
+        'nome', 'codigo_interno', 'codigo_fabricante', 'marca', 'tipo_id',
         'preco_unitario', 'foto_url'
       ]);
       const payload: any = {};

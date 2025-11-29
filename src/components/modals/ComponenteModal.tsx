@@ -28,7 +28,7 @@ export default function ComponenteModal({
     codigo_interno: '',
     codigo_fabricante: '',
     marca: '',
-    tipo_componente_id: '',
+    tipo_id: '',
     especificacoes: '',
     preco_unitario: 0,
     foto_url: ''
@@ -88,12 +88,12 @@ export default function ComponenteModal({
     try {
       setLoading(true);
       const data = await componentesAPI.getById(componenteId);
-      setFormData({
+        setFormData({
         nome: data.nome || '',
         codigo_interno: data.codigo_interno || '',
         codigo_fabricante: data.codigo_fabricante || '',
-        marca: data.marca || '',
-        tipo_componente_id: data.tipo_componente_id || '',
+          marca: data.marca || '',
+          tipo_id: data.tipo_id || '',
         especificacoes: data.especificacoes || '',
         preco_unitario: data.preco_unitario || 0,
         foto_url: data.foto_url || ''
@@ -121,7 +121,7 @@ export default function ComponenteModal({
       codigo_interno: '',
       codigo_fabricante: '',
       marca: '',
-      tipo_componente_id: '',
+      tipo_id: '',
       especificacoes: '',
       preco_unitario: 0,
       foto_url: ''
@@ -318,8 +318,8 @@ export default function ComponenteModal({
               </label>
               <select
                 required
-                value={formData.tipo_componente_id}
-                onChange={(e) => setFormData({ ...formData, tipo_componente_id: e.target.value })}
+                value={formData.tipo_id}
+                onChange={(e) => setFormData({ ...formData, tipo_id: e.target.value })}
                 className={`w-full px-4 py-2 rounded-lg border cursor-pointer ${
                   darkMode 
                     ? 'bg-slate-700 border-slate-600 text-white' 

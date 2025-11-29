@@ -169,9 +169,13 @@ export default function DashboardTVPage(): JSX.Element {
       <div className="grid" style={{ gridTemplateColumns: gridCols, gridTemplateRows: '80px 1fr 100px', height: '100vh', gap: '12px', paddingLeft: 8, paddingRight: 8 }}>
         <header className="col-span-3 flex items-center justify-between px-4 h-[80px]" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded flex items-center justify-center">
-              {/* Use favicon.svg as logo if available */}
-              <img src="/favicon.svg" alt="logo" className="w-8 h-8" />
+            <div className="w-12 h-12 rounded flex items-center justify-center overflow-hidden">
+              {/* Prefer env var, then localStorage key 'company_logo', then fallback favicon */}
+              <img
+                src={((import.meta as any).env?.VITE_COMPANY_LOGO_URL) || (typeof window !== 'undefined' ? localStorage.getItem('company_logo') : null) || '/favicon.svg'}
+                alt="logo"
+                className="w-10 h-10 object-contain"
+              />
             </div>
             <div>
               <div className="text-white font-semibold">IBA Santa Luzia</div>
@@ -221,7 +225,7 @@ export default function DashboardTVPage(): JSX.Element {
               mapImage ? (
                 <div ref={overlayRefTV} className="w-full h-full flex relative">
                   {/* Left: image (fill left area) */}
-                  <div className="flex-1 min-w-0 max-w-[70%] rounded-l-xl overflow-hidden bg-[#0D1322]">
+                  <div className="flex-1 min-w-0 max-w-[90%] rounded-l-xl overflow-hidden bg-[#0D1322]">
                     <img
                       ref={imageRefTV}
                       src={mapImage}
@@ -232,7 +236,7 @@ export default function DashboardTVPage(): JSX.Element {
                     />
                     {/* Hotspots overlay on image area */}
                     {hotspots.length > 0 && (
-                      <div className="absolute left-0 top-0 w-[70%] h-full pointer-events-none">
+                      <div className="absolute left-0 top-0 w-[90%] h-full pointer-events-none">
                         {hotspots.map(h => {
                           const equipment = equipments.find(e => e.id === h.equipamento_id);
                           const prog = equipment?.progresso ?? 0;
@@ -256,17 +260,17 @@ export default function DashboardTVPage(): JSX.Element {
                   </div>
 
                   {/* Right: equipment panel */}
-                  <div className="w-[30%] bg-[#091024] p-4 overflow-y-auto">
+                  <div className="w-[10%] bg-[#091024] p-2 overflow-y-auto">
                     <h4 className="text-sm font-semibold text-white mb-3">Equipamentos</h4>
                     <div className="space-y-2">
                       {equipments.length === 0 && <div className="text-sm text-gray-400">Nenhum equipamento</div>}
                       {equipments.map(eq => (
-                        <div key={eq.id} className="flex items-center justify-between bg-white/3 p-2 rounded">
-                          <div>
-                            <div className="text-sm font-medium text-white">{eq.nome}</div>
-                            <div className="text-xs text-gray-300">{eq.setor || ''}</div>
+                        <div key={eq.id} className="flex items-center justify-between bg-white/3 p-1 rounded text-sm">
+                          <div className="truncate">
+                            <div className="font-medium text-white truncate">{eq.nome}</div>
+                            <div className="text-[10px] text-gray-300 truncate">{eq.setor || ''}</div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-right ml-2">
                             <div className="text-sm font-bold text-[#10B981]">{(eq.progresso ?? 0)}%</div>
                           </div>
                         </div>

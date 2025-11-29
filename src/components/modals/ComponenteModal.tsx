@@ -35,6 +35,8 @@ export default function ComponenteModal({
   });
   const [equipamentosList, setEquipamentosList] = useState<any[]>([]);
   const [selectedEquipamentos, setSelectedEquipamentos] = useState<string[]>([]);
+  const [equipFilter, setEquipFilter] = useState('');
+  const [equipSuggestions, setEquipSuggestions] = useState<any[]>([]);
   const { success, error: showError } = useToast();
 
   useEffect(() => {
@@ -417,6 +419,44 @@ export default function ComponenteModal({
                 />
                 <span className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Selecionar todos</span>
               </label>
+            </div>
+
+            {/* Autocomplete / quick-select for equipamentos */}
+            <div className="mb-2">
+              <input
+                type="text"
+                placeholder="Buscar equipamento (ex: Alimentador)"
+                value={equipFilter}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setEquipFilter(v);
+                  if (v.trim() === '') setEquipSuggestions([]);
+                  else {
+                    const lower = v.toLowerCase();
+                    setEquipSuggestions(equipamentosList.filter(eq => (eq.nome || '').toLowerCase().includes(lower)).slice(0, 8));
+                  }
+                }}
+                className="w-full px-3 py-2 rounded border mb-2 text-sm"
+              />
+              {equipSuggestions.length > 0 && (
+                <div className={`max-h-40 overflow-y-auto rounded border p-1 ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-gray-300'}`}>
+                  {equipSuggestions.map(eq => (
+                    <button
+                      key={eq.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedEquipamentos(prev => Array.from(new Set([...prev, eq.id])));
+                        setEquipFilter('');
+                        setEquipSuggestions([]);
+                      }}
+                      className="w-full text-left px-2 py-2 hover:bg-opacity-5 rounded"
+                    >
+                      <div className="text-sm font-medium"><EquipamentoName equipamento={eq} numberClassName="text-amber-300" /></div>
+                      <div className="text-xs text-gray-400">{eq.codigo_interno || ''}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className={`max-h-48 overflow-y-auto rounded border p-2 ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-gray-300'}`}>

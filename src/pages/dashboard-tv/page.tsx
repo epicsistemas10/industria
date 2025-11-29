@@ -169,9 +169,12 @@ export default function DashboardTVPage(): JSX.Element {
       <div className="grid" style={{ gridTemplateColumns: gridCols, gridTemplateRows: '80px 1fr 100px', height: '100vh', gap: '12px', paddingLeft: 8, paddingRight: 8 }}>
         <header className="col-span-3 flex items-center justify-between px-4 h-[80px]" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-blue-600 rounded flex items-center justify-center"><i className="ri-plant-line text-white" /></div>
+            <div className="w-10 h-10 rounded flex items-center justify-center">
+              {/* Use favicon.svg as logo if available */}
+              <img src="/favicon.svg" alt="logo" className="w-8 h-8" />
+            </div>
             <div>
-              <div className="text-white font-semibold">ALGODOEIRA IBA SANTA LUZIA</div>
+              <div className="text-white font-semibold">IBA Santa Luzia</div>
               <div className="text-xs text-blue-200">Centro de Comando</div>
             </div>
           </div>
@@ -213,43 +216,63 @@ export default function DashboardTVPage(): JSX.Element {
 
         {/* Center - Map / Planning */}
         <main className={tvView === 'plan' ? 'col-start-1 col-end-4 row-start-2 row-end-3 flex items-center justify-center px-2' : 'col-start-2 col-end-3 row-start-2 row-end-3 flex items-center justify-center px-2'}>
-          <div className="w-full h-full rounded-xl overflow-hidden border border-white/10 shadow-xl bg-[#0E1525] p-0 flex items-center justify-center">
+          <div className="w-full h-full rounded-xl overflow-hidden border border-white/10 shadow-xl bg-[#0E1525] p-0 flex items-stretch">
             {tvView === 'map' ? (
               mapImage ? (
-                <div ref={overlayRefTV} className="w-full h-full flex items-center justify-center relative">
-                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'stretch', justifyContent: 'center' }} className="rounded-xl overflow-hidden bg-[#0D1322]">
+                <div ref={overlayRefTV} className="w-full h-full flex relative">
+                  {/* Left: image (fill left area) */}
+                  <div className="flex-1 min-w-0 max-w-[70%] rounded-l-xl overflow-hidden bg-[#0D1322]">
                     <img
                       ref={imageRefTV}
                       src={mapImage}
                       alt="Mapa Industrial"
-                      className="w-full h-full object-cover rounded-none"
+                      className="w-full h-full object-cover"
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       onLoad={() => recomputeImgRectTV()}
                     />
-                  </div>
-                  {/* Hotspots (percentual) */}
-                  {hotspots.length > 0 && (
-                    <div className="absolute inset-0 pointer-events-none">
-                      {hotspots.map(h => {
-                        const equipment = equipments.find(e => e.id === h.equipamento_id);
-                        const prog = equipment?.progresso ?? 0;
-                        const color = getProgressColor(prog);
-                        const fontSize = h.fontSize || 12;
-                        const circleSize = Math.max(28, (fontSize + 8));
+                    {/* Hotspots overlay on image area */}
+                    {hotspots.length > 0 && (
+                      <div className="absolute left-0 top-0 w-[70%] h-full pointer-events-none">
+                        {hotspots.map(h => {
+                          const equipment = equipments.find(e => e.id === h.equipamento_id);
+                          const prog = equipment?.progresso ?? 0;
+                          const color = getProgressColor(prog);
+                          const fontSize = h.fontSize || 12;
+                          const circleSize = Math.max(28, (fontSize + 8));
 
-                        const leftPercent = (h.x ?? 0) - ((h.width ?? 0) / 2);
-                        const topPercent = (h.y ?? 0) - ((h.height ?? 0) / 2);
+                          const leftPercent = (h.x ?? 0) - ((h.width ?? 0) / 2);
+                          const topPercent = (h.y ?? 0) - ((h.height ?? 0) / 2);
 
-                        return (
-                          <div key={h.id} className="absolute" style={{ left: `${leftPercent}%`, top: `${topPercent}%`, width: `${h.width}%`, height: `${h.height}%`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <div className="rounded-full flex flex-col items-center justify-center shadow-lg" style={{ background: color, width: `${circleSize}px`, height: `${circleSize}px` }}>
-                              <i className={`${h.icon || 'ri-tools-fill'} text-white`} style={{ fontSize: `${fontSize + 4}px` }} />
+                          return (
+                            <div key={h.id} className="absolute" style={{ left: `${leftPercent}%`, top: `${topPercent}%`, width: `${h.width}%`, height: `${h.height}%`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <div className="rounded-full flex flex-col items-center justify-center shadow-lg" style={{ background: color, width: `${circleSize}px`, height: `${circleSize}px` }}>
+                                <i className={`${h.icon || 'ri-tools-fill'} text-white`} style={{ fontSize: `${fontSize + 4}px` }} />
+                              </div>
                             </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right: equipment panel */}
+                  <div className="w-[30%] bg-[#091024] p-4 overflow-y-auto">
+                    <h4 className="text-sm font-semibold text-white mb-3">Equipamentos</h4>
+                    <div className="space-y-2">
+                      {equipments.length === 0 && <div className="text-sm text-gray-400">Nenhum equipamento</div>}
+                      {equipments.map(eq => (
+                        <div key={eq.id} className="flex items-center justify-between bg-white/3 p-2 rounded">
+                          <div>
+                            <div className="text-sm font-medium text-white">{eq.nome}</div>
+                            <div className="text-xs text-gray-300">{eq.setor || ''}</div>
                           </div>
-                        );
-                      })}
+                          <div className="text-right">
+                            <div className="text-sm font-bold text-[#10B981]">{(eq.progresso ?? 0)}%</div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  )}
+                  </div>
                 </div>
               ) : (
                 <div className="text-center text-gray-400">Mapa não encontrado. Faça upload na página Mapa Industrial.</div>

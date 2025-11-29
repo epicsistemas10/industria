@@ -126,30 +126,21 @@ export default function MapaPage() {
         for (const c of candidates) {
           if (!c) continue;
           try {
-            const r = await fetch(c, { method: 'HEAD' });
-            if (r.ok) {
-              setMapImage(c);
-              return;
-            }
+            // try to set candidate directly (no HEAD check) — equipment images are used directly from DB
+            setMapImage(c);
+            return;
           } catch (e) {
             // ignore and try next
           }
         }
 
-        // As a last attempt, use the Supabase SDK to derive the public URL (mirrors how equipments images are resolved)
+        // As a last attempt, derive the public URL via Supabase SDK and use it directly
         try {
           const { data } = supabase.storage.from('mapas').getPublicUrl('mapa.jpg');
           const publicUrl = data?.publicUrl || null;
           if (publicUrl) {
-            try {
-              const rr = await fetch(publicUrl, { method: 'HEAD' });
-              if (rr.ok) {
-                setMapImage(publicUrl);
-                return;
-              }
-            } catch (e) {
-              // ignore
-            }
+            setMapImage(publicUrl);
+            return;
           }
         } catch (e) {
           // ignore

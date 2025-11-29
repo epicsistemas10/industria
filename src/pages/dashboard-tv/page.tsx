@@ -45,7 +45,7 @@ export default function DashboardTVPage(): JSX.Element {
           } catch (e) {}
         }
 
-        // 2) try Supabase SDK to get public URL for 'mapa.jpg'
+        // 2) Use Supabase SDK to derive public URL for 'mapa.jpg' (no HEAD check)
         try {
           const mod = await import('../../lib/supabase');
           const supabase = (mod as any).supabase;
@@ -53,20 +53,15 @@ export default function DashboardTVPage(): JSX.Element {
             const { data } = supabase.storage.from('mapas').getPublicUrl('mapa.jpg');
             const publicUrl = data?.publicUrl || null;
             if (publicUrl) {
-              try {
-                const h = await fetch(publicUrl, { method: 'HEAD' });
-                if (h.ok) {
-                  setMapImage(publicUrl);
-                  return;
-                }
-              } catch (e) {}
+              setMapImage(publicUrl);
+              return;
             }
           }
         } catch (e) {
           // ignore
         }
 
-        // 3) fallback to localStorage
+        // 3) fallback to localStorage (legacy)
         const savedMap = typeof window !== 'undefined' ? localStorage.getItem('map_image') : null;
         if (savedMap) {
           setMapImage(savedMap);

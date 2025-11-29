@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import useMapaHotspots from '../../hooks/useMapaHotspots';
 
 type Equipment = { id: string; nome?: string; progresso?: number; setor?: string; imagem_url?: string; codigo_interno?: string };
 type Hotspot = { id: string; equipamento_id?: string; x: number; y: number; width: number; height: number; color?: string; fontSize?: number; icon?: string };
@@ -130,16 +131,29 @@ export default function DashboardTVPage(): JSX.Element {
       // ignore
     }
 
-    // hotspots saved as JSON in localStorage under 'hotspots'
-    try {
-      const saved = typeof window !== 'undefined' ? localStorage.getItem('hotspots') : null;
-      if (saved) {
-        const parsed = JSON.parse(saved) as Hotspot[];
-        setHotspots(parsed || []);
+    // hotspots saved as JSON in localStorage under 'hotspots' (initial fallback)
+      try {
+        const saved = typeof window !== 'undefined' ? localStorage.getItem('hotspots') : null;
+        if (saved) {
+          const parsed = JSON.parse(saved) as Hotspot[];
+          setHotspots(parsed || []);
+        }
+      } catch (e) {
+        console.warn('Não foi possível ler hotspots do localStorage', e);
       }
-    } catch (e) {
-      console.warn('Não foi possível ler hotspots do localStorage', e);
-    }
+
+    // use hook that merges equipment and group hotspots
+    const mapa = useMapaHotspots();
+
+    // sync hook hotspots into local state so existing rendering code continues to work
+    useEffect(() => {
+      try {
+        if (mapa.hotspots && mapa.hotspots.length > 0) {
+          setHotspots(mapa.hotspots as any);
+          try { localStorage.setItem('hotspots', JSON.stringify(mapa.hotspots)); } catch (e) {}
+        }
+      } catch (e) {}
+    }, [mapa.hotspots]);
 
     // equipments fallback from localStorage
     try {

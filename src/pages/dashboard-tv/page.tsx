@@ -213,7 +213,6 @@ export default function DashboardTVPage(): JSX.Element {
                       onLoad={() => recomputeImgRectTV()}
                     />
                   </div>
-                </div>
                   {/* Hotspots (percentual) */}
                   {hotspots.length > 0 && (
                     <div className="absolute inset-0 pointer-events-none">

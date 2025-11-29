@@ -279,9 +279,19 @@ export const componentesAPI = {
 
   async create(componente: any) {
     try {
+      // Only send known/expected columns to avoid PostgREST 400/PGRST204 errors
+      const allowed = new Set([
+        'nome', 'codigo_interno', 'codigo_fabricante', 'marca', 'tipo_componente_id',
+        'preco_unitario', 'foto_url'
+      ]);
+      const payload: any = {};
+      Object.entries(componente || {}).forEach(([k, v]) => {
+        if (allowed.has(k)) payload[k] = v;
+      });
+
       const { data, error } = await supabase
         .from('componentes')
-        .insert([componente])
+        .insert([payload])
         .select()
         .single();
 
@@ -334,9 +344,18 @@ export const componentesAPI = {
 
   async update(id: string, componente: any) {
     try {
+      const allowed = new Set([
+        'nome', 'codigo_interno', 'codigo_fabricante', 'marca', 'tipo_componente_id',
+        'preco_unitario', 'foto_url'
+      ]);
+      const payload: any = {};
+      Object.entries(componente || {}).forEach(([k, v]) => {
+        if (allowed.has(k)) payload[k] = v;
+      });
+
       const { data, error } = await supabase
         .from('componentes')
-        .update(componente)
+        .update(payload)
         .eq('id', id)
         .select()
         .single();

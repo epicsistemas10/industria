@@ -145,9 +145,9 @@ export default function DashboardTVPage(): JSX.Element {
 
   // Render
   return (
-    <div className="min-h-screen w-full bg-[#090F1A] p-3">
+    <div className="min-h-screen w-full bg-[#090F1A] p-2">
       <div className="grid" style={{ gridTemplateColumns: '200px 1fr 200px', gridTemplateRows: '80px 1fr 100px', height: '100vh', gap: '12px' }}>
-        <header className="col-span-3 flex items-center justify-between px-6 h-[80px]" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
+        <header className="col-span-3 flex items-center justify-between px-4 h-[80px]" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 bg-blue-600 rounded flex items-center justify-center"><i className="ri-plant-line text-white" /></div>
             <div>
@@ -164,20 +164,20 @@ export default function DashboardTVPage(): JSX.Element {
         </header>
 
         {/* Left Sidebar */}
-        <aside className="col-start-1 col-end-2 row-start-2 row-end-3 px-3">
+        <aside className="col-start-1 col-end-2 row-start-2 row-end-3 px-2">
           <div className="space-y-3">
-            <div className="w-full h-[120px] rounded-lg bg-white/5 border" style={{ borderColor: 'rgba(255,255,255,0.08)', boxShadow: '0 6px 18px rgba(0,0,0,0.4)' }}>
-              <div className="p-4 text-sm text-gray-200">Equipamentos</div>
+            <div className="w-full h-[160px] rounded-xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md">
+              <div className="text-sm text-gray-200">Equipamentos</div>
             </div>
-            <div className="w-full h-[120px] rounded-lg bg-white/5 border" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-              <div className="p-4 text-sm text-gray-200">Status Geral</div>
+            <div className="w-full h-[160px] rounded-xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md">
+              <div className="text-sm text-gray-200">Status Geral</div>
             </div>
           </div>
         </aside>
 
         {/* Center - Map / Planning */}
         <main className="col-start-2 col-end-3 row-start-2 row-end-3 flex items-center justify-center px-2">
-          <div className="w-full h-full rounded-xl overflow-hidden border shadow-xl bg-[#0E1525] p-1 flex items-center justify-center" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+          <div className="w-full h-full rounded-xl overflow-hidden border border-white/10 shadow-xl bg-[#0E1525] p-2 flex items-center justify-center">
             {tvView === 'map' ? (
               mapImage ? (
                 <div ref={overlayRefTV} className="w-full h-full flex items-center justify-center relative">
@@ -186,7 +186,7 @@ export default function DashboardTVPage(): JSX.Element {
                     src={mapImage}
                     alt="Mapa Industrial"
                     className="w-full h-full object-cover rounded-lg"
-                    style={{ maxHeight: '78vh' }}
+                    style={{ maxWidth: '92%', margin: '0 auto', maxHeight: '79vh' }}
                     onLoad={() => recomputeImgRectTV()}
                   />
 
@@ -232,18 +232,18 @@ export default function DashboardTVPage(): JSX.Element {
         </main>
 
         {/* Right Sidebar */}
-        <aside className="col-start-3 col-end-4 row-start-2 row-end-3 px-3">
+        <aside className="col-start-3 col-end-4 row-start-2 row-end-3 px-2">
           <div className="space-y-3">
-            <div className="w-full h-[120px] rounded-lg bg-white/5 border" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-              <div className="p-4 text-sm text-gray-200">OS Abertas</div>
+            <div className="w-full h-[160px] rounded-xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md">
+              <div className="text-sm text-gray-200">OS Abertas</div>
             </div>
-            <div className="w-full h-[120px] rounded-lg bg-white/5 border" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-              <div className="p-4 text-sm text-gray-200">Alertas / Críticos</div>
+            <div className="w-full h-[160px] rounded-xl bg-white/5 border border-white/10 backdrop-blur-sm p-4 shadow-md">
+              <div className="text-sm text-gray-200">Alertas / Críticos</div>
             </div>
           </div>
         </aside>
 
-        <footer className="col-span-3 row-start-3 row-end-4 px-6 py-4" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
+        <footer className="col-span-3 row-start-3 row-end-4 px-4 py-4" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-center justify-between">
             <div className="flex gap-3">
               <div className="w-40 h-16 rounded-md bg-white/5 border flex flex-col justify-center px-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>

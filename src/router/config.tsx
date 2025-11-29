@@ -37,6 +37,8 @@ const ComponentesReservas = lazy(() => import('../pages/componentes/reservas/pag
 const Seguranca = lazy(() => import('../pages/seguranca/page'));
 const LeitorPlacas = lazy(() => import('../pages/leitor-placas/page'));
 const Planejamento = lazy(() => import('../pages/planejamento/page'));
+const DebugStorage = lazy(() => import('../pages/_debug/storage/page'));
+const MigrateMapImage = lazy(() => import('../pages/_debug/migrate-map-image/page'));
 
 const routes: RouteObject[] = [
   {
@@ -246,6 +248,14 @@ const routes: RouteObject[] = [
         <Planejamento />
       </ProtectedRoute>
     ),
+  },
+  {
+    path: '/_debug/storage',
+    element: <DebugStorage />,
+  },
+  {
+    path: '/_debug/migrate-map-image',
+    element: <MigrateMapImage />,
   },
 ];
 

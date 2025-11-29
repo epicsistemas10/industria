@@ -31,9 +31,51 @@ export default function DashboardTVPage(): JSX.Element {
 
   // Load data from localStorage first; attempt Supabase if available (non-blocking)
   useEffect(() => {
-    // map image from localStorage
-    const savedMap = typeof window !== 'undefined' ? localStorage.getItem('map_image') : null;
-    if (savedMap) setMapImage(savedMap);
+    (async () => {
+      // 1) explicit env override `VITE_MAP_IMAGE_URL`
+      try {
+        const envUrl = (import.meta as any).env?.VITE_MAP_IMAGE_URL || null;
+        if (envUrl) {
+          try {
+            const h = await fetch(envUrl, { method: 'HEAD' });
+            if (h.ok) {
+              setMapImage(envUrl);
+              return;
+            }
+          } catch (e) {}
+        }
+
+        // 2) try Supabase SDK to get public URL for 'mapa.jpg'
+        try {
+          const mod = await import('../../lib/supabase');
+          const supabase = (mod as any).supabase;
+          if (supabase) {
+            const { data } = supabase.storage.from('mapas').getPublicUrl('mapa.jpg');
+            const publicUrl = data?.publicUrl || null;
+            if (publicUrl) {
+              try {
+                const h = await fetch(publicUrl, { method: 'HEAD' });
+                if (h.ok) {
+                  setMapImage(publicUrl);
+                  return;
+                }
+              } catch (e) {}
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+
+        // 3) fallback to localStorage
+        const savedMap = typeof window !== 'undefined' ? localStorage.getItem('map_image') : null;
+        if (savedMap) {
+          setMapImage(savedMap);
+          return;
+        }
+      } catch (e) {
+        // ignore and show upload modal below
+      }
+    })();
 
     // hotspots saved as JSON in localStorage under 'hotspots'
     try {

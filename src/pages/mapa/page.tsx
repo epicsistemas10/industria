@@ -111,34 +111,53 @@ export default function MapaPage() {
     // hotspots will be loaded by hook
     mapa.load();
 
-    // First try localStorage (uploader browser). If not present, try public storage URL at a fixed path
+    // First try an explicit public URL (env override), then localStorage, then fixed public path
     const init = async () => {
-      const savedImage = (() => {
-        try { return localStorage.getItem('map_image'); } catch (e) { return null; }
-      })();
-      if (savedImage) {
-        setMapImage(savedImage);
-        return;
-      }
-
       try {
-        // Construct public URL via Supabase helper
-        const { data } = supabase.storage.from('mapas').getPublicUrl('mapa.jpg');
-        if (data && data.publicUrl) {
-          // do a quick HEAD/fetch to see if exists
+        const envUrl = (import.meta as any).env?.VITE_MAP_IMAGE_URL || null;
+        const defaultPublic = (import.meta as any).env?.VITE_PUBLIC_SUPABASE_URL
+          ? `${(import.meta as any).env.VITE_PUBLIC_SUPABASE_URL}/storage/v1/object/public/mapas/mapa.jpg`
+          : null;
+
+        const candidates: (string | null)[] = [envUrl, (() => {
+          try { return localStorage.getItem('map_image'); } catch (e) { return null; }
+        })(), defaultPublic];
+
+        for (const c of candidates) {
+          if (!c) continue;
           try {
-            const resp = await fetch(data.publicUrl, { method: 'HEAD' });
-            if (resp.ok) {
-              setMapImage(data.publicUrl);
+            const r = await fetch(c, { method: 'HEAD' });
+            if (r.ok) {
+              setMapImage(c);
               return;
             }
           } catch (e) {
-            // ignore fetch errors
+            // ignore and try next
           }
         }
+
+        // As a last attempt, use the Supabase SDK to derive the public URL (mirrors how equipments images are resolved)
+        try {
+          const { data } = supabase.storage.from('mapas').getPublicUrl('mapa.jpg');
+          const publicUrl = data?.publicUrl || null;
+          if (publicUrl) {
+            try {
+              const rr = await fetch(publicUrl, { method: 'HEAD' });
+              if (rr.ok) {
+                setMapImage(publicUrl);
+                return;
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
       } catch (e) {
-        // ignore storage errors
+        // ignore and fallthrough
       }
+
       // no image found in storage or local, signal to show upload modal
       setShowImageUpload(true);
     };

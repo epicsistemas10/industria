@@ -351,23 +351,47 @@ export default function DashboardTVPage(): JSX.Element {
   // Render
   // prepare grouped equipment for right panel (list all equipments, highlight hotspots)
   const hotspotEqIds = new Set<string>();
+  const groupHotspots = hotspots.filter((h: any) => h && (h as any).isGroup) as any[];
+  const groupMemberIds = new Set<string>();
   hotspots.forEach((h: any) => {
     if (!h) return;
     if ((h as any).isGroup && Array.isArray((h as any).members)) {
-      (h as any).members.forEach((m: any) => hotspotEqIds.add(String(m)));
+      (h as any).members.forEach((m: any) => {
+        hotspotEqIds.add(String(m));
+        groupMemberIds.add(String(m));
+      });
     }
     if (h.equipamento_id) hotspotEqIds.add(String(h.equipamento_id));
   });
   const allEquipments = equipments || [];
   // Only include equipments that have hotspots when in TV map view.
-  const equipmentsForPanel = tvView === 'map' ? allEquipments.filter(eq => hotspotEqIds.has(String(eq.id))) : allEquipments;
+  // Exclude equipments that are members of a grouped hotspot — groups will be shown as a single line.
+  const equipmentsForPanel = tvView === 'map'
+    ? allEquipments.filter(eq => hotspotEqIds.has(String(eq.id)) && !groupMemberIds.has(String(eq.id)))
+    : allEquipments;
 
   const groupsAll: Record<string, Equipment[]> = equipmentsForPanel.reduce((acc, eq) => {
-    const key = eq.linha_setor ?? eq.setor ?? 'Sem Setor';
+    const key = (eq as any).linha_setor ?? (eq as any).setor ?? 'Sem Setor';
     if (!acc[key]) acc[key] = [];
     acc[key].push(eq);
     return acc;
   }, {} as Record<string, Equipment[]>);
+
+  // Insert synthetic group entries (single line per group) into groupsAll.
+  groupHotspots.forEach((grp: any) => {
+    try {
+      const members: string[] = Array.isArray(grp.members) ? grp.members : [];
+      // compute average progress from known equipments
+      const memberEquipments = members.map((id) => allEquipments.find(e => String(e.id) === String(id))).filter(Boolean) as Equipment[];
+      const avg = memberEquipments.length > 0 ? Math.round(memberEquipments.reduce((s, e) => s + (e.progresso ?? 0), 0) / memberEquipments.length) : 0;
+      // determine which linha to show the group under (use first member or default)
+      const linhaKey = (memberEquipments[0]?.linha_setor ?? memberEquipments[0]?.setor) || 'Sem Setor';
+      if (!groupsAll[linhaKey]) groupsAll[linhaKey] = [];
+      groupsAll[linhaKey].push({ id: grp.id, nome: 'DESCAROCADOR', progresso: avg, setor: linhaKey } as any);
+    } catch (e) {
+      // ignore
+    }
+  });
   const groupKeys = Object.keys(groupsAll).sort();
   // Prepare overlays: show 'Linha 1' (left-top) and 'Linha 2' (right-top) over the image;
   // remaining groups are omitted from the right panel per user's request.
@@ -510,9 +534,18 @@ export default function DashboardTVPage(): JSX.Element {
                             }}
                           >
                             {hotspots.map(h => {
-                              const equipment = equipments.find(e => e.id === h.equipamento_id);
+                              const isGroup = (h as any).isGroup;
+                              let equipment = equipments.find(e => e.id === h.equipamento_id);
                               const fontSize = h.fontSize || 12;
                               const circleSize = Math.max(28, (fontSize + 8));
+
+                              // if group hotspot, compute average progress from members
+                              let displayProgress = equipment?.progresso ?? 0;
+                              if (isGroup && Array.isArray((h as any).members)) {
+                                const members: string[] = (h as any).members;
+                                const memberEquipments = members.map((id) => equipments.find(e => String(e.id) === String(id))).filter(Boolean) as Equipment[];
+                                displayProgress = memberEquipments.length > 0 ? Math.round(memberEquipments.reduce((s, e) => s + (e.progresso ?? 0), 0) / memberEquipments.length) : 0;
+                              }
 
                               // Use percentage positioning inside the image-box so behavior matches `mapa`
                               const leftPercent = (h.x ?? 0);
@@ -520,9 +553,9 @@ export default function DashboardTVPage(): JSX.Element {
 
                               return (
                                 <div key={h.id} data-hotspot-id={h.id} className="absolute" style={{ left: `${leftPercent}%`, top: `${topPercent}%`, transform: 'translate(-50%, -50%)', width: `${h.width}%`, height: `${h.height}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto' }}>
-                                  <div className="rounded-full relative flex flex-col items-center justify-center shadow-2xl overflow-hidden" style={{ background: getProgressColor(equipment?.progresso ?? 0), width: `${circleSize}px`, height: `${circleSize}px`, boxShadow: '0 0 10px rgba(0,229,255,0.35)' }}>
+                                  <div className="rounded-full relative flex flex-col items-center justify-center shadow-2xl overflow-hidden" style={{ background: getProgressColor(displayProgress), width: `${circleSize}px`, height: `${circleSize}px`, boxShadow: '0 0 10px rgba(0,229,255,0.35)' }}>
                                           {/* percentage centered inside the circle (icon removed) */}
-                                          <span className="flex items-center justify-center text-white font-bold" style={{ fontSize: `${Math.max(10, Math.floor(circleSize * 0.42))}px`, lineHeight: 1, zIndex: 1 }}>{(equipment?.progresso ?? 0)}%</span>
+                                          <span className="flex items-center justify-center text-white font-bold" style={{ fontSize: `${Math.max(10, Math.floor(circleSize * 0.42))}px`, lineHeight: 1, zIndex: 1 }}>{displayProgress}%</span>
                                         </div>
                                 </div>
                               );

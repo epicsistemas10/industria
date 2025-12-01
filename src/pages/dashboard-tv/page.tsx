@@ -184,15 +184,52 @@ export default function DashboardTVPage(): JSX.Element {
   };
 
   useEffect(() => {
-    // load cached map image (legacy localStorage)
-    try {
-      const savedMap = typeof window !== 'undefined' ? localStorage.getItem('map_image') : null;
-      if (savedMap) {
-        setMapImage(savedMap);
+    // Resolve map image URL: prefer env override, then localStorage, then Supabase public URL
+    (async () => {
+      try {
+        const envUrl = (import.meta as any).env?.VITE_MAP_IMAGE_URL || null;
+        if (envUrl) {
+          setMapImage(envUrl);
+          return;
+        }
+
+        // localStorage fallback (only present on the browser that uploaded the image)
+        try {
+          const saved = typeof window !== 'undefined' ? localStorage.getItem('map_image') : null;
+          if (saved) {
+            setMapImage(saved);
+            return;
+          }
+        } catch (e) {}
+
+        // derive default public URL from VITE_PUBLIC_SUPABASE_URL if available
+        const defaultPublic = (import.meta as any).env?.VITE_PUBLIC_SUPABASE_URL
+          ? `${(import.meta as any).env.VITE_PUBLIC_SUPABASE_URL}/storage/v1/object/public/mapas/mapa.jpg`
+          : null;
+        if (defaultPublic) {
+          setMapImage(defaultPublic);
+          return;
+        }
+
+        // as a last attempt, ask Supabase SDK for the public URL
+        try {
+          const mod = await import('../../lib/supabase');
+          const supabase = (mod as any).supabase;
+          if (supabase) {
+            const { data } = supabase.storage.from('mapas').getPublicUrl('mapa.jpg');
+            const publicUrl = data?.publicUrl || null;
+            if (publicUrl) {
+              setMapImage(publicUrl);
+              return;
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      } catch (e) {
+        // ignore overall
       }
-    } catch (e) {
-      // ignore
-    }
+    })();
 
     // hotspots saved as JSON in localStorage under 'hotspots' (initial fallback)
       try {

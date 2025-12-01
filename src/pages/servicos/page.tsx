@@ -12,12 +12,14 @@ export default function ServicosPage() {
   const [darkMode, setDarkMode] = useState(true);
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [servicos, setServicos] = useState<any[]>([]);
+  const [servicosQuery, setServicosQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
-  const [form, setForm] = useState({ codigo: '', nome: '', descricao: '', percentual_revisao: '' });
+  const [form, setForm] = useState({ codigo: '', nome: '', descricao: '', percentual_revisao: '', categoria: '' });
   const tipos = ['Preventiva', 'Preditiva', 'Corretiva', 'Melhoria'];
   const [formTipo, setFormTipo] = useState<string>(tipos[0]);
+  const defaultCategories = ['Mecânico','Lubrificação','Segurança','Transmissão','Estrutural','Elétrica','Automação','Ventilação','Fitas','Roscas','Pintura','Limpeza','Específico'];
   const [equipamentos, setEquipamentos] = useState<any[]>([]);
   const [showVincularModal, setShowVincularModal] = useState(false);
   const [selectedServId, setSelectedServId] = useState<string | null>(null);
@@ -44,44 +46,41 @@ export default function ServicosPage() {
   const openNew = () => {
     setEditing(null);
     const newCode = generateCodigo();
-    setForm({ codigo: newCode, nome: '', descricao: '', percentual_revisao: '' });
+    const categories = getCategories();
+    setForm({ codigo: newCode, nome: '', descricao: '', percentual_revisao: '', categoria: categories[0] || '' });
     setFormTipo(tipos[0]);
     setShowModal(true);
   };
 
   const generateCodigo = () => {
-    // Try to generate a sequential code based on existing service codes.
-    // Pattern: SV-YYYY-0001
+    // Generate a SERIAL code using existing SERVICOS codes pattern 'SER###'.
     try {
-      const year = new Date().getFullYear();
-      const prefix = `SV-${year}-`;
-      // find highest numeric suffix for this year
       let max = 0;
       servicos.forEach(s => {
-        const c: string = s.codigo || '';
-        if (c.startsWith(prefix)) {
-          const suffix = c.replace(prefix, '');
-          const n = parseInt(suffix, 10);
+        const c: string = (s.codigo || '').toUpperCase();
+        const m = c.match(/^SER0*(\d+)$/);
+        if (m) {
+          const n = parseInt(m[1], 10);
           if (!isNaN(n) && n > max) max = n;
         }
       });
-      const next = (max + 1).toString().padStart(4, '0');
-      return `${prefix}${next}`;
+      const next = (max + 1).toString().padStart(3, '0');
+      return `SER${next}`;
     } catch (err) {
-      return `SV-${Date.now().toString(36).toUpperCase()}`;
+      return `SER${Date.now().toString().slice(-3)}`;
     }
   };
 
   const openEdit = (s: any) => {
     setEditing(s);
-    setForm({ codigo: s.codigo || '', nome: s.nome || '', descricao: s.descricao || '', percentual_revisao: s.percentual_revisao?.toString() || '' });
+    setForm({ codigo: s.codigo || '', nome: s.nome || '', descricao: s.descricao || '', percentual_revisao: s.percentual_revisao?.toString() || '', categoria: s.categoria || '' });
     setShowModal(true);
   };
 
   const submit = async (e?: any) => {
     if (e) e.preventDefault();
     try {
-      const payload: any = { codigo: form.codigo, nome: form.nome, descricao: form.descricao || null, tipo: formTipo };
+      const payload: any = { codigo: form.codigo, nome: form.nome, descricao: form.descricao || null, tipo: formTipo, categoria: form.categoria || null };
       if (form.percentual_revisao) payload.percentual_revisao = parseFloat(form.percentual_revisao);
       if (editing) {
         await servicosAPI.update(editing.id, payload);
@@ -111,6 +110,97 @@ export default function ServicosPage() {
     setSelectedServId(servId);
     setSelectedEquipIds([]);
     setShowVincularModal(true);
+  };
+
+  const [equipSearch, setEquipSearch] = useState('');
+
+  // helper: group services by categoria, applying an optional query filter
+  const groupedServices = (list: any[], q: string) => {
+    const normalizedQ = (q || '').toLowerCase().trim();
+    const out: Record<string, any[]> = {};
+    list.forEach(s => {
+      if (normalizedQ) {
+        const hay = ((s.nome || '') + ' ' + (s.codigo || '')).toLowerCase();
+        if (!hay.includes(normalizedQ)) return;
+      }
+      const cat = s.categoria || 'Sem Categoria';
+      out[cat] = out[cat] || [];
+      out[cat].push(s);
+    });
+    // sort categories alphabetically
+    const sorted: Record<string, any[]> = {};
+    Object.keys(out).sort().forEach(k => { sorted[k] = out[k]; });
+    return sorted;
+  };
+
+  // derive categories from existing services or use defaults
+  const getCategories = () => {
+    const set = new Set<string>();
+    servicos.forEach(s => { if (s.categoria) set.add(s.categoria); });
+    const arr = Array.from(set);
+    if (arr.length === 0) return defaultCategories;
+    // merge with defaults to keep common ordering
+    const merged = Array.from(new Set([...defaultCategories, ...arr]));
+    return merged;
+  };
+
+  // helper: group equipamentos by linha_setor (or fallback) and apply equipment search
+  const groupEquipamentosByLinha = (list: any[], q: string) => {
+    const normalizedQ = (q || '').toLowerCase().trim();
+    const out: Record<string, any[]> = {};
+    list.forEach(eq => {
+      if (normalizedQ) {
+        const hay = ((eq.nome || '') + ' ' + (eq.codigo_interno || '') + ' ' + (eq.setor || '')).toLowerCase();
+        if (!hay.includes(normalizedQ)) return;
+      }
+      const linha = eq.linha_setor || eq.linha || 'Sem Linha';
+      out[linha] = out[linha] || [];
+      out[linha].push(eq);
+    });
+    // sort each group so lines are alphabetical and equipamentos are grouped by base name
+    // and ordered by numeric suffix when present (e.g. "Alimentador 1", "Alimentador 2").
+    // Compare equipment names by normalizing, extracting the LAST numeric token and
+    // sorting by base name then numeric value.
+    const normalizeForCompare = (s: string) => {
+      if (!s) return '';
+      let str = s.toString().trim();
+      // remove ordinal symbols and unify separators
+      str = str.replace(/[º°]/g, '');
+      // replace non alnum with space
+      str = str.replace(/[^0-9a-zA-Z\s]/g, ' ');
+      str = str.replace(/\s+/g, ' ').trim().toLowerCase();
+      return str;
+    };
+
+    const compareEquipNames = (aStr: string, bStr: string) => {
+      const a = normalizeForCompare(aStr || '');
+      const b = normalizeForCompare(bStr || '');
+      const aNums = [...a.matchAll(/(\d+)/g)].map(m => m[1]);
+      const bNums = [...b.matchAll(/(\d+)/g)].map(m => m[1]);
+      const aNum = aNums.length ? parseInt(aNums[aNums.length - 1], 10) : Number.POSITIVE_INFINITY;
+      const bNum = bNums.length ? parseInt(bNums[bNums.length - 1], 10) : Number.POSITIVE_INFINITY;
+      // base is string without the last numeric token
+      const aBase = aNums.length ? a.replace(new RegExp(aNums[aNums.length - 1] + '\\s*$'), '').trim() : a;
+      const bBase = bNums.length ? b.replace(new RegExp(bNums[bNums.length - 1] + '\\s*$'), '').trim() : b;
+      const baseCmp = aBase.localeCompare(bBase, undefined, { sensitivity: 'base' });
+      if (baseCmp !== 0) return baseCmp;
+      if (aNum === Number.POSITIVE_INFINITY && bNum === Number.POSITIVE_INFINITY) return a.localeCompare(b, undefined, { sensitivity: 'base' });
+      if (aNum === Number.POSITIVE_INFINITY) return 1;
+      if (bNum === Number.POSITIVE_INFINITY) return -1;
+      return aNum - bNum;
+    };
+
+    const sorted: Record<string, any[]> = {};
+    Object.keys(out).sort((a, b) => a.localeCompare(b)).forEach(k => {
+      const arr = out[k].slice();
+      arr.sort((aa, bb) => {
+        const aKey = (formatEquipamentoName(aa) || aa.nome || aa.codigo_interno || '').toString();
+        const bKey = (formatEquipamentoName(bb) || bb.nome || bb.codigo_interno || '').toString();
+        return compareEquipNames(aKey, bKey);
+      });
+      sorted[k] = arr;
+    });
+    return sorted;
   };
 
   const vincular = async () => {
@@ -146,23 +236,39 @@ export default function ServicosPage() {
           {loading ? (
             <div className="py-12 text-center text-gray-400">Carregando...</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {servicos.map(s => (
-                <div key={s.id} className={`p-4 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow`}>
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <div className="text-sm text-gray-400">{s.codigo}</div>
-                      <h3 className={`font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{s.nome}</h3>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => openVincular(s.id)} className="px-3 py-1 bg-emerald-600 text-white rounded">Vincular</button>
-                      <button onClick={() => openEdit(s)} className="px-3 py-1 bg-blue-600 text-white rounded">Editar</button>
-                      <button onClick={() => remove(s.id)} className="px-3 py-1 bg-red-600 text-white rounded">Excluir</button>
+            <div>
+              <div className="mb-4">
+                <input value={servicosQuery} onChange={(e)=>setServicosQuery(e.target.value)} placeholder="Buscar serviços por código ou nome..." className="w-full px-3 py-2 rounded" />
+              </div>
+
+              <div className="space-y-6">
+                {Object.entries(groupedServices(servicos, servicosQuery)).map(([categoria, items]) => (
+                  <div key={categoria}>
+                    <h4 className={`text-lg font-semibold mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{categoria}</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {items.map(s => (
+                        <div key={s.id} className={`p-4 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow`}>
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <div className="text-sm text-gray-400">{s.codigo}</div>
+                              <h3 className={`font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{s.nome}</h3>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => openVincular(s.id)} className="px-3 py-1 bg-emerald-600 text-white rounded">Vincular</button>
+                              <button onClick={() => openEdit(s)} className="px-3 py-1 bg-blue-600 text-white rounded">Editar</button>
+                              <button onClick={() => remove(s.id)} className="px-3 py-1 bg-red-600 text-white rounded">Excluir</button>
+                            </div>
+                          </div>
+                                  <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{s.descricao}</p>
+                                  <div className="mt-2">
+                                    <span className="text-xs px-2 py-1 rounded bg-gray-200 text-gray-800">{s.categoria || 'Sem Categoria'}</span>
+                                  </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{s.descricao}</p>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
 
@@ -185,6 +291,14 @@ export default function ServicosPage() {
                     <textarea className="w-full px-3 py-2 rounded" value={form.descricao} onChange={(e)=>setForm({...form,descricao:e.target.value})} />
                   </div>
                   <div>
+                    <label className="block text-sm text-gray-400">Categoria</label>
+                    <select className="w-full px-3 py-2 rounded" value={form.categoria} onChange={(e)=>setForm({...form,categoria:e.target.value})}>
+                      {getCategories().map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
                     <label className="block text-sm text-gray-400">Tipo</label>
                     <select className="w-full px-3 py-2 rounded" value={formTipo} onChange={(e)=>setFormTipo(e.target.value)}>
                       {tipos.map(t => (
@@ -204,20 +318,33 @@ export default function ServicosPage() {
           {/* Modal Vincular */}
           {showVincularModal && (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-              <div className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl w-full max-w-2xl p-6`}> 
-                <h3 className={`text-lg font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Vincular Serviço a Equipamentos</h3>
-                <div className="mt-4 max-h-64 overflow-y-auto space-y-2">
-                  {equipamentos.map(eq => (
-                    <label key={eq.id} className="flex items-center gap-3 p-2 border rounded">
-                      <input type="checkbox" checked={selectedEquipIds.includes(eq.id)} onChange={(e)=>{
-                        if(e.target.checked) setSelectedEquipIds(prev=>[...prev,eq.id]); else setSelectedEquipIds(prev=>prev.filter(id=>id!==eq.id));
-                      }} />
-                      <div className="flex-1"><EquipamentoName equipamento={eq} numberClassName="text-amber-300" /></div>
-                    </label>
+              <div className={`rounded-xl w-full max-w-3xl p-6 bg-slate-900 text-white`}> 
+                <h3 className="text-lg font-semibold">Vincular Serviço a Equipamentos</h3>
+                <div className="mt-4">
+                  <input placeholder="Buscar equipamentos por nome ou código..." className="w-full px-3 py-2 rounded text-black" value={equipSearch} onChange={(e)=>setEquipSearch(e.target.value)} />
+                </div>
+                <div className="mt-4 max-h-72 overflow-y-auto space-y-4">
+                  {Object.entries(groupEquipamentosByLinha(equipamentos, equipSearch)).map(([linha, list]) => (
+                    <div key={linha}>
+                      <div className="text-sm text-amber-300 font-medium mb-2">{linha}</div>
+                      <div className="space-y-2">
+                        {list.map(eq => (
+                          <label key={eq.id} className="flex items-center gap-3 p-2 rounded bg-slate-800">
+                            <input type="checkbox" checked={selectedEquipIds.includes(eq.id)} onChange={(e)=>{
+                              if(e.target.checked) setSelectedEquipIds(prev=>[...prev,eq.id]); else setSelectedEquipIds(prev=>prev.filter(id=>id!==eq.id));
+                            }} />
+                            <div className="flex-1">
+                              <EquipamentoName equipamento={eq} numberClassName="text-amber-300" />
+                              <div className="text-xs text-slate-400 mt-1">{eq.codigo_interno || eq.ind || ''}</div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
                 <div className="flex gap-2 justify-end mt-4">
-                  <button onClick={()=>setShowVincularModal(false)} className="px-4 py-2">Cancelar</button>
+                  <button onClick={()=>setShowVincularModal(false)} className="px-4 py-2 bg-transparent border border-white rounded">Cancelar</button>
                   <button onClick={vincular} className="px-4 py-2 bg-emerald-600 text-white rounded">Vincular</button>
                 </div>
               </div>

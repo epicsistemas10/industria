@@ -619,15 +619,15 @@ export default function DashboardTVPage(): JSX.Element {
             <div className="w-full h-full rounded-xl overflow-hidden shadow-xl bg-[#0E1525] p-0">
               {tvView === 'map' ? (
                 mapImage ? (
-                  <div ref={overlayRefTV} className="relative w-full h-full">
-                    <div className="w-full h-full rounded-xl overflow-hidden bg-[#0D1322]">
+                  <div ref={overlayRefTV} className="relative w-full h-full flex items-center justify-center">
+                    <div className="w-full h-full rounded-xl overflow-hidden bg-[#0D1322] flex items-center justify-center">
                       <img
                         ref={imageRefTV}
                         src={mapImage}
                         alt="Mapa Industrial"
-                        className="block w-full h-full object-contain pointer-events-none"
+                        className="block max-w-full max-h-full object-contain pointer-events-none"
                         onLoad={() => { recomputeImgRectTV(); setTimeout(recomputeImgRectTV, 80); }}
-                        style={{ display: mapImage ? 'block' : 'none', aspectRatio: '16/9' }}
+                        style={{ display: mapImage ? 'block' : 'none' }}
                       />
 
                         {/* Compact overlays: Linha 1 (left-top) and Linha 2 (right-top) */}

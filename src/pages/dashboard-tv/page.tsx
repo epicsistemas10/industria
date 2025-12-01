@@ -620,7 +620,7 @@ export default function DashboardTVPage(): JSX.Element {
               {tvView === 'map' ? (
                 mapImage ? (
                   <div ref={overlayRefTV} className="relative w-full h-full flex items-center justify-center">
-                    <div className="w-full h-full rounded-xl overflow-hidden bg-[#0D1322] flex items-center justify-center">
+                    <div className="w-full h-full rounded-xl overflow-hidden bg-transparent flex items-center justify-center">
                       <img
                         ref={imageRefTV}
                         src={mapImage}
@@ -629,43 +629,11 @@ export default function DashboardTVPage(): JSX.Element {
                         onLoad={() => { recomputeImgRectTV(); setTimeout(recomputeImgRectTV, 80); }}
                         style={{ display: mapImage ? 'block' : 'none' }}
                       />
-
-                        {/* Compact overlays: Linha 1 (left-top) and Linha 2 (right-top) */}
-                        {leftGroupItems.length > 0 && (
-                          <div className="absolute left-4 top-4 z-30 pointer-events-none">
-                            <div className="bg-emerald-700/10 border border-emerald-600/10 backdrop-blur-sm rounded-lg p-2 w-44">
-                              <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 1</div>
-                              <div className="space-y-1">
-                                {leftGroupItems.map((eq) => (
-                                  <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
-                                    <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
-                                    <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {rightOverlayItems.length > 0 && (
-                          <div className="absolute right-4 top-4 z-30 pointer-events-none">
-                            <div className="bg-emerald-700/10 border border-emerald-600/10 backdrop-blur-sm rounded-lg p-2 w-44">
-                              <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 2</div>
-                              <div className="space-y-1">
-                                {rightOverlayItems.map((eq) => (
-                                  <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
-                                    <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
-                                    <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        )}
+                      
 
                       {/* Hotspots overlay: render inside a pixel-sized box matching the actual rendered image rect so
                           positions (percent x/y) map consistently between Mapa and Dashboard TV */}
-                      {hotspots.length > 0 && innerBox && (
+                      {innerBox && (
                         <div className="absolute inset-0 pointer-events-none">
                           {/* inner box positioned over the image in pixels */}
                           <div
@@ -678,6 +646,39 @@ export default function DashboardTVPage(): JSX.Element {
                               pointerEvents: 'none'
                             }}
                           >
+                            {/* Overlays positioned relative to the actual image box to avoid sitting outside when image is letterboxed */}
+                            {leftGroupItems.length > 0 && (
+                              <div style={{ position: 'absolute', left: 8, top: 8, zIndex: 30, pointerEvents: 'none' }}>
+                                <div className="bg-emerald-700/10 border border-emerald-600/10 backdrop-blur-sm rounded-lg p-2 w-44">
+                                  <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 1</div>
+                                  <div className="space-y-1">
+                                    {leftGroupItems.map((eq) => (
+                                      <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
+                                        <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
+                                        <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {rightOverlayItems.length > 0 && (
+                              <div style={{ position: 'absolute', right: 8, top: 8, zIndex: 30, pointerEvents: 'none' }}>
+                                <div className="bg-emerald-700/10 border border-emerald-600/10 backdrop-blur-sm rounded-lg p-2 w-44">
+                                  <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 2</div>
+                                  <div className="space-y-1">
+                                    {rightOverlayItems.map((eq) => (
+                                      <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
+                                        <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
+                                        <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
                             {sanitizedHotspots.map(h => {
                               const isGroup = (h as any).isGroup;
                               let equipment = equipments.find(e => e.id === h.equipamento_id);

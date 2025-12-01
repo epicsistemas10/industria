@@ -85,6 +85,29 @@ export default function PecasPage() {
                     </div>
                   </div>
 
+                  {/* metadata from observacoes (may be JSON text) */}
+                  {(() => {
+                    try {
+                      const meta = typeof p.observacoes === 'string' ? JSON.parse(p.observacoes) : p.observacoes || {};
+                      return (
+                        <div className="mt-3">
+                          {meta.categoria && <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'} font-medium`}>{meta.categoria}</div>}
+                          {meta.descricao && <div className={`text-xs mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{meta.descricao}</div>}
+                          {Array.isArray(meta.aplicavel) && meta.aplicavel.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {meta.aplicavel.slice(0,6).map((a: string, idx: number) => (
+                                <div key={idx} className="text-xs px-2 py-1 rounded bg-white/5 text-white">{a}</div>
+                              ))}
+                              {meta.aplicavel.length > 6 && <div className="text-xs px-2 py-1 rounded bg-white/5 text-white">+{meta.aplicavel.length - 6}...</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    } catch (e) {
+                      return null;
+                    }
+                  })()}
+
                   <div className="absolute top-3 right-3 flex gap-2">
                     <button onClick={() => handleEdit(p.id)} className="w-8 h-8 bg-blue-600 text-white rounded flex items-center justify-center">
                       <i className="ri-edit-line"></i>

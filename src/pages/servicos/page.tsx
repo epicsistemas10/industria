@@ -206,8 +206,16 @@ export default function ServicosPage() {
   const vincular = async () => {
     if (!selectedServId || selectedEquipIds.length === 0) { alert('Selecione pelo menos um equipamento'); return; }
     try {
-      const rows = selectedEquipIds.map(eid => ({ equipamento_id: eid, nome: servicos.find(s=>s.id===selectedServId)?.nome || '', descricao: servicos.find(s=>s.id===selectedServId)?.descricao || null, percentual_revisao: servicos.find(s=>s.id===selectedServId)?.percentual_revisao || 0, servico_id: selectedServId }));
-      const { error } = await supabase.from('equipamento_servicos').insert(rows);
+      const rows = selectedEquipIds.map(eid => ({
+        equipamento_id: eid,
+        nome: servicos.find(s=>s.id===selectedServId)?.nome || '',
+        descricao: servicos.find(s=>s.id===selectedServId)?.descricao || null,
+        percentual_revisao: servicos.find(s=>s.id===selectedServId)?.percentual_revisao || 0,
+        // note: tabela equipamento_servicos não possui coluna servico_id no schema atual,
+        // então não enviamos esse campo para evitar erro PGRST204
+      }));
+      // Use returning: 'minimal' to avoid PostgREST trying to return columns that may not exist in schema cache
+      const { error } = await supabase.from('equipamento_servicos').insert(rows, { returning: 'minimal' });
       if (error) throw error;
       alert('Serviço vinculado aos equipamentos');
       setShowVincularModal(false);

@@ -141,6 +141,15 @@ export default function DashboardTVPage(): JSX.Element {
     return s;
   };
 
+  const toTitleCase = (val?: string) => {
+    if (!val) return '';
+    return String(val)
+      .toLowerCase()
+      .split(/\s+/)
+      .map(w => w ? (w.charAt(0).toUpperCase() + w.slice(1)) : '')
+      .join(' ');
+  };
+
   // Simple inline component to fetch open orders when planning view is active
   const OpenOrdersList = () => {
     const [orders, setOrders] = useState<any[]>([]);
@@ -424,7 +433,7 @@ export default function DashboardTVPage(): JSX.Element {
       const linhaKey = (memberEquipments[0]?.linha_setor ?? memberEquipments[0]?.setor) || 'Sem Setor';
       if (!groupsAll[linhaKey]) groupsAll[linhaKey] = [];
       const groupName = (grp && (grp.group?.nome ?? grp.group?.titulo ?? grp.nome ?? grp.titulo)) || 'Grupo';
-      groupsAll[linhaKey].push({ id: grp.id, nome: groupName, progresso: avg, setor: linhaKey, isGroup: true } as any);
+      groupsAll[linhaKey].push({ id: grp.id, nome: toTitleCase(groupName), progresso: avg, setor: linhaKey, isGroup: true } as any);
     } catch (e) {
       // ignore
     }
@@ -550,7 +559,7 @@ export default function DashboardTVPage(): JSX.Element {
                               <div className="space-y-1">
                                 {leftGroupItems.map((eq) => (
                                   <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
-                                    <div className="truncate text-xs">{eq.nome}</div>
+                                    <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
                                     <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
                                   </div>
                                 ))}
@@ -566,7 +575,7 @@ export default function DashboardTVPage(): JSX.Element {
                               <div className="space-y-1">
                                 {rightOverlayItems.map((eq) => (
                                   <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
-                                    <div className="truncate text-xs">{eq.nome}</div>
+                                    <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
                                     <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
                                   </div>
                                 ))}

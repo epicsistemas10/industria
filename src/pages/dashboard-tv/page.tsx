@@ -581,7 +581,7 @@ export default function DashboardTVPage(): JSX.Element {
             </div>
             <div>
               <div className="text-white font-semibold">IBA Santa Luzia</div>
-              <div className="text-xs text-blue-200">Centro de Comando</div>
+              <div className="text-xs text-blue-200">Controle de Manuntencao</div>
             </div>
           </div>
 

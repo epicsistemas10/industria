@@ -7,6 +7,7 @@ type Hotspot = { id: string; equipamento_id?: string; x: number; y: number; widt
 export default function DashboardTVPage(): JSX.Element {
   // TV dashboard with hotspots (percentual), reduced sidebars and auto-rotate (40s)
   const [mapImage, setMapImage] = useState<string>('');
+  const [companyLogo, setCompanyLogo] = useState<string>('');
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [tvView, setTvView] = useState<'map' | 'plan'>('map');
@@ -228,6 +229,46 @@ export default function DashboardTVPage(): JSX.Element {
         }
       } catch (e) {
         // ignore overall
+      }
+    })();
+
+    // Resolve company logo: prefer env, then localStorage, then Supabase public file 'company_logo.png'
+    (async () => {
+      try {
+        const envLogo = (import.meta as any).env?.VITE_COMPANY_LOGO_URL || null;
+        if (envLogo) {
+          setCompanyLogo(envLogo);
+          return;
+        }
+
+        try {
+          const saved = typeof window !== 'undefined' ? localStorage.getItem('company_logo') : null;
+          if (saved) {
+            setCompanyLogo(saved);
+            return;
+          }
+        } catch (e) {}
+
+        // derive via Supabase storage public URL (fixed filename)
+        try {
+          const mod = await import('../../lib/supabase');
+          const supabase = (mod as any).supabase;
+          if (supabase) {
+            const { data } = supabase.storage.from('mapas').getPublicUrl('company_logo.png');
+            const publicUrl = data?.publicUrl || null;
+            if (publicUrl) {
+              setCompanyLogo(publicUrl);
+              return;
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+
+        // fallback to favicon
+        setCompanyLogo('/favicon.svg');
+      } catch (e) {
+        setCompanyLogo('/favicon.svg');
       }
     })();
 
@@ -532,7 +573,7 @@ export default function DashboardTVPage(): JSX.Element {
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded flex items-center justify-center overflow-hidden">
               <img
-                src={((import.meta as any).env?.VITE_COMPANY_LOGO_URL) || (typeof window !== 'undefined' ? localStorage.getItem('company_logo') : null) || '/favicon.svg'}
+                src={companyLogo || '/favicon.svg'}
                 alt="logo"
                 className="w-14 h-14 object-contain"
                 onError={(e) => { try { (e.target as HTMLImageElement).src = '/favicon.svg'; } catch (err) {} }}

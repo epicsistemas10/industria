@@ -555,7 +555,7 @@ export default function DashboardTVPage(): JSX.Element {
                         {leftGroupItems.length > 0 && (
                           <div className="absolute left-4 top-4 z-30 pointer-events-none">
                             <div className="bg-emerald-700/10 border border-emerald-600/10 backdrop-blur-sm rounded-lg p-2 w-44">
-                              <div className="text-[10px] text-gray-300 uppercase font-semibold mb-1">Linha 1</div>
+                              <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 1</div>
                               <div className="space-y-1">
                                 {leftGroupItems.map((eq) => (
                                   <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
@@ -571,7 +571,7 @@ export default function DashboardTVPage(): JSX.Element {
                         {rightOverlayItems.length > 0 && (
                           <div className="absolute right-4 top-4 z-30 pointer-events-none">
                             <div className="bg-emerald-700/10 border border-emerald-600/10 backdrop-blur-sm rounded-lg p-2 w-44">
-                              <div className="text-[10px] text-gray-300 uppercase font-semibold mb-1">Linha 2</div>
+                              <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 2</div>
                               <div className="space-y-1">
                                 {rightOverlayItems.map((eq) => (
                                   <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">

@@ -530,11 +530,12 @@ export default function DashboardTVPage(): JSX.Element {
       <div className="flex flex-col h-screen gap-4">
         <header className="flex items-center justify-between px-4 h-20" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded flex items-center justify-center overflow-hidden">
+            <div className="w-16 h-16 rounded flex items-center justify-center overflow-hidden">
               <img
                 src={((import.meta as any).env?.VITE_COMPANY_LOGO_URL) || (typeof window !== 'undefined' ? localStorage.getItem('company_logo') : null) || '/favicon.svg'}
                 alt="logo"
-                className="w-10 h-10 object-contain"
+                className="w-14 h-14 object-contain"
+                onError={(e) => { try { (e.target as HTMLImageElement).src = '/favicon.svg'; } catch (err) {} }}
               />
             </div>
             <div>

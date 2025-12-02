@@ -105,25 +105,27 @@ export default function PlanejamentoPage() {
         `)
         .order('nome');
 
+      console.log('loadEquipamentos response - error:', error, 'data length:', data?.length ?? 0);
+
       if (!error && data) {
-        setEquipamentos(data.map(eq => ({
+        const mapped = data.map((eq: any) => ({
           id: eq.id,
           nome: eq.nome,
-          // pass-through helpful fields for filtering/formatting
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ind: (eq as any).ind,
-          linha_setor: (eq as any).linha_setor || (eq as any).linha || (eq as any).linha1 || '',
-          linha1: (eq as any).linha1,
-          linha2: (eq as any).linha2,
-          iba: (eq as any).iba,
+          ind: eq.ind,
+          linha_setor: eq.linha_setor || eq.linha || eq.linha1 || '',
+          linha1: eq.linha1,
+          linha2: eq.linha2,
+          iba: eq.iba,
           servicos: (eq.equipamento_servicos || [])
-            .sort((a: any, b: any) => a.ordem - b.ordem)
-            .map((s: any) => ({
-              id: s.id,
-              nome: s.nome,
-              percentual_revisao: s.percentual_revisao
-            }))
-        })));
+            .slice()
+            .sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0))
+            .map((s: any) => ({ id: s.id, nome: s.nome, percentual_revisao: s.percentual_revisao }))
+        }));
+
+        console.log('mapped equipamentos:', mapped.length, mapped.slice(0, 5));
+        setEquipamentos(mapped);
+      } else if (error) {
+        console.error('Supabase error loading equipamentos:', error);
       }
     } catch (error) {
       console.error('Erro ao carregar equipamentos:', error);

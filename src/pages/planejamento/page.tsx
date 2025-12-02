@@ -152,6 +152,7 @@ export default function PlanejamentoPage() {
             }));
 
             console.log('mapped equipamentos (fallback):', mappedFb.length, mappedFb.slice(0, 5));
+            console.log('mapped equipamentos (fallback) sample fields:', mappedFb.slice(0,5).map((e:any)=>({ id: e.id, nome: e.nome, ind: e.ind, codigo_interno: e.codigo_interno || e.codigoInterno })));
             setEquipamentos(mappedFb);
           } else {
             console.error('Fallback also failed loading equipamentos:', fallback.error);

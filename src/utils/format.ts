@@ -4,7 +4,7 @@ export function formatEquipamentoName(equip: any): string {
   const nome = equip.nome || '';
   const numero = equip.numero ?? equip.numero_equipamento ?? equip.numero_eq;
   // Campos adicionais que podem existir no cadastro do equipamento
-  const ind = equip.ind || equip.indicativo || equip.indicador;
+  const ind = equip.ind || equip.indicativo || equip.indicador || equip.codigo_interno || equip.codigoInterno;
   const linha1 = equip.linha1 || equip.linha_1 || equip.linha;
   const linha2 = equip.linha2 || equip.linha_2;
   const iba = equip.iba;

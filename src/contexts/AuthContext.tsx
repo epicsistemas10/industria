@@ -23,31 +23,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     console.log('🔵 AuthProvider: Verificando sessão...');
-    
+    // Defensive checks: if Supabase isn't configured (e.g. missing VITE_ envs)
+    // the exported `supabase` may be a proxy that does not implement the
+    // expected auth methods. Guarding prevents runtime TypeErrors in prod.
+    const authObj: any = (supabase as any)?.auth;
+    if (!authObj || typeof authObj.getSession !== 'function') {
+      console.error('❌ Supabase auth não disponível. Verifique as variáveis de ambiente VITE_PUBLIC_SUPABASE_*');
+      setLoading(false);
+      return undefined;
+    }
+
     // Verificar sessão atual
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    authObj.getSession().then(({ data: { session } }: any) => {
       console.log('📊 Sessão obtida:', session ? 'Autenticado' : 'Não autenticado');
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
-    }).catch((error) => {
+    }).catch((error: any) => {
       console.error('❌ Erro ao obter sessão:', error);
       setLoading(false);
     });
 
-    // Escutar mudanças de autenticação
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log('🔄 Auth state changed:', _event, session ? 'Autenticado' : 'Não autenticado');
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    // Escutar mudanças de autenticação se disponível
+    let unsubscribe: (() => void) | undefined;
+    if (typeof authObj.onAuthStateChange === 'function') {
+      const { data }: any = authObj.onAuthStateChange((_event: any, session: any) => {
+        console.log('🔄 Auth state changed:', _event, session ? 'Autenticado' : 'Não autenticado');
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+      });
+      unsubscribe = data?.subscription?.unsubscribe?.bind(data.subscription);
+    }
 
     return () => {
       console.log('🔴 AuthProvider: Limpando subscription');
-      subscription.unsubscribe();
+      if (unsubscribe) unsubscribe();
     };
   }, []);
 

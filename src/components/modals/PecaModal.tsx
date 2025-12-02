@@ -15,13 +15,13 @@ interface PecaModalProps {
 export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode = true }: PecaModalProps) {
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<any>({
     nome: '',
     codigo_interno: '',
     marca: '',
     fabricante: '',
     componente_id: '',
-    quantidade_minima: 0,
+    estoque_minimo: 0,
     fornecedor: '',
     preco_unitario: 0,
     foto_url: ''
@@ -32,6 +32,7 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       if (pecaId) loadPeca();
       else resetForm();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, pecaId]);
 
   const { success, error: showError } = useToast();
@@ -48,7 +49,7 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
         marca: data.marca || '',
         fabricante: data.fabricante || '',
         componente_id: data.componente_id || '',
-        quantidade_minima: data.quantidade_minima || 0,
+        estoque_minimo: data.estoque_minimo ?? 0,
         fornecedor: data.fornecedor || '',
         preco_unitario: data.preco_unitario || 0,
         foto_url: data.foto_url || ''
@@ -60,23 +61,21 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     }
   };
 
-  const resetForm = () => setFormData({ nome: '', codigo_interno: '', marca: '', fabricante: '', componente_id: '', quantidade_minima: 0, fornecedor: '', preco_unitario: 0, foto_url: '' });
+  const resetForm = () => setFormData({ nome: '', codigo_interno: '', marca: '', fabricante: '', componente_id: '', estoque_minimo: 0, fornecedor: '', preco_unitario: 0, foto_url: '' });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setLoading(true);
-      // Build payload mapping to actual DB columns in `pecas` table to avoid PostgREST 400 errors
       const payload: any = {
         componente_id: formData.componente_id || null,
         nome: formData.nome,
-        // map 'fabricante' -> 'codigo_fabricante' (DB column)
         codigo_fabricante: formData.fabricante || null,
-        // map 'preco_unitario' -> 'custo_medio'
         custo_medio: formData.preco_unitario ? Number(formData.preco_unitario) : null,
-        // map 'foto_url' -> 'foto'
+        valor_unitario: formData.preco_unitario ? Number(formData.preco_unitario) : null,
+        saldo_estoque: 0,
+        estoque_minimo: formData.estoque_minimo != null ? Number(formData.estoque_minimo) : null,
         foto: formData.foto_url || null,
-        // map 'fornecedor' -> 'observacoes' (best-fit)
         observacoes: formData.fornecedor || null
       };
 
@@ -87,7 +86,6 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       } else {
         const { data, error } = await supabase.from('pecas').insert(payload).select().single();
         if (error) throw error;
-        // ensure we have the created row
         success('Peça criada');
       }
       onSuccess();
@@ -148,8 +146,8 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
             </div>
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade Mínima</label>
-              <input type="number" min="0" value={formData.quantidade_minima} onChange={(e) => setFormData({ ...formData, quantidade_minima: parseInt(e.target.value) || 0 })} className="w-full px-4 py-2 rounded-lg border" />
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Estoque Mínimo</label>
+              <input type="number" min="0" value={formData.estoque_minimo} onChange={(e) => setFormData({ ...formData, estoque_minimo: parseInt(e.target.value) || 0 })} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div className="md:col-span-2">
@@ -178,3 +176,4 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     </div>
   );
 }
+

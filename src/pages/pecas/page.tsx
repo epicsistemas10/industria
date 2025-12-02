@@ -3,8 +3,10 @@ import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
 import { usePecas } from '../../hooks/usePecas';
+import { supabase } from '../../lib/supabase';
 import PecaModal from '../../components/modals/PecaModal';
 import { useToast } from '../../hooks/useToast';
+import ImportarPlanilhaPecas from '../../components/ImportarPlanilhaPecas';
 
 export default function PecasPage() {
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
@@ -12,6 +14,10 @@ export default function PecasPage() {
   const { data: pecas, loading, fetch, create, update, remove } = usePecas();
   const [showPecaModal, setShowPecaModal] = useState(false);
   const [selectedPecaId, setSelectedPecaId] = useState<string | undefined>();
+  const [showImportPanel, setShowImportPanel] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [colFilters, setColFilters] = useState({ nome: '', codigo: '', quantidadeMin: '', valorUnitMin: '' });
+  const [deletingAll, setDeletingAll] = useState(false);
   const { success, error: showError } = useToast();
 
   const handleEdit = (id: string) => {
@@ -50,6 +56,70 @@ export default function PecasPage() {
                 <i className="ri-add-line mr-2"></i>
                 Nova Peça
               </button>
+              <button
+                onClick={() => setShowImportPanel(v => !v)}
+                className="px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-all whitespace-nowrap"
+              >
+                <i className="ri-file-upload-line mr-2"></i>
+                Importar Planilha
+              </button>
+            </div>
+          </div>
+
+          {showImportPanel && (
+            <div className="mb-6">
+              <ImportarPlanilhaPecas onClose={() => setShowImportPanel(false)} onImported={() => fetch()} />
+            </div>
+          )}
+
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div>
+              <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Total em estoque: <span className="font-semibold">{(pecas || []).reduce((s: number, p: any) => s + (Number(p.saldo_estoque) || 0), 0)}</span></div>
+              <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Valor total estimado: <span className="font-semibold">R$ {(pecas || []).reduce((s: number, p: any) => s + ((Number(p.saldo_estoque) || 0) * (Number(p.valor_unitario) || 0)), 0).toFixed(2)}</span></div>
+            </div>
+            <div className="flex items-center gap-3">
+              <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar por nome, código ou grupo" className="px-3 py-2 rounded border w-72" />
+              <button onClick={() => { setSearchTerm(''); setColFilters({ nome: '', codigo: '', quantidadeMin: '', valorUnitMin: '' }); }} className="px-3 py-2 bg-gray-200 text-sm rounded hover:bg-gray-300 transition">Limpar filtros</button>
+              <button onClick={async () => {
+                setDeletingAll(true);
+                try {
+                  const { data: rows, error: fetchErr } = await supabase.from('pecas').select('id');
+                  if (fetchErr) {
+                    console.error('Erro ao buscar ids das peças antes de deletar:', fetchErr);
+                    showError('Erro ao buscar peças para exclusão');
+                    return;
+                  }
+                  const ids = (rows || []).map((r: any) => r.id).filter(Boolean);
+                  if (ids.length === 0) {
+                    success('Nenhuma peça encontrada para remover');
+                    await fetch();
+                    return;
+                  }
+
+                  const chunkSize = 100;
+                  let deletedCount = 0;
+                  for (let i = 0; i < ids.length; i += chunkSize) {
+                    const batch = ids.slice(i, i + chunkSize);
+                    const { error: delErr } = await supabase.from('pecas').delete().in('id', batch);
+                    if (delErr) {
+                      console.error('Erro ao deletar lote de peças:', delErr, 'batchSize=', batch.length);
+                      showError('Erro ao remover algumas peças. Veja o console para detalhes.');
+                      break;
+                    }
+                    deletedCount += batch.length;
+                  }
+
+                  if (deletedCount > 0) {
+                    success(`Removidas ${deletedCount} peças`);
+                    await fetch();
+                  }
+                } catch (e: any) {
+                  console.error('Erro ao deletar todas as peças:', e);
+                  showError('Erro ao remover todas as peças');
+                } finally {
+                  setDeletingAll(false);
+                }
+              }} disabled={deletingAll} className={`px-3 py-2 text-sm rounded ${deletingAll ? 'bg-red-400' : 'bg-red-600 hover:bg-red-700'} text-white transition`}>{deletingAll ? 'Removendo...' : 'Excluir tudo'}</button>
             </div>
           </div>
 
@@ -59,7 +129,7 @@ export default function PecasPage() {
             </div>
           )}
 
-          {!loading && pecas.length === 0 && (
+          {!loading && (pecas || []).length === 0 && (
             <div className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl p-12 text-center shadow-lg`}>
               <i className="ri-search-line text-6xl mb-4"></i>
               <h3 className={`text-xl font-semibold mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>Nenhuma peça cadastrada</h3>
@@ -67,58 +137,106 @@ export default function PecasPage() {
             </div>
           )}
 
-          {!loading && pecas.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {pecas.map((p: any) => (
-                <div key={p.id} className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl p-4 shadow-lg relative`}>
-                  <div className="flex items-center gap-3">
-                    {p.foto_url ? (
-                      <img src={p.foto_url} alt={p.nome} className="w-16 h-16 rounded-lg object-cover" />
-                    ) : (
-                      <div className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center">
-                        <i className="ri-shopping-bag-line text-2xl"></i>
-                      </div>
-                    )}
-                    <div>
-                      <div className={`font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{p.nome}</div>
-                      <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{p.codigo_interno || p.codigo_fabricante || '-'}</div>
-                    </div>
-                  </div>
+          {!loading && (pecas || []).length > 0 && (
+            (() => {
+              const term = searchTerm.trim().toLowerCase();
+              const filtered = (pecas || []).filter((p: any) => {
+                const grupo = (p.grupo || (p.observacoes ? (() => { try { const m = JSON.parse(p.observacoes); return m.grupo || ''; } catch { return ''; } })() : '') ) || '';
+                const termOk = !term || (p.nome || '').toLowerCase().includes(term) || (p.codigo_interno || p.codigo_fabricante || '').toLowerCase().includes(term) || (String(grupo) || '').toLowerCase().includes(term);
 
-                  {/* metadata from observacoes (may be JSON text) */}
-                  {(() => {
-                    try {
-                      const meta = typeof p.observacoes === 'string' ? JSON.parse(p.observacoes) : p.observacoes || {};
-                      return (
-                        <div className="mt-3">
-                          {meta.categoria && <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'} font-medium`}>{meta.categoria}</div>}
-                          {meta.descricao && <div className={`text-xs mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{meta.descricao}</div>}
-                          {Array.isArray(meta.aplicavel) && meta.aplicavel.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {meta.aplicavel.slice(0,6).map((a: string, idx: number) => (
-                                <div key={idx} className="text-xs px-2 py-1 rounded bg-white/5 text-white">{a}</div>
-                              ))}
-                              {meta.aplicavel.length > 6 && <div className="text-xs px-2 py-1 rounded bg-white/5 text-white">+{meta.aplicavel.length - 6}...</div>}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    } catch (e) {
-                      return null;
-                    }
-                  })()}
+                const nomeFilter = (colFilters.nome || '').trim().toLowerCase();
+                const codigoFilter = (colFilters.codigo || '').trim().toLowerCase();
+                const quantidadeMin = colFilters.quantidadeMin ? Number(colFilters.quantidadeMin) : null;
+                const valorUnitMin = colFilters.valorUnitMin ? Number(colFilters.valorUnitMin) : null;
 
-                  <div className="absolute top-3 right-3 flex gap-2">
-                    <button onClick={() => handleEdit(p.id)} className="w-8 h-8 bg-blue-600 text-white rounded flex items-center justify-center">
-                      <i className="ri-edit-line"></i>
-                    </button>
-                    <button onClick={() => handleDelete(p.id)} className="w-8 h-8 bg-red-600 text-white rounded flex items-center justify-center">
-                      <i className="ri-delete-bin-line"></i>
-                    </button>
-                  </div>
+                const nomeOk = !nomeFilter || (p.nome || '').toLowerCase().includes(nomeFilter);
+                const codigoOk = !codigoFilter || ( (p.codigo_interno || p.codigo_fabricante || '') .toLowerCase().includes(codigoFilter) );
+                const quantidadeOk = quantidadeMin == null || (Number(p.saldo_estoque) || 0) >= quantidadeMin;
+                const valorUnitOk = valorUnitMin == null || (Number(p.valor_unitario) || 0) >= valorUnitMin;
+
+                return termOk && nomeOk && codigoOk && quantidadeOk && valorUnitOk;
+              });
+              const sorted = filtered.slice().sort((a: any, b: any) => {
+                const aQtd = Number(a.saldo_estoque) || 0;
+                const bQtd = Number(b.saldo_estoque) || 0;
+                const aMin = a.estoque_minimo != null ? Number(a.estoque_minimo) : 0;
+                const bMin = b.estoque_minimo != null ? Number(b.estoque_minimo) : 0;
+                const aLow = aQtd <= aMin;
+                const bLow = bQtd <= bMin;
+                if (aLow === bLow) return 0;
+                return aLow ? -1 : 1;
+              });
+
+              return (
+                <div className="overflow-x-auto bg-transparent rounded">
+                  <table className={`min-w-full text-sm ${darkMode ? 'text-gray-100 bg-slate-900' : 'text-gray-900 bg-white'}`}>
+                    <thead className={`${darkMode ? 'bg-slate-800 text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
+                      <tr>
+                        <th className="px-4 py-2 text-left">Nome</th>
+                        <th className="px-4 py-2 text-left">Código</th>
+                        <th className="px-4 py-2 text-right">Quantidade</th>
+                        <th className="px-4 py-2 text-right">Valor Unit.</th>
+                        <th className="px-4 py-2 text-right">Valor Total</th>
+                        <th className="px-4 py-2 text-right">Estoque Mínimo</th>
+                        <th className="px-4 py-2 text-center">Alerta</th>
+                        <th className="px-4 py-2 text-center">Ações</th>
+                      </tr>
+                      <tr className={`${darkMode ? 'bg-slate-800' : 'bg-gray-50'}`}>
+                        <th className="px-4 py-2 text-left">
+                          <input value={colFilters.nome} onChange={(e) => setColFilters(f => ({ ...f, nome: e.target.value }))} placeholder="Filtrar Nome" className="w-full px-2 py-1 rounded bg-white/5 text-sm" />
+                        </th>
+                        <th className="px-4 py-2 text-left">
+                          <input value={colFilters.codigo} onChange={(e) => setColFilters(f => ({ ...f, codigo: e.target.value }))} placeholder="Filtrar Código" className="w-full px-2 py-1 rounded bg-white/5 text-sm" />
+                        </th>
+                        <th className="px-4 py-2 text-right">
+                          <input type="number" value={colFilters.quantidadeMin} onChange={(e) => setColFilters(f => ({ ...f, quantidadeMin: e.target.value }))} placeholder="Min" className="w-20 px-2 py-1 rounded bg-white/5 text-sm text-right" />
+                        </th>
+                        <th className="px-4 py-2 text-right">
+                          <input type="number" value={colFilters.valorUnitMin} onChange={(e) => setColFilters(f => ({ ...f, valorUnitMin: e.target.value }))} placeholder="Min" className="w-28 px-2 py-1 rounded bg-white/5 text-sm text-right" />
+                        </th>
+                        <th className="px-4 py-2 text-right"></th>
+                        <th className="px-4 py-2 text-right"></th>
+                        <th className="px-4 py-2 text-center"></th>
+                        <th className="px-4 py-2 text-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sorted.map((p: any) => {
+                        const qtd = Number(p.saldo_estoque) || 0;
+                        const unit = Number(p.valor_unitario) || 0;
+                        const total = qtd * unit;
+                        const min = p.estoque_minimo != null ? Number(p.estoque_minimo) : 0;
+                        const low = qtd <= min;
+                        return (
+                          <tr key={p.id} className={`${low ? (darkMode ? 'bg-red-900/40' : 'bg-red-50') : ''} border-b`}>
+                            <td className="px-4 py-3">
+                              <div className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>{p.nome}</div>
+                              <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{p.codigo_interno || p.codigo_fabricante || '-'}</div>
+                            </td>
+                            <td className="px-4 py-3">{p.codigo_fabricante || '-'}</td>
+                            <td className="px-4 py-3 text-right">{qtd}</td>
+                            <td className="px-4 py-3 text-right">R$ {unit.toFixed(2)}</td>
+                            <td className="px-4 py-3 text-right">R$ {total.toFixed(2)}</td>
+                            <td className="px-4 py-3 text-right">{min}</td>
+                            <td className="px-4 py-3 text-center">{low ? <span className="inline-flex items-center gap-2 px-2 py-1 rounded animate-pulse bg-red-600 text-white font-semibold">⚠ Abaixo</span> : <span className="text-green-600">OK</span>}</td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button onClick={() => handleEdit(p.id)} className="w-8 h-8 bg-blue-600 text-white rounded flex items-center justify-center">
+                                  <i className="ri-edit-line"></i>
+                                </button>
+                                <button onClick={() => handleDelete(p.id)} className="w-8 h-8 bg-red-600 text-white rounded flex items-center justify-center">
+                                  <i className="ri-delete-bin-line"></i>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
-            </div>
+              );
+            })()
           )}
 
           <PecaModal isOpen={showPecaModal} onClose={() => setShowPecaModal(false)} onSuccess={async () => { await fetch(); setShowPecaModal(false); }} pecaId={selectedPecaId} />

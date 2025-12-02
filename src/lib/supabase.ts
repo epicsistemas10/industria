@@ -3,11 +3,34 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Variáveis de ambiente do Supabase não configuradas');
-}
+// Declaramos e exportamos uma variável mutável; atribuímos abaixo dependendo
+// da presença das variáveis de ambiente. Isso evita usar `export` dentro
+// de blocos condicionais (o que causa erro de sintaxe).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export let supabase: any;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+if (!supabaseUrl || !supabaseAnonKey) {
+  // Em ambiente de desenvolvimento, não lançamos para permitir que a
+  // aplicação inicialize mesmo sem as variáveis de ambiente. Em vez disso,
+  // mostramos um aviso e exportamos um proxy que lança um erro informativo
+  // quando qualquer método do supabase é usado.
+  // Para usar o Supabase, copie `.env.local.example` para `.env.local`
+  // e preencha `VITE_PUBLIC_SUPABASE_URL` e `VITE_PUBLIC_SUPABASE_ANON_KEY`.
+  // eslint-disable-next-line no-console
+  console.warn('Supabase não configurado: defina VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY em .env.local');
+
+  const handler: ProxyHandler<any> = {
+    get() {
+      return () => {
+        throw new Error('Supabase não configurado. Copie .env.local.example para .env.local e defina VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY.');
+      };
+    },
+  };
+
+  supabase = new Proxy({}, handler);
+} else {
+  supabase = createClient(supabaseUrl, supabaseAnonKey);
+}
 
 // Tipos do banco de dados
 export interface Equipamento {

@@ -39,17 +39,6 @@ create table if not exists pecas (
 );
 
 -- Hotspots (mapa)
-create table if not exists mapa_hotspots (
-  id uuid default gen_random_uuid() primary key,
-  equipamento_id uuid references equipamentos(id) on delete set null,
-  imagem_id uuid references panoramas(id) on delete cascade,
-  x numeric not null,
-  y numeric not null,
-  titulo text,
-  descricao text,
-  created_at timestamptz default now()
-);
-
 -- Panoramas / imagens de planta
 create table if not exists panoramas (
   id uuid default gen_random_uuid() primary key,
@@ -60,6 +49,17 @@ create table if not exists panoramas (
   criado_em timestamptz default now()
 );
 
+-- Hotspots (mapa)
+create table if not exists mapa_hotspots (
+  id uuid default gen_random_uuid() primary key,
+  equipamento_id uuid references equipamentos(id) on delete set null,
+  imagem_id uuid references panoramas(id) on delete cascade,
+  x numeric not null,
+  y numeric not null,
+  titulo text,
+  descricao text,
+  created_at timestamptz default now()
+);
 -- Ordens de manutencao
 create table if not exists manutencoes (
   id uuid default gen_random_uuid() primary key,
@@ -74,9 +74,44 @@ create table if not exists manutencoes (
 );
 
 -- Indexes
-create index if not exists idx_equipamentos_setor on equipamentos(setor);
-create index if not exists idx_componentes_equipamento on componentes(equipamento_id);
-create index if not exists idx_pecas_componente on pecas(componente_id);
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'equipamentos'
+      AND column_name = 'setor'
+  ) THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_equipamentos_setor ON equipamentos(setor)';
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'componentes'
+      AND column_name = 'equipamento_id'
+  ) THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_componentes_equipamento ON componentes(equipamento_id)';
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'pecas'
+      AND column_name = 'componente_id'
+  ) THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_pecas_componente ON pecas(componente_id)';
+  END IF;
+END
+$$;
 
 -- NOTE: Add RLS policies according to your auth model. This file intentionally
 -- does not enable RLS or roles; review and adapt policies before enabling.

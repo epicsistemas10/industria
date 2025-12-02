@@ -124,8 +124,41 @@ export default function PlanejamentoPage() {
 
         console.log('mapped equipamentos:', mapped.length, mapped.slice(0, 5));
         setEquipamentos(mapped);
-      } else if (error) {
+      } else {
         console.error('Supabase error loading equipamentos:', error);
+
+        // Fallback: try a more permissive select in case some columns do not exist
+        try {
+          const fallback = await supabase
+            .from('equipamentos')
+            .select('*, equipamento_servicos(*)')
+            .order('nome');
+
+          console.log('loadEquipamentos fallback - error:', fallback.error, 'data length:', fallback.data?.length ?? 0);
+
+          if (!fallback.error && fallback.data) {
+            const mappedFb = fallback.data.map((eq: any) => ({
+              id: eq.id,
+              nome: eq.nome,
+              ind: eq.ind,
+              linha_setor: eq.linha_setor || eq.linha || eq.linha1 || '',
+              linha1: eq.linha1,
+              linha2: eq.linha2,
+              iba: eq.iba,
+              servicos: (eq.equipamento_servicos || [])
+                .slice()
+                .sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0))
+                .map((s: any) => ({ id: s.id, nome: s.nome, percentual_revisao: s.percentual_revisao }))
+            }));
+
+            console.log('mapped equipamentos (fallback):', mappedFb.length, mappedFb.slice(0, 5));
+            setEquipamentos(mappedFb);
+          } else {
+            console.error('Fallback also failed loading equipamentos:', fallback.error);
+          }
+        } catch (fbErr) {
+          console.error('Erro no fallback loadEquipamentos:', fbErr);
+        }
       }
     } catch (error) {
       console.error('Erro ao carregar equipamentos:', error);

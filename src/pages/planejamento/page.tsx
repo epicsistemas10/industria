@@ -111,7 +111,7 @@ export default function PlanejamentoPage() {
         const mapped = data.map((eq: any) => ({
           id: eq.id,
           nome: eq.nome,
-          ind: eq.ind,
+          ind: eq.ind || eq.codigo_interno || eq.codigoInterno,
           linha_setor: eq.linha_setor || eq.linha || eq.linha1 || '',
           linha1: eq.linha1,
           linha2: eq.linha2,
@@ -527,7 +527,7 @@ export default function PlanejamentoPage() {
                 >
                   <option value="">Selecione um equipamento</option>
                   {filteredEquipamentos.map((eq: any) => (
-                    <option key={eq.id} value={eq.id}>{formatEquipamentoName(eq)}{eq.ind ? ` — ${eq.ind}` : ''}</option>
+                    <option key={eq.id} value={eq.id}>{formatEquipamentoName(eq)}</option>
                   ))}
                 </select>
               </div>

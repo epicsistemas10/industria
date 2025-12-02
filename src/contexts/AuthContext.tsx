@@ -64,7 +64,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     console.log('🔑 Tentando fazer login...');
-    const { error } = await supabase.auth.signInWithPassword({
+    const auth: any = (supabase as any)?.auth;
+    if (!auth || typeof auth.signInWithPassword !== 'function') {
+      const msg = 'Supabase auth não disponível. Verifique VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.';
+      console.error('❌', msg);
+      throw new Error(msg);
+    }
+    const { error } = await auth.signInWithPassword({
       email,
       password,
     });
@@ -77,7 +83,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, userData: any) => {
     console.log('📝 Tentando criar conta...');
-    const { error } = await supabase.auth.signUp({
+    const auth: any = (supabase as any)?.auth;
+    if (!auth || typeof auth.signUp !== 'function') {
+      const msg = 'Supabase auth não disponível. Verifique VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.';
+      console.error('❌', msg);
+      throw new Error(msg);
+    }
+    const { error } = await auth.signUp({
       email,
       password,
       options: {
@@ -93,7 +105,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     console.log('🚪 Fazendo logout...');
-    const { error } = await supabase.auth.signOut();
+    const auth: any = (supabase as any)?.auth;
+    if (!auth || typeof auth.signOut !== 'function') {
+      const msg = 'Supabase auth não disponível. Verifique VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.';
+      console.error('❌', msg);
+      throw new Error(msg);
+    }
+    const { error } = await auth.signOut();
     if (error) {
       console.error('❌ Erro no logout:', error);
       throw error;
@@ -103,7 +121,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateProfile = async (data: any) => {
     console.log('👤 Atualizando perfil...');
-    const { error } = await supabase.auth.updateUser({
+    const auth: any = (supabase as any)?.auth;
+    if (!auth || typeof auth.updateUser !== 'function') {
+      const msg = 'Supabase auth não disponível. Verifique VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.';
+      console.error('❌', msg);
+      throw new Error(msg);
+    }
+    const { error } = await auth.updateUser({
       data,
     });
     if (error) {

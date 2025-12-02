@@ -42,6 +42,7 @@ export default function PlanejamentoPage() {
   const [loading, setLoading] = useState(true);
   const [atividades, setAtividades] = useState<AtividadePlanejada[]>([]);
   const [equipamentos, setEquipamentos] = useState<Equipamento[]>([]);
+  const [equipLineFilter, setEquipLineFilter] = useState<'all' | 'linha1' | 'linha2' | 'iba'>('all');
   const [equipes, setEquipes] = useState<Equipe[]>([]);
   const [semanaAtual, setSemanaAtual] = useState(0);
   const [showModal, setShowModal] = useState(false);
@@ -89,6 +90,12 @@ export default function PlanejamentoPage() {
         .select(`
           id,
           nome,
+          ind,
+          linha_setor,
+          linha,
+          linha1,
+          linha2,
+          iba,
           equipamento_servicos (
             id,
             nome,
@@ -102,6 +109,13 @@ export default function PlanejamentoPage() {
         setEquipamentos(data.map(eq => ({
           id: eq.id,
           nome: eq.nome,
+          // pass-through helpful fields for filtering/formatting
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ind: (eq as any).ind,
+          linha_setor: (eq as any).linha_setor || (eq as any).linha || (eq as any).linha1 || '',
+          linha1: (eq as any).linha1,
+          linha2: (eq as any).linha2,
+          iba: (eq as any).iba,
           servicos: (eq.equipamento_servicos || [])
             .sort((a: any, b: any) => a.ordem - b.ordem)
             .map((s: any) => ({
@@ -242,6 +256,14 @@ export default function PlanejamentoPage() {
   };
 
   const equipamentoSelecionado = equipamentos.find(eq => eq.id === formData.equipamento_id);
+  const filteredEquipamentos = equipamentos.filter((eq: any) => {
+    if (equipLineFilter === 'all') return true;
+    const raw = ((eq.linha_setor || eq.linha || eq.linha1 || eq.linha2 || eq.iba) || '').toString().toLowerCase();
+    if (equipLineFilter === 'iba') return raw.includes('iba');
+    if (equipLineFilter === 'linha1') return raw.includes('linha 1') || raw.includes('linha1') || raw.includes('1');
+    if (equipLineFilter === 'linha2') return raw.includes('linha 2') || raw.includes('linha2') || raw.includes('2');
+    return true;
+  });
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
@@ -432,6 +454,36 @@ export default function PlanejamentoPage() {
                 <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                   Equipamento
                 </label>
+                <div className="flex items-center gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => { setEquipLineFilter('all'); setFormData({ ...formData, equipamento_id: '', servico_id: '' }); }}
+                    className={`px-3 py-1 rounded-lg text-sm ${equipLineFilter === 'all' ? 'bg-blue-600 text-white' : darkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}
+                  >
+                    Todas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEquipLineFilter('linha1'); setFormData({ ...formData, equipamento_id: '', servico_id: '' }); }}
+                    className={`px-3 py-1 rounded-lg text-sm ${equipLineFilter === 'linha1' ? 'bg-blue-600 text-white' : darkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}
+                  >
+                    Linha 1
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEquipLineFilter('linha2'); setFormData({ ...formData, equipamento_id: '', servico_id: '' }); }}
+                    className={`px-3 py-1 rounded-lg text-sm ${equipLineFilter === 'linha2' ? 'bg-blue-600 text-white' : darkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}
+                  >
+                    Linha 2
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEquipLineFilter('iba'); setFormData({ ...formData, equipamento_id: '', servico_id: '' }); }}
+                    className={`px-3 py-1 rounded-lg text-sm ${equipLineFilter === 'iba' ? 'bg-blue-600 text-white' : darkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}
+                  >
+                    IBA
+                  </button>
+                </div>
                 <select
                   value={formData.equipamento_id}
                   onChange={(e) => setFormData({ ...formData, equipamento_id: e.target.value, servico_id: '' })}
@@ -439,8 +491,8 @@ export default function PlanejamentoPage() {
                   required
                 >
                   <option value="">Selecione um equipamento</option>
-                  {equipamentos.map(eq => (
-                    <option key={eq.id} value={eq.id}>{formatEquipamentoName(eq)}</option>
+                  {filteredEquipamentos.map((eq: any) => (
+                    <option key={eq.id} value={eq.id}>{formatEquipamentoName(eq)}{eq.ind ? ` — ${eq.ind}` : ''}</option>
                   ))}
                 </select>
               </div>

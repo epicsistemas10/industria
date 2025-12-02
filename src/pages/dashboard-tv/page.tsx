@@ -1,0 +1,790 @@
+import React, { useEffect, useRef, useState } from 'react';
+import useMapaHotspots from '../../hooks/useMapaHotspots';
+
+type Equipment = { id: string; nome?: string; progresso?: number; setor?: string; imagem_url?: string; codigo_interno?: string };
+type Hotspot = { id: string; equipamento_id?: string; x: number; y: number; width: number; height: number; color?: string; fontSize?: number; icon?: string };
+
+export default function DashboardTVPage(): JSX.Element {
+  // TV dashboard with hotspots (percentual), reduced sidebars and auto-rotate (40s)
+  const [mapImage, setMapImage] = useState<string>('');
+  const [companyLogo, setCompanyLogo] = useState<string>('');
+  const [equipments, setEquipments] = useState<Equipment[]>([]);
+  const [hotspots, setHotspots] = useState<Hotspot[]>([]);
+  const [tvView, setTvView] = useState<'map' | 'plan'>('map');
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  const imageRefTV = useRef<HTMLImageElement | null>(null);
+  const overlayRefTV = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
+  const [imgRectTV, setImgRectTV] = useState<DOMRect | null>(null);
+  const [overlayRectTV, setOverlayRectTV] = useState<DOMRect | null>(null);
+
+  // hook that loads equipment and group hotspots
+  const mapa = useMapaHotspots();
+
+  const recomputeImgRectTV = () => {
+    try {
+      const imgR = imageRefTV.current ? imageRefTV.current.getBoundingClientRect() : null;
+      const overR = overlayRefTV.current ? overlayRefTV.current.getBoundingClientRect() : null;
+      if (imgR) setImgRectTV(imgR);
+      if (overR) setOverlayRectTV(overR);
+      if (imgR || overR) console.debug('[TV] recomputeImgRectTV', { imgRect: imgR, overlayRect: overR });
+    } catch (e) {}
+  };
+
+  // Tooltip state for hotspots: shows OS (open/closed) and recent manutencoes
+  const [tooltipId, setTooltipId] = useState<string | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number } | null>(null);
+  const [tooltipCache, setTooltipCache] = useState<Record<string, any>>({});
+
+  const fetchTooltipForHotspot = async (h: any) => {
+    try {
+      const id = String(h.id);
+      if (tooltipCache[id]) return tooltipCache[id];
+
+      const ids: string[] = [];
+      if (h.isGroup && Array.isArray(h.members)) ids.push(...h.members.map(String));
+      if (h.group && Array.isArray(h.group.members)) ids.push(...h.group.members.map(String));
+      if (h.equipamento_id) ids.push(String(h.equipamento_id));
+
+      // dedupe
+      const uniqueIds = Array.from(new Set(ids));
+
+      const mod = await import('../../lib/supabase');
+      const supabase = (mod as any).supabase;
+      const result: any = { equipamentos: uniqueIds, ordens: [], manutencoes: [], counts: { open: 0, closed: 0 } };
+      if (!supabase || uniqueIds.length === 0) {
+        setTooltipCache((s) => ({ ...s, [id]: result }));
+        return result;
+      }
+
+      // fetch ordens_servico for these equipamentos
+      try {
+        const { data: os } = await supabase.from('ordens_servico').select('id,titulo,status,descricao,created_at,equipamento_id').in('equipamento_id', uniqueIds).order('created_at', { ascending: false }).limit(10);
+        if (os) {
+          result.ordens = os;
+          result.counts.open = os.filter((o: any) => (o.status || '').toLowerCase() !== 'concluida' && (o.status || '').toLowerCase() !== 'fechada').length;
+          result.counts.closed = os.length - result.counts.open;
+        }
+      } catch (e) {
+        // ignore per-fetch
+      }
+
+      // fetch recent manutencoes
+      try {
+        const { data: m } = await supabase.from('manutencoes').select('id,tecnico,observacoes,created_at,equipamento_id').in('equipamento_id', uniqueIds).order('created_at', { ascending: false }).limit(5);
+        if (m) result.manutencoes = m;
+      } catch (e) {}
+
+      setTooltipCache((s) => ({ ...s, [id]: result }));
+      return result;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // Reconcile small pixel drift for TV: align DOM elements to expected centers calculated
+  // from percentage coordinates and the current image rect. This mirrors the logic
+  // used in the main `mapa` page and helps keep hotspots visually stable after
+  // fullscreen or layout changes.
+  const reconcileHotspotsTV = () => {
+    try {
+      const imgR = (imageRefTV.current ? imageRefTV.current.getBoundingClientRect() : null) || imgRectTV;
+      const overlayR = (overlayRefTV.current ? overlayRefTV.current.getBoundingClientRect() : null) || overlayRectTV;
+      if (!imgR || !overlayR) return;
+
+      hotspots.forEach((h: any) => {
+        try {
+          const el = document.querySelector(`[data-hotspot-id="${h.id}"]`) as HTMLElement | null;
+          if (!el) return;
+          const r = el.getBoundingClientRect();
+          const expectedCenterX = imgR.left + (Number(h.x) / 100) * imgR.width;
+          const expectedCenterY = imgR.top + (Number(h.y) / 100) * imgR.height;
+          const actualCenterX = r.left + r.width / 2;
+          const actualCenterY = r.top + r.height / 2;
+          const deltaX = Math.round(expectedCenterX - actualCenterX);
+          const deltaY = Math.round(expectedCenterY - actualCenterY);
+
+          if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+            el.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+            el.dataset.reconciled = '1';
+          } else {
+            if (el.dataset.reconciled) {
+              el.style.transform = 'translate(-50%, -50%)';
+              delete el.dataset.reconciled;
+            }
+          }
+        } catch (e) {
+          // ignore per-hotspot errors
+        }
+      });
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  // responsive grid columns: use JS to choose layout so we can target TVs and small screens
+  // keep responsive behavior: stack on small screens, row on larger
+
+  const getProgressColor = (prog = 0) => {
+    if (prog >= 100) return '#10b981';
+    if (prog === 0) return '#3b82f6';
+    if (prog > 0 && prog <= 50) return '#f59e0b';
+    if (prog > 50 && prog < 100) return '#f97316';
+    return '#6b7280';
+  };
+
+  const formatLinhaLabel = (setor?: string) => {
+    if (!setor) return 'Sem Setor';
+    const s = String(setor).trim();
+    if (/^linha\s*/i.test(s)) return s;
+    if (/^\d+$/.test(s)) return `Linha ${s}`;
+    return s;
+  };
+
+  const toTitleCase = (val?: string) => {
+    if (!val) return '';
+    return String(val)
+      .toLowerCase()
+      .split(/\s+/)
+      .map(w => w ? (w.charAt(0).toUpperCase() + w.slice(1)) : '')
+      .join(' ');
+  };
+
+  // Simple inline component to fetch open orders when planning view is active
+  const OpenOrdersList = () => {
+    const [orders, setOrders] = useState<any[]>([]);
+    useEffect(() => {
+      let mounted = true;
+      (async () => {
+        try {
+          const mod = await import('../../lib/supabase');
+          const supabase = (mod as any).supabase;
+          if (!supabase) return;
+          const { data } = await supabase.from('ordens_servico').select('id,titulo,equipamento_id,status').order('created_at', { ascending: false }).limit(10);
+          if (mounted && data) setOrders(data as any[]);
+        } catch (e) {
+          // ignore
+        }
+      })();
+      return () => { mounted = false; };
+    }, []);
+
+    if (!orders || orders.length === 0) return <div className="text-sm text-gray-400">Nenhuma OS aberta</div>;
+
+    return (
+      <div className="space-y-2">
+        {orders.map(o => (
+          <div key={o.id} className="flex flex-col bg-white/3 p-2 rounded text-sm">
+            <div className="font-medium text-white truncate">{o.titulo || 'OS sem título'}</div>
+            <div className="text-xs text-gray-300 mt-1">{o.status || ''}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  useEffect(() => {
+    // Resolve map image URL: prefer env override, then localStorage, then Supabase public URL
+    (async () => {
+      try {
+        const envUrl = (import.meta as any).env?.VITE_MAP_IMAGE_URL || null;
+        if (envUrl) {
+          setMapImage(envUrl);
+          return;
+        }
+
+        // localStorage fallback (only present on the browser that uploaded the image)
+        try {
+          const saved = typeof window !== 'undefined' ? localStorage.getItem('map_image') : null;
+          if (saved) {
+            setMapImage(saved);
+            return;
+          }
+        } catch (e) {}
+
+        // derive default public URL from VITE_PUBLIC_SUPABASE_URL if available
+        const defaultPublic = (import.meta as any).env?.VITE_PUBLIC_SUPABASE_URL
+          ? `${(import.meta as any).env.VITE_PUBLIC_SUPABASE_URL}/storage/v1/object/public/mapas/mapa.jpg`
+          : null;
+        if (defaultPublic) {
+          setMapImage(defaultPublic);
+          return;
+        }
+
+        // as a last attempt, ask Supabase SDK for the public URL
+        try {
+          const mod = await import('../../lib/supabase');
+          const supabase = (mod as any).supabase;
+          if (supabase) {
+            const { data } = supabase.storage.from('mapas').getPublicUrl('mapa.jpg');
+            const publicUrl = data?.publicUrl || null;
+            if (publicUrl) {
+              setMapImage(publicUrl);
+              return;
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      } catch (e) {
+        // ignore overall
+      }
+    })();
+
+    // Resolve company logo: prefer env, then localStorage, then Supabase public file 'company_logo.png'
+    (async () => {
+      try {
+        const envLogo = (import.meta as any).env?.VITE_COMPANY_LOGO_URL || null;
+        if (envLogo) {
+          setCompanyLogo(envLogo);
+          return;
+        }
+
+        try {
+          const saved = typeof window !== 'undefined' ? localStorage.getItem('company_logo') : null;
+          if (saved) {
+            setCompanyLogo(saved);
+            return;
+          }
+        } catch (e) {}
+
+        // derive via Supabase storage public URL (fixed filename)
+        try {
+          const mod = await import('../../lib/supabase');
+          const supabase = (mod as any).supabase;
+          if (supabase) {
+            const { data } = supabase.storage.from('mapas').getPublicUrl('company_logo.png');
+            const publicUrl = data?.publicUrl || null;
+            if (publicUrl) {
+              setCompanyLogo(publicUrl);
+              return;
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+
+        // fallback to favicon
+        setCompanyLogo('/favicon.svg');
+      } catch (e) {
+        setCompanyLogo('/favicon.svg');
+      }
+    })();
+
+    // hotspots saved as JSON in localStorage under 'hotspots' (initial fallback)
+      try {
+        const saved = typeof window !== 'undefined' ? localStorage.getItem('hotspots') : null;
+        if (saved) {
+          const parsed = JSON.parse(saved) as Hotspot[];
+          setHotspots(parsed || []);
+        }
+      } catch (e) {
+        console.warn('Não foi possível ler hotspots do localStorage', e);
+      }
+
+    
+
+    // equipments fallback from localStorage
+    try {
+      const eqSaved = typeof window !== 'undefined' ? localStorage.getItem('equipments') : null;
+      if (eqSaved) setEquipments(JSON.parse(eqSaved) as Equipment[]);
+    } catch (e) {
+      console.warn('Falha ao ler equipments do localStorage', e);
+    }
+
+    // Use the hotspots hook to load both equipment and group hotspots, and
+    // fetch equipments with a defensive `select('*')` so we don't fail on missing columns.
+    (async () => {
+      try {
+        await mapa.load();
+      } catch (e) {
+        // ignore
+      }
+
+      try {
+        const mod = await import('../../lib/supabase');
+        const supabase = (mod as any).supabase;
+        if (supabase) {
+          const { data: eqData } = await supabase.from('equipamentos').select('*');
+          if (eqData) {
+            const mapped = eqData.map((i: any) => ({ id: i.id, nome: i.nome, progresso: i.status_revisao ?? i.status ?? 0, imagem_url: i.imagem_url, codigo_interno: i.codigo_interno, setor: i.linha_setor ?? i.setor ?? '', linha_setor: i.linha_setor ?? i.setor ?? '' }));
+            setEquipments(mapped);
+            try { localStorage.setItem('equipments', JSON.stringify(mapped)); } catch (e) {}
+          }
+        }
+      } catch (e) {
+        // ignore; we have localStorage fallback
+      }
+    })();
+
+    // Resize observer for image and overlay
+    const obs = new ResizeObserver(() => setTimeout(recomputeImgRectTV, 60));
+    try { if (imageRefTV.current) obs.observe(imageRefTV.current); } catch (e) {}
+    try { if (overlayRefTV.current) obs.observe(overlayRefTV.current); } catch (e) {}
+
+    // MutationObserver to detect layout changes inside overlayRefTV (sidebar toggles, paddings)
+    let mo: MutationObserver | null = null;
+    try {
+      if (overlayRefTV.current) {
+        mo = new MutationObserver(() => {
+          setTimeout(recomputeImgRectTV, 40);
+          setTimeout(recomputeImgRectTV, 200);
+        });
+        mo.observe(overlayRefTV.current, { attributes: true, childList: true, subtree: true });
+      }
+    } catch (e) {}
+
+    // fullscreen & resize handler: emulate mapa's multi-pass recompute to handle browser reflows
+    const onFullScreenChange = () => {
+      try {
+        recomputeImgRectTV();
+        setTimeout(recomputeImgRectTV, 80);
+        setTimeout(recomputeImgRectTV, 300);
+        setTimeout(recomputeImgRectTV, 800);
+      } catch (e) {}
+    };
+    try {
+      document.addEventListener('fullscreenchange', onFullScreenChange);
+      document.addEventListener('webkitfullscreenchange', onFullScreenChange as any);
+      document.addEventListener('mozfullscreenchange', onFullScreenChange as any);
+      document.addEventListener('MSFullscreenChange', onFullScreenChange as any);
+      window.addEventListener('resize', onFullScreenChange);
+    } catch (e) {}
+
+    // devicePixelRatio changes (zoom) — poll for changes
+    let lastDpr = window.devicePixelRatio;
+    const dprInterval = setInterval(() => {
+      if (window.devicePixelRatio !== lastDpr) {
+        lastDpr = window.devicePixelRatio;
+        recomputeImgRectTV();
+      }
+    }, 300);
+
+    // time and rotation intervals
+    const timeI = setInterval(() => setCurrentTime(new Date()), 1000);
+    const rotI = setInterval(() => setTvView(prev => (prev === 'map' ? 'plan' : 'map')), 40000);
+
+    // periodic refresh to pick up new hotspots/equipments added elsewhere
+    let refreshI: number | null = null;
+    const reloadData = async () => {
+      try {
+        // reload hotspots via hook (includes groups)
+          console.debug('[TV] reloadData: calling mapa.load()');
+          await mapa.load();
+      } catch (e) {
+        // ignore
+      }
+
+      try {
+        const mod = await import('../../lib/supabase');
+        const supabase = (mod as any).supabase;
+        if (!supabase) return;
+        const { data: eqData } = await supabase.from('equipamentos').select('*');
+        if (eqData) {
+          const mapped = eqData.map((i: any) => ({ id: i.id, nome: i.nome, progresso: i.status_revisao ?? i.status ?? 0, imagem_url: i.imagem_url, codigo_interno: i.codigo_interno, setor: i.linha_setor ?? i.setor ?? '', linha_setor: i.linha_setor ?? i.setor ?? '' }));
+          setEquipments(mapped);
+          try { localStorage.setItem('equipments', JSON.stringify(mapped)); } catch (e) {}
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+    refreshI = window.setInterval(() => reloadData(), 10_000);
+
+    // storage listener to react to local changes (e.g., adding hotspot saved to localStorage)
+    const onStorage = (ev: StorageEvent) => {
+      try {
+        if (ev.key === 'hotspots' && ev.newValue) {
+          const parsed = JSON.parse(ev.newValue) as Hotspot[];
+          setHotspots(parsed || []);
+        }
+        if (ev.key === 'equipments' && ev.newValue) {
+          const parsed = JSON.parse(ev.newValue) as Equipment[];
+          setEquipments(parsed || []);
+        }
+      } catch (e) {}
+    };
+    try { window.addEventListener('storage', onStorage); } catch (e) {}
+
+    return () => {
+      try { obs.disconnect(); } catch (e) {}
+      if (mo) {
+        try { mo.disconnect(); } catch (e) {}
+      }
+      clearInterval(dprInterval);
+      clearInterval(timeI);
+      clearInterval(rotI);
+      if (refreshI) clearInterval(refreshI);
+      try { window.removeEventListener('storage', onStorage); } catch (e) {}
+      try {
+        document.removeEventListener('fullscreenchange', onFullScreenChange);
+        document.removeEventListener('webkitfullscreenchange', onFullScreenChange as any);
+        document.removeEventListener('mozfullscreenchange', onFullScreenChange as any);
+        document.removeEventListener('MSFullscreenChange', onFullScreenChange as any);
+        window.removeEventListener('resize', onFullScreenChange);
+      } catch (e) {}
+    };
+  }, []);
+
+  // when hotspots change, ensure rects are recomputed (helps keep alignment after dynamic updates)
+  useEffect(() => {
+    try { recomputeImgRectTV(); } catch (e) {}
+  }, [hotspots]);
+
+  // Schedule reconciliation after layout changes and when hotspots update
+  useEffect(() => {
+    try {
+      setTimeout(reconcileHotspotsTV, 60);
+      setTimeout(reconcileHotspotsTV, 200);
+      setTimeout(reconcileHotspotsTV, 600);
+    } catch (e) {}
+  }, [hotspots, imgRectTV, overlayRectTV]);
+
+  // Observe overlay area to trigger reconcile on resizes/mutations
+  useEffect(() => {
+    try {
+      if (!overlayRefTV.current) return;
+      const obs = new ResizeObserver(() => {
+        setTimeout(reconcileHotspotsTV, 40);
+        setTimeout(reconcileHotspotsTV, 200);
+      });
+      obs.observe(overlayRefTV.current);
+      return () => { try { obs.disconnect(); } catch (e) {} };
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => { recomputeImgRectTV(); }, [mapImage]);
+
+  // sync hotspots from hook (includes groups + equipment-level hotspots)
+  useEffect(() => {
+    try {
+      if (mapa.hotspots && mapa.hotspots.length > 0) {
+        console.debug('[TV] sync hotspots from hook', { count: (mapa.hotspots || []).length, groups: (mapa.hotspots || []).filter((h:any)=>h.isGroup).length });
+        setHotspots(mapa.hotspots as any);
+        try { localStorage.setItem('hotspots', JSON.stringify(mapa.hotspots)); } catch (e) {}
+      }
+    } catch (e) {}
+  }, [mapa.hotspots]);
+
+  // Render
+  // prepare grouped equipment for right panel (list all equipments, highlight hotspots)
+  const hotspotEqIds = new Set<string>();
+  const groupHotspots = hotspots.filter((h: any) => h && (h as any).isGroup) as any[];
+  const groupMemberIds = new Set<string>();
+  hotspots.forEach((h: any) => {
+    if (!h) return;
+    const idRaw = h.id ?? '';
+    const idStr = String(idRaw);
+    // if group hotspot uses nested group object (hook uses `group`), capture members accordingly
+    const members = Array.isArray(h.members) ? h.members : (h.group && Array.isArray(h.group.members) ? h.group.members : []);
+    if (h.isGroup && members.length > 0) {
+      members.forEach((m: any) => {
+        hotspotEqIds.add(String(m));
+        groupMemberIds.add(String(m));
+      });
+    }
+    if (h.equipamento_id) hotspotEqIds.add(String(h.equipamento_id));
+  });
+  const allEquipments = equipments || [];
+  // Only include equipments that have hotspots when in TV map view.
+  // Exclude equipments that are members of a grouped hotspot — groups will be shown as a single line.
+  const equipmentsForPanel = tvView === 'map'
+    ? allEquipments.filter(eq => hotspotEqIds.has(String(eq.id)) && !groupMemberIds.has(String(eq.id)))
+    : allEquipments;
+
+  const groupsAll: Record<string, Equipment[]> = equipmentsForPanel.reduce((acc, eq) => {
+    const key = (eq as any).linha_setor ?? (eq as any).setor ?? 'Sem Setor';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(eq);
+    return acc;
+  }, {} as Record<string, Equipment[]>);
+
+  // Insert synthetic group entries (single line per group) into groupsAll.
+  groupHotspots.forEach((grp: any) => {
+    try {
+      const members: string[] = Array.isArray(grp.members) ? grp.members : [];
+      // compute average progress from known equipments
+      const memberEquipments = members.map((id) => allEquipments.find(e => String(e.id) === String(id))).filter(Boolean) as Equipment[];
+      const avg = memberEquipments.length > 0 ? Math.round(memberEquipments.reduce((s, e) => s + (e.progresso ?? 0), 0) / memberEquipments.length) : 0;
+      // determine which linha to show the group under (use first member or default)
+      const linhaKey = (memberEquipments[0]?.linha_setor ?? memberEquipments[0]?.setor) || 'Sem Setor';
+      if (!groupsAll[linhaKey]) groupsAll[linhaKey] = [];
+      const groupName = (grp && (grp.group?.nome ?? grp.group?.titulo ?? grp.nome ?? grp.titulo)) || 'Grupo';
+      groupsAll[linhaKey].push({ id: grp.id, nome: toTitleCase(groupName), progresso: avg, setor: linhaKey, isGroup: true } as any);
+    } catch (e) {
+      // ignore
+    }
+  });
+  const groupKeys = Object.keys(groupsAll).sort();
+  // Prepare overlays: show 'Linha 1' (left-top) and 'Linha 2' (right-top) over the image;
+  // remaining groups are omitted from the right panel per user's request.
+  const leftGroupItems: Equipment[] = (groupsAll['Linha 1'] || []) as Equipment[];
+  const rightOverlayItems: Equipment[] = (groupsAll['Linha 2'] || []) as Equipment[];
+  const rightGroupKeys: string[] = groupKeys.filter(k => k !== 'Linha 1' && k !== 'Linha 2');
+
+  // Compute inner image box (live rects preferred) so hotspots render even when
+  // stored `imgRectTV`/`overlayRectTV` are stale or null.
+  const innerBox = (() => {
+    try {
+      const img = imageRefTV.current?.getBoundingClientRect() || null;
+      const over = overlayRefTV.current?.getBoundingClientRect() || null;
+      if (img && over) return { left: img.left - over.left, top: img.top - over.top, width: img.width, height: img.height };
+      if (imgRectTV && overlayRectTV) return { left: imgRectTV.left - overlayRectTV.left, top: imgRectTV.top - overlayRectTV.top, width: imgRectTV.width, height: imgRectTV.height };
+      return null;
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  // If there are hotspots but we couldn't compute innerBox, schedule a recompute
+  useEffect(() => {
+    try {
+      if (hotspots.length > 0 && !innerBox) {
+        setTimeout(recomputeImgRectTV, 60);
+        setTimeout(recomputeImgRectTV, 200);
+      }
+    } catch (e) {}
+  }, [hotspots.length, mapImage, innerBox]);
+
+  // Sanitize hotspots for rendering: ensure numeric x/y/width/height and safe id strings
+  const sanitizedHotspots = (hotspots || []).map((h: any) => {
+    const idRaw = h && (h.id ?? (h.group && h.group.id) ?? '') || '';
+    const idStr = String(idRaw);
+    const isGroup = Boolean(h && h.isGroup);
+    const x = Number(h?.x ?? 0);
+    const y = Number(h?.y ?? 0);
+    const width = Number(h?.width ?? 6);
+    const height = Number(h?.height ?? 6);
+    const safe = {
+      ...h,
+      id: isGroup && !idStr.startsWith('grp-') ? `grp-${idStr}` : idStr,
+      x: Math.max(0, Math.min(100, isNaN(x) ? 0 : x)),
+      y: Math.max(0, Math.min(100, isNaN(y) ? 0 : y)),
+      width: Math.max(1, Math.min(100, isNaN(width) ? 6 : width)),
+      height: Math.max(1, Math.min(100, isNaN(height) ? 6 : height)),
+    } as any;
+    return safe;
+  });
+  return (
+    <div className="min-h-screen w-full bg-[#090F1A] p-4">
+      <div className="flex flex-col h-screen gap-4">
+        <header className="flex items-center justify-between px-4 h-20" style={{ background: 'linear-gradient(90deg,#0A1120,#0F172A)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded flex items-center justify-center overflow-hidden">
+              <img
+                src={companyLogo || '/favicon.svg'}
+                alt="logo"
+                className="w-14 h-14 object-contain"
+                onError={(e) => { try { (e.target as HTMLImageElement).src = '/favicon.svg'; } catch (err) {} }}
+              />
+            </div>
+            <div>
+              <div className="text-white font-semibold">IBA Santa Luzia</div>
+              <div className="text-xs text-blue-200">Controle de Manuntencao</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Produção</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Eficiência</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>OS</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Alertas</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Equipamentos</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+            <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
+              <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Status Geral</div>
+              <div className="text-xs text-white/70">—</div>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 flex flex-col md:flex-row gap-4">
+          {/* Left: main image (90%) */}
+          <div className="md:flex-1 md:basis-[90%] w-full">
+            <div className="w-full h-full rounded-xl overflow-hidden shadow-xl bg-[#0E1525] p-0">
+              {tvView === 'map' ? (
+                mapImage ? (
+                  <div ref={overlayRefTV} className="relative w-full h-full flex items-center justify-center">
+                    <div className="w-full h-full rounded-xl overflow-hidden bg-transparent flex items-center justify-center">
+                      <img
+                        ref={imageRefTV}
+                        src={mapImage}
+                        alt="Mapa Industrial"
+                        className="block max-w-full max-h-full object-contain pointer-events-none"
+                        onLoad={() => { recomputeImgRectTV(); setTimeout(recomputeImgRectTV, 80); }}
+                        style={{ display: mapImage ? 'block' : 'none' }}
+                      />
+                      
+
+                      {/* Hotspots overlay: render inside a pixel-sized box matching the actual rendered image rect so
+                          positions (percent x/y) map consistently between Mapa and Dashboard TV */}
+                      {innerBox && (
+                        <div className="absolute inset-0 pointer-events-none">
+                          {/* inner box positioned over the image in pixels */}
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: `${innerBox.left}px`,
+                              top: `${innerBox.top}px`,
+                              width: `${innerBox.width}px`,
+                              height: `${innerBox.height}px`,
+                              pointerEvents: 'none'
+                            }}
+                          >
+                            {/* Overlays positioned relative to the actual image box to avoid sitting outside when image is letterboxed */}
+                            {leftGroupItems.length > 0 && (
+                              <div style={{ position: 'absolute', left: 8, top: 8, zIndex: 30, pointerEvents: 'none' }}>
+                                <div className="bg-emerald-700/10 border border-emerald-600/10 backdrop-blur-sm rounded-lg p-2 w-44">
+                                  <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 1</div>
+                                  <div className="space-y-1">
+                                    {leftGroupItems.map((eq) => (
+                                      <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
+                                        <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
+                                        <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {rightOverlayItems.length > 0 && (
+                              <div style={{ position: 'absolute', right: 8, top: 8, zIndex: 30, pointerEvents: 'none' }}>
+                                <div className="bg-emerald-700/10 border border-emerald-600/10 backdrop-blur-sm rounded-lg p-2 w-44">
+                                  <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 2</div>
+                                  <div className="space-y-1">
+                                    {rightOverlayItems.map((eq) => (
+                                      <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
+                                        <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
+                                        <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {sanitizedHotspots.map(h => {
+                              const isGroup = (h as any).isGroup;
+                              let equipment = equipments.find(e => e.id === h.equipamento_id);
+                              const fontSize = h.fontSize || 12;
+                              const circleSize = Math.max(28, (fontSize + 8));
+
+                              // if group hotspot, compute average progress from members
+                              let displayProgress = equipment?.progresso ?? 0;
+                              if (isGroup && Array.isArray((h as any).members)) {
+                                const members: string[] = (h as any).members;
+                                const memberEquipments = members.map((id) => equipments.find(e => String(e.id) === String(id))).filter(Boolean) as Equipment[];
+                                displayProgress = memberEquipments.length > 0 ? Math.round(memberEquipments.reduce((s, e) => s + (e.progresso ?? 0), 0) / memberEquipments.length) : 0;
+                              }
+
+                              // Use percentage positioning inside the image-box so behavior matches `mapa`
+                              const leftPercent = (h.x ?? 0);
+                              const topPercent = (h.y ?? 0);
+
+                              return (
+                                <div
+                                  key={h.id}
+                                  data-hotspot-id={h.id}
+                                  className="absolute"
+                                  style={{ left: `${leftPercent}%`, top: `${topPercent}%`, transform: 'translate(-50%, -50%)', width: `${h.width}%`, height: `${h.height}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto' }}
+                                  onMouseEnter={async (ev) => {
+                                    try {
+                                      setTooltipId(String(h.id));
+                                      if (innerBox) {
+                                        const px = innerBox.left + (leftPercent / 100) * innerBox.width;
+                                        const py = innerBox.top + (topPercent / 100) * innerBox.height;
+                                        setTooltipPos({ left: px, top: py });
+                                      }
+                                      await fetchTooltipForHotspot(h);
+                                    } catch (e) {}
+                                  }}
+                                  onMouseLeave={() => { setTooltipId(null); }}
+                                >
+                                  <div className="rounded-full relative flex flex-col items-center justify-center shadow-2xl overflow-hidden" style={{ background: getProgressColor(displayProgress), width: `${circleSize}px`, height: `${circleSize}px`, boxShadow: '0 0 10px rgba(0,229,255,0.35)' }}>
+                                    {/* percentage centered inside the circle (icon removed) */}
+                                    <span className="flex items-center justify-center text-white font-bold" style={{ fontSize: `${Math.max(10, Math.floor(circleSize * 0.42))}px`, lineHeight: 1, zIndex: 1 }}>{displayProgress}%</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {/* Tooltip rendered relative to overlayRefTV using innerBox coords */}
+                      {tooltipId && tooltipPos && (tooltipCache[tooltipId]) && (
+                        <div style={{ position: 'absolute', left: `${tooltipPos.left + 12}px`, top: `${tooltipPos.top + 12}px`, zIndex: 60, pointerEvents: 'auto' }}>
+                          <div className="bg-black/80 text-white rounded-lg p-3 w-64 shadow-lg">
+                            <div className="text-sm font-semibold">Informações</div>
+                            <div className="text-xs text-gray-300 mt-1">Equipamentos: {(tooltipCache[tooltipId].equipamentos || []).length}</div>
+                            <div className="flex items-center gap-2 text-xs mt-2">
+                              <div className="text-emerald-400 font-bold">Abertas: {tooltipCache[tooltipId].counts?.open ?? 0}</div>
+                              <div className="text-gray-400">Fechadas: {tooltipCache[tooltipId].counts?.closed ?? 0}</div>
+                            </div>
+                            <div className="mt-2 text-xs">
+                              <div className="font-medium">Ordens recentes</div>
+                              <div className="mt-1 space-y-1 max-h-28 overflow-auto">
+                                {(tooltipCache[tooltipId].ordens || []).slice(0,4).map((o:any) => (
+                                  <div key={o.id} className="text-xs">
+                                    <div className="font-semibold">{o.titulo}</div>
+                                    <div className="text-gray-300">{(o.status||'').toString()}</div>
+                                  </div>
+                                ))}
+                                {(tooltipCache[tooltipId].ordens || []).length === 0 && <div className="text-xs text-gray-400">Nenhuma OS</div>}
+                              </div>
+                            </div>
+                            <div className="mt-2 text-xs">
+                              <div className="font-medium">Manutenções recentes</div>
+                              <div className="mt-1 space-y-1">
+                                {(tooltipCache[tooltipId].manutencoes || []).slice(0,3).map((m:any) => (
+                                  <div key={m.id} className="text-xs text-gray-300">{m.tecnico || '—'} — {new Date(m.created_at).toLocaleString()}</div>
+                                ))}
+                                {(tooltipCache[tooltipId].manutencoes || []).length === 0 && <div className="text-xs text-gray-400">Nenhuma manutenção</div>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center text-gray-400 p-6">Mapa não encontrado. Faça upload na página Mapa Industrial.</div>
+                )
+              ) : (
+                <div className="w-full h-full overflow-auto p-4 text-white">
+                  <h3 className="text-xl mb-2">Planejamento Semanal</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                    <div className="bg-white/5 rounded p-3">Segunda</div>
+                    <div className="bg-white/5 rounded p-3">Terça</div>
+                    <div className="bg-white/5 rounded p-3">Quarta</div>
+                    <div className="bg-white/5 rounded p-3">Quinta</div>
+                    <div className="bg-white/5 rounded p-3">Sexta</div>
+                    <div className="bg-white/5 rounded p-3">Sábado</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right equipment panel removed per user request (Linha 1 and Linha 2 shown as overlays) */}
+          <></>
+        </div>
+      </div>
+    </div>
+  );
+}

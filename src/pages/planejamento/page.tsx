@@ -112,6 +112,7 @@ export default function PlanejamentoPage() {
           id: eq.id,
           nome: eq.nome,
           ind: eq.ind || eq.codigo_interno || eq.codigoInterno,
+          codigo_interno: eq.codigo_interno || eq.codigoInterno,
           linha_setor: eq.linha_setor || eq.linha || eq.linha1 || '',
           linha1: eq.linha1,
           linha2: eq.linha2,
@@ -123,6 +124,7 @@ export default function PlanejamentoPage() {
         }));
 
         console.log('mapped equipamentos:', mapped.length, mapped.slice(0, 5));
+        console.log('mapped equipamentos sample JSON:', JSON.stringify(mapped.slice(0,5), null, 2));
         setEquipamentos(mapped);
       } else {
         console.error('Supabase error loading equipamentos:', error);
@@ -141,6 +143,7 @@ export default function PlanejamentoPage() {
               id: eq.id,
               nome: eq.nome,
               ind: eq.ind,
+              codigo_interno: eq.codigo_interno || eq.codigoInterno,
               linha_setor: eq.linha_setor || eq.linha || eq.linha1 || '',
               linha1: eq.linha1,
               linha2: eq.linha2,
@@ -153,6 +156,7 @@ export default function PlanejamentoPage() {
 
             console.log('mapped equipamentos (fallback):', mappedFb.length, mappedFb.slice(0, 5));
             console.log('mapped equipamentos (fallback) sample fields:', mappedFb.slice(0,5).map((e:any)=>({ id: e.id, nome: e.nome, ind: e.ind, codigo_interno: e.codigo_interno || e.codigoInterno })));
+            console.log('mapped equipamentos (fallback) JSON:', JSON.stringify(mappedFb.slice(0,5), null, 2));
             setEquipamentos(mappedFb);
           } else {
             console.error('Fallback also failed loading equipamentos:', fallback.error);
@@ -528,7 +532,9 @@ export default function PlanejamentoPage() {
                 >
                   <option value="">Selecione um equipamento</option>
                   {filteredEquipamentos.map((eq: any) => (
-                    <option key={eq.id} value={eq.id}>{formatEquipamentoName(eq)}</option>
+                    <option key={eq.id} value={eq.id}>
+                      {eq.ind || eq.codigo_interno || eq.codigoInterno ? `[${eq.ind || eq.codigo_interno || eq.codigoInterno}] ${eq.nome}` : formatEquipamentoName(eq)}
+                    </option>
                   ))}
                 </select>
               </div>

@@ -1381,7 +1381,19 @@ export default function MapaPage() {
   // dedupe hotspots by id to avoid rendering duplicates from the hook
   const uniqueHotspots = Array.from(new Map(getFilteredHotspots().map((h: any) => [h.id, h])).values());
   // set of equipment ids that already have a hotspot (used to disable options in Add Hotspot modal)
-  const hotspotEqIds = new Set(uniqueHotspots.map((h: any) => String(h.equipamento_id)));
+  // Include individual hotspots and members of group hotspots so group members are considered "already linked"
+  const hotspotEqIds = new Set(
+    uniqueHotspots.flatMap((h: any) => {
+      try {
+        if (h && (h as any).isGroup) {
+          return (h.members || []).map((m: any) => String(m));
+        }
+        return h && h.equipamento_id ? [String(h.equipamento_id)] : [];
+      } catch (e) {
+        return [];
+      }
+    })
+  );
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
@@ -1757,9 +1769,35 @@ export default function MapaPage() {
                                 darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'
                               } border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}
                             >
-                              <div className="font-bold"><EquipamentoName equipamento={equipment} numberClassName="text-amber-300" /></div>
-                              <div className="text-sm">{equipment.setor}</div>
-                              <div className="text-xs">Revisão: {equipment.progresso}%</div>
+                              {isGroup ? (
+                                <div className="max-w-xs">
+                                  <div className="font-bold">{(hotspot.group && hotspot.group.nome) || 'Grupo'}</div>
+                                  <div className="mt-1 text-sm text-gray-300">Membros:</div>
+                                  <div className="mt-2 space-y-1 text-sm text-left">
+                                    { (hotspot.members || []).length === 0 ? (
+                                      <div className="text-xs text-gray-400">Nenhum equipamento vinculado</div>
+                                    ) : (
+                                      (hotspot.members || []).map((mid: string) => {
+                                        const m = equipments.find(e => e.id === mid);
+                                        return (
+                                          <div key={mid} className="flex items-center justify-between">
+                                            <div className="truncate pr-2">
+                                              <EquipamentoName equipamento={m || { nome: mid }} numberClassName="text-amber-300" />
+                                            </div>
+                                            <div className="text-xs text-gray-400 ml-2">{(m && (m as any).codigo_interno) || (m ? (m.id || '').slice(0,8) : mid.slice(0,8))}</div>
+                                          </div>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="font-bold"><EquipamentoName equipamento={equipment} numberClassName="text-amber-300" /></div>
+                                  <div className="text-sm">{equipment.setor}</div>
+                                  <div className="text-xs">Revisão: {equipment.progresso}%</div>
+                                </>
+                              )}
                             </div>
                           )}
 

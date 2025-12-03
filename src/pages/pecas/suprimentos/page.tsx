@@ -83,6 +83,31 @@ export default function SuprimentosPage() {
       const nome = it.nome || it.produto || '-';
       const qtd = Number(it.quantidade) || 0;
       const unidade = it.unidade_medida || it.unidade || 'unidades';
+      // determine ALERTA using same heuristics as the card
+      const upName = (nome || '').toUpperCase();
+      const isArame = upName.includes('ARAME');
+      const isBobinaKraft = upName.includes('PAPEL KRAFT') || upName.includes('KRAFT');
+      const isLonaTransp = upName.includes('LONA PLÁSTICA TRANSPARENTE') || upName.includes('TRANSPARENTE');
+      const isPolycinta = upName.includes('POLYCINTA') || upName.includes('POLY');
+      const isFita095407 = (it.codigo_produto || '') === '095407' || upName.includes('TENAX');
+      const isLonaPreta = upName.includes('LONA PLÁSTICA PRETA') || upName.includes('PRETA');
+      const minRaw = (it.estoque_minimo != null) ? Number(it.estoque_minimo) : null;
+      const rawMinUnit = (it.meta && (it.meta.min_type || it.meta.min_unit)) || 'unidades';
+      const minUnit = rawMinUnit === 'days' ? 'dias' : rawMinUnit;
+      let isAlert = false;
+      if (minRaw != null && minRaw > 0) {
+        if (isArame || isFita095407) {
+          const currentFardos = isArame ? ((qtd * 5) / 8) : (qtd * 150);
+          isAlert = (minUnit === 'fardos') ? (currentFardos < minRaw) : (qtd < minRaw);
+        } else if (isBobinaKraft) {
+          const totalMalas = qtd * 300;
+          isAlert = (minUnit === 'dias') ? ((totalMalas / 40) < minRaw) : (totalMalas < minRaw);
+        } else if (isLonaTransp || isPolycinta || isLonaPreta) {
+          isAlert = qtd < minRaw;
+        } else {
+          isAlert = qtd < minRaw;
+        }
+      }
       let atende = '-';
       const up = (nome || '').toUpperCase();
       if (up.includes('ARAME')) {
@@ -110,15 +135,15 @@ export default function SuprimentosPage() {
       }
 
       const minimo = it.estoque_minimo != null ? Number(it.estoque_minimo).toLocaleString('pt-BR') : '-';
-      const rawMinUnit = (it.meta && (it.meta.min_type || it.meta.min_unit)) || 'unidades';
-      const minUnit = rawMinUnit === 'days' ? 'dias' : rawMinUnit;
 
       // build a block per product with separators and WhatsApp-friendly bold (*)
       lines.push('----------------------------------------');
+      if (isAlert) lines.push('⚠️ *ABAIXO DO MÍNIMO*');
       lines.push(`*${nome}*`);
       lines.push(`Estoque atual: *${qtd.toLocaleString('pt-BR')}* ${unidade}`);
       lines.push(`Atende: ${atende}`);
-      lines.push(`Mínimo programado: *${minimo}* (${minUnit})`);
+      if (isAlert) lines.push(`*Mínimo programado: ${minimo}* (${minUnit})`);
+      else lines.push(`Mínimo programado: *${minimo}* (${minUnit})`);
       lines.push('');
     }
 
@@ -171,11 +196,20 @@ export default function SuprimentosPage() {
     if (!logoUrl) logoUrl = '/favicon.svg';
 
     // build HTML with logo + IBA header and styled product cards
-    const rows = items || [];
+    // dedupe items for print as well (don't print duplicates)
+    const allRows = items || [];
+    const seenPdf = new Set<string>();
+    const uniqueRows: any[] = [];
+    for (const it of allRows) {
+      const key = ((it.codigo_produto || it.nome) || '').toString().trim().toLowerCase();
+      if (seenPdf.has(key)) continue;
+      seenPdf.add(key);
+      uniqueRows.push(it);
+    }
 
     const escape = (s: any) => (s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'));
 
-    const cardsHtml = rows.map((it) => {
+    const cardsHtml = uniqueRows.map((it) => {
       const nome = escape(it.nome || it.produto || '-');
       const qtd = Number(it.quantidade) || 0;
       const unidade = escape(it.unidade_medida || it.unidade || 'unidades');
@@ -184,6 +218,30 @@ export default function SuprimentosPage() {
       const minUnit = escape(rawMinUnit === 'days' ? 'dias' : rawMinUnit);
       // reuse same heuristic from buildReport for the 'atende' label
       const up = (it.nome || '').toUpperCase();
+      // determine ALERTA for print
+      const isArame = up.includes('ARAME');
+      const isBobinaKraft = up.includes('PAPEL KRAFT') || up.includes('KRAFT');
+      const isLonaTransp = up.includes('LONA PLÁSTICA TRANSPARENTE') || up.includes('TRANSPARENTE');
+      const isPolycinta = up.includes('POLYCINTA') || up.includes('POLY');
+      const isFita095407 = (it.codigo_produto || '') === '095407' || up.includes('TENAX');
+      const isLonaPreta = up.includes('LONA PLÁSTICA PRETA') || up.includes('PRETA');
+      const minRaw = (it.estoque_minimo != null) ? Number(it.estoque_minimo) : null;
+      const rawMinUnitPdf = (it.meta && (it.meta.min_type || it.meta.min_unit)) || 'unidades';
+      const minUnitPdf = rawMinUnitPdf === 'days' ? 'dias' : rawMinUnitPdf;
+      let isAlertPdf = false;
+      if (minRaw != null && minRaw > 0) {
+        if (isArame || isFita095407) {
+          const currentFardos = isArame ? ((qtd * 5) / 8) : (qtd * 150);
+          isAlertPdf = (minUnitPdf === 'fardos') ? (currentFardos < minRaw) : (qtd < minRaw);
+        } else if (isBobinaKraft) {
+          const totalMalas = qtd * 300;
+          isAlertPdf = (minUnitPdf === 'dias') ? ((totalMalas / 40) < minRaw) : (totalMalas < minRaw);
+        } else if (isLonaTransp || isPolycinta || isLonaPreta) {
+          isAlertPdf = qtd < minRaw;
+        } else {
+          isAlertPdf = qtd < minRaw;
+        }
+      }
       let atende = '';
       if (up.includes('ARAME')) {
         const totalFios = qtd * 5;
@@ -210,6 +268,7 @@ export default function SuprimentosPage() {
       return `
         <section class="card">
           <h2>${nome}</h2>
+          ${isAlertPdf ? `<div class="meta" style="color:#b91c1c;font-weight:700">⚠️ ABAIXO DO MÍNIMO</div>` : ''}
           <div class="meta">Estoque atual: <strong>${qtd.toLocaleString('pt-BR')}</strong> ${unidade}</div>
           <div class="meta">Atende: <strong>${escape(atende)}</strong></div>
           <div class="meta">Mínimo programado: <strong>${minimo}</strong> (${minUnit})</div>

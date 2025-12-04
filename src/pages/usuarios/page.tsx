@@ -199,34 +199,37 @@ export default function UsuariosPage() {
         };
 
         if (formData.senha) {
+          // If a password was provided, call server-side admin endpoint that creates
+          // the auth user (using service_role) and inserts the profile atomically.
           try {
-            const { data: signData, error: signError } = await supabase.auth.signUp({
-              email: formData.email,
-              password: formData.senha
+            const resp = await fetch('/api/create-user', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                nome: formData.nome,
+                email: formData.email,
+                password: formData.senha,
+                cargo: formData.cargo,
+                telefone: formData.telefone,
+                departamento: formData.departamento,
+                perfil: 'tecnico',
+                ativo: formData.ativo
+              })
             });
-            if (signError) {
-              // If signUp fails, surface the error to the caller
-              throw signError;
+            const j = await resp.json();
+            if (!resp.ok) {
+              console.error('Erro admin-create-user:', j);
+              throw new Error(j.error || 'Erro ao criar usuário via admin API');
             }
-            // If the auth user was created and an id is available, prefer to set it
-            // on the profile to keep records linked (if the `usuarios` table uses
-            // the auth UID as PK). If not, insertion by email will still work.
-            const authId = (signData as any)?.user?.id;
-            if (authId) {
-              payload.id = authId;
-            } else {
-              // signUp did not return a user id (possible when email confirmation is required)
-              // abort to avoid inserting a profile when the auth system didn't create senha_hash
-              throw new Error('Registro de autenticação criado, mas nenhum `user.id` foi retornado. Verifique se a confirmação por e-mail está habilitada — finalize o fluxo de criação no Auth antes de inserir o perfil.');
-            }
+            // Profile already created server-side; nothing else to do here.
           } catch (authErr) {
-            console.error('Erro ao criar usuário de autenticação:', authErr);
+            console.error('Erro ao criar usuário de autenticação via admin API:', authErr);
             throw authErr;
           }
+        } else {
+          // Insert profile without senha field
+          await tryWrite({ type: 'insert', payload });
         }
-
-        // Insert profile without senha field
-        await tryWrite({ type: 'insert', payload });
       }
 
       setShowModal(false);

@@ -72,9 +72,9 @@ export default function SuprimentosCard({ item, onUpdate, onDelete, isDuplicate 
     conversao = `${fmt(qtd, 0)} unidades × 4 = ${fmt(totalBlocos, 0)} blocos`;
     estoqueDisplay = `${fmt(qtd, 0)} unidades`;
   } else if (isPolycinta) {
-    const totalBlocos = qtd * 40;
+    const totalBlocos = qtd * 10;
     atendeLabel = `${fmt(totalBlocos, 0)} blocos`;
-    conversao = `${fmt(qtd, 0)} unidades × 40 = ${fmt(totalBlocos, 0)} blocos`;
+    conversao = `${fmt(qtd, 0)} unidades × 10 = ${fmt(totalBlocos, 0)} blocos`;
     estoqueDisplay = `${fmt(qtd, 0)} unidades`;
   } else if (isFita095407) {
     const totalFardos = qtd * 150;

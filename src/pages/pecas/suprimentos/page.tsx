@@ -121,7 +121,7 @@ export default function SuprimentosPage() {
         const totalBlocos = qtd * 4;
         atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
       } else if (up.includes('POLYCINTA')) {
-        const totalBlocos = qtd * 40;
+        const totalBlocos = qtd * 10;
         atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
       } else if ((it.codigo_produto || '') === '095407' || up.includes('TENAX')) {
         const totalFardos = qtd * 150;
@@ -254,7 +254,7 @@ export default function SuprimentosPage() {
         const totalBlocos = qtd * 4;
         atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
       } else if (up.includes('POLYCINTA')) {
-        const totalBlocos = qtd * 40;
+        const totalBlocos = qtd * 10;
         atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
       } else if ((it.codigo_produto || '') === '095407' || up.includes('TENAX')) {
         const totalFardos = qtd * 150;

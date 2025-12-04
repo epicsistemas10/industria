@@ -125,6 +125,11 @@ export default function UsuariosPage() {
     e.preventDefault();
 
     try {
+      // Validate required fields client-side: when creating a new user, senha is required
+      if (!editingUser && !formData.senha) {
+        alert('Senha é obrigatória ao criar um novo usuário.');
+        return;
+      }
       // Helper that attempts an insert/update and, on PGRST204 complaining about a missing
       // column (e.g. "Could not find the 'departamento' column ..."), removes that key
       // from the payload and retries — up to a few attempts. This avoids failing when the
@@ -159,6 +164,10 @@ export default function UsuariosPage() {
                 console.warn(`Column ${missing} not present in DB; removed from payload and retrying.`);
                 continue;
               }
+            }
+            // If DB complains about NOT NULL constraint on senha_hash, surface a helpful error
+            if (err?.code === '23502' && msg.includes('senha_hash')) {
+              throw new Error('A coluna senha_hash é obrigatória no banco. Crie o usuário via sistema de autenticação (signUp) ou forneça uma senha antes de inserir o perfil.');
             }
             // other errors: rethrow
             throw err;

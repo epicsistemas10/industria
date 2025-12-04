@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase';
 import PecaModal from '../../components/modals/PecaModal';
 import { useToast } from '../../hooks/useToast';
 import ImportarPlanilhaPecas from '../../components/ImportarPlanilhaPecas';
+import ImportarEstoque from '../../components/ImportarEstoque';
 
 export default function PecasPage() {
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
@@ -78,14 +79,15 @@ export default function PecasPage() {
                 className="px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-all whitespace-nowrap"
               >
                 <i className="ri-file-upload-line mr-2"></i>
-                Importar Planilha
+                Importar Estoque Diário
               </button>
             </div>
           </div>
 
           {showImportPanel && (
             <div className="mb-6">
-              <ImportarPlanilhaPecas onClose={() => setShowImportPanel(false)} onImported={() => fetch()} />
+              {/* New advanced stock importer (supports .xlsx and .csv). If you prefer the legacy importer, keep ImportarPlanilhaPecas. */}
+              <ImportarEstoque onClose={() => setShowImportPanel(false)} onImported={() => fetch()} />
             </div>
           )}
 

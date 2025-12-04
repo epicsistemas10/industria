@@ -212,7 +212,13 @@ export default function UsuariosPage() {
             // on the profile to keep records linked (if the `usuarios` table uses
             // the auth UID as PK). If not, insertion by email will still work.
             const authId = (signData as any)?.user?.id;
-            if (authId) payload.id = authId;
+            if (authId) {
+              payload.id = authId;
+            } else {
+              // signUp did not return a user id (possible when email confirmation is required)
+              // abort to avoid inserting a profile when the auth system didn't create senha_hash
+              throw new Error('Registro de autenticação criado, mas nenhum `user.id` foi retornado. Verifique se a confirmação por e-mail está habilitada — finalize o fluxo de criação no Auth antes de inserir o perfil.');
+            }
           } catch (authErr) {
             console.error('Erro ao criar usuário de autenticação:', authErr);
             throw authErr;

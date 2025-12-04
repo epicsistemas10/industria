@@ -17,6 +17,7 @@ export default function SuprimentosPage() {
   const [reportText, setReportText] = useState('');
 
   const filtered = (items || []).filter((i: any) => !search || (i.nome || '').toLowerCase().includes(search.toLowerCase()));
+  const PRODUCTION_PER_DAY = 1000; // used to convert fardos -> dias
 
   // default product definitions (idempotent seed)
   const defaultProducts = [
@@ -109,24 +110,29 @@ export default function SuprimentosPage() {
         }
       }
       let atende = '-';
-      const up = (nome || '').toUpperCase();
-      if (up.includes('ARAME')) {
+      let diasOp: number | null = null;
+      if (upName.includes('ARAME')) {
         const totalFios = qtd * 5;
         const totalFardos = totalFios / 8;
-        atende = `${Math.round(totalFardos).toLocaleString('pt-BR')} fardos`;
-      } else if (up.includes('PAPEL KRAFT')) {
+        const roundedFardos = Math.round(totalFardos);
+        atende = `${roundedFardos.toLocaleString('pt-BR')} fardos`;
+        diasOp = totalFardos / PRODUCTION_PER_DAY;
+      } else if (upName.includes('PAPEL KRAFT')) {
         const totalMalas = qtd * 300;
         atende = `${totalMalas.toLocaleString('pt-BR')} malas`;
-      } else if (up.includes('LONA PLÁSTICA TRANSPARENTE')) {
+        diasOp = totalMalas / 40;
+      } else if (upName.includes('LONA PLÁSTICA TRANSPARENTE')) {
         const totalBlocos = qtd * 4;
         atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
-      } else if (up.includes('POLYCINTA')) {
+      } else if (upName.includes('POLYCINTA')) {
         const totalBlocos = qtd * 10;
         atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
-      } else if ((it.codigo_produto || '') === '095407' || up.includes('TENAX')) {
+      } else if ((it.codigo_produto || '') === '095407' || upName.includes('TENAX')) {
         const totalFardos = qtd * 150;
-        atende = `${totalFardos.toLocaleString('pt-BR')} fardos`;
-      } else if (up.includes('LONA PLÁSTICA PRETA')) {
+        const roundedFardos = Math.round(totalFardos);
+        atende = `${roundedFardos.toLocaleString('pt-BR')} fardos`;
+        diasOp = totalFardos / PRODUCTION_PER_DAY;
+      } else if (upName.includes('LONA PLÁSTICA PRETA')) {
         // Lona preta: conversion is division (units per carreta)
         const totalCarretas = qtd / 4;
         atende = `${Math.round(totalCarretas).toLocaleString('pt-BR')} carretas`;
@@ -134,7 +140,8 @@ export default function SuprimentosPage() {
         atende = `${qtd.toLocaleString('pt-BR')} ${unidade}`;
       }
 
-      const minimo = it.estoque_minimo != null ? Number(it.estoque_minimo).toLocaleString('pt-BR') : '-';
+      const minimo = (it.estoque_minimo != null && Number(it.estoque_minimo) > 0) ? Number(it.estoque_minimo).toLocaleString('pt-BR') : '-';
+          if (diasOp != null) lines.push(`Dias de operação: *${Math.round(diasOp).toLocaleString('pt-BR')}*`);
 
       // build a block per product with separators and WhatsApp-friendly bold (*)
       lines.push('----------------------------------------');
@@ -142,6 +149,7 @@ export default function SuprimentosPage() {
       lines.push(`*${nome}*`);
       lines.push(`Estoque atual: *${qtd.toLocaleString('pt-BR')}* ${unidade}`);
       lines.push(`Atende: ${atende}`);
+      if (diasOp != null) lines.push(`Dias de operação: *${Math.round(diasOp).toLocaleString('pt-BR')}*`);
       if (isAlert) lines.push(`*Mínimo programado: ${minimo}* (${minUnit})`);
       else lines.push(`Mínimo programado: *${minimo}* (${minUnit})`);
       lines.push('');
@@ -196,15 +204,29 @@ export default function SuprimentosPage() {
     if (!logoUrl) logoUrl = '/favicon.svg';
 
     // build HTML with logo + IBA header and styled product cards
-    // dedupe items for print as well (don't print duplicates)
+    // dedupe items for print as well (choose stable representative per product)
     const allRows = items || [];
-    const seenPdf = new Set<string>();
-    const uniqueRows: any[] = [];
+    const groups = new Map<string, any[]>();
     for (const it of allRows) {
       const key = ((it.codigo_produto || it.nome) || '').toString().trim().toLowerCase();
-      if (seenPdf.has(key)) continue;
-      seenPdf.add(key);
-      uniqueRows.push(it);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(it);
+    }
+    const uniqueRows: any[] = [];
+    for (const [key, list] of groups) {
+      if (!list || list.length === 0) continue;
+      list.sort((a: any, b: any) => {
+        const aP = a.peca_id ? 1 : 0;
+        const bP = b.peca_id ? 1 : 0;
+        if (aP !== bP) return bP - aP;
+        const aM = (a.estoque_minimo != null) ? 1 : 0;
+        const bM = (b.estoque_minimo != null) ? 1 : 0;
+        if (aM !== bM) return bM - aM;
+        const aq = Number(a.quantidade) || 0;
+        const bq = Number(b.quantidade) || 0;
+        return bq - aq;
+      });
+      uniqueRows.push(list[0]);
     }
 
     const escape = (s: any) => (s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'));
@@ -213,7 +235,7 @@ export default function SuprimentosPage() {
       const nome = escape(it.nome || it.produto || '-');
       const qtd = Number(it.quantidade) || 0;
       const unidade = escape(it.unidade_medida || it.unidade || 'unidades');
-      const minimo = it.estoque_minimo != null ? escape(Number(it.estoque_minimo).toLocaleString('pt-BR')) : '-';
+      const minimo = (it.estoque_minimo != null && Number(it.estoque_minimo) > 0) ? escape(Number(it.estoque_minimo).toLocaleString('pt-BR')) : '-';
       const rawMinUnit = (it.meta && (it.meta.min_type || it.meta.min_unit)) || 'unidades';
       const minUnit = escape(rawMinUnit === 'days' ? 'dias' : rawMinUnit);
       // reuse same heuristic from buildReport for the 'atende' label
@@ -243,13 +265,17 @@ export default function SuprimentosPage() {
         }
       }
       let atende = '';
+      let diasOp: number | null = null;
       if (up.includes('ARAME')) {
         const totalFios = qtd * 5;
         const totalFardos = totalFios / 8;
-        atende = `${Math.round(totalFardos).toLocaleString('pt-BR')} fardos`;
+        const rounded = Math.round(totalFardos);
+        atende = `${rounded.toLocaleString('pt-BR')} fardos`;
+        diasOp = totalFardos / PRODUCTION_PER_DAY;
       } else if (up.includes('PAPEL KRAFT')) {
         const totalMalas = qtd * 300;
         atende = `${totalMalas.toLocaleString('pt-BR')} malas`;
+        diasOp = totalMalas / 40;
       } else if (up.includes('LONA PLÁSTICA TRANSPARENTE')) {
         const totalBlocos = qtd * 4;
         atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
@@ -258,7 +284,9 @@ export default function SuprimentosPage() {
         atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
       } else if ((it.codigo_produto || '') === '095407' || up.includes('TENAX')) {
         const totalFardos = qtd * 150;
-        atende = `${totalFardos.toLocaleString('pt-BR')} fardos`;
+        const rounded = Math.round(totalFardos);
+        atende = `${rounded.toLocaleString('pt-BR')} fardos`;
+        diasOp = totalFardos / PRODUCTION_PER_DAY;
       } else if (up.includes('LONA PLÁSTICA PRETA')) {
         const totalCarretas = qtd / 4;
         atende = `${Math.round(totalCarretas).toLocaleString('pt-BR')} carretas`;
@@ -271,6 +299,7 @@ export default function SuprimentosPage() {
           ${isAlertPdf ? `<div class="meta" style="color:#b91c1c;font-weight:700">⚠️ ABAIXO DO MÍNIMO</div>` : ''}
           <div class="meta">Estoque atual: <strong>${qtd.toLocaleString('pt-BR')}</strong> ${unidade}</div>
           <div class="meta">Atende: <strong>${escape(atende)}</strong></div>
+          ${diasOp != null ? `<div class="meta">Dias de operação: <strong>${Math.round(diasOp).toLocaleString('pt-BR')}</strong></div>` : ''}
           <div class="meta">Mínimo programado: <strong>${minimo}</strong> (${minUnit})</div>
         </section>`;
     }).join('\n');
@@ -439,22 +468,39 @@ export default function SuprimentosPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {(() => {
-              // compute duplicate counts by codigo_produto or nome (case-insensitive)
-              const counts = new Map<string, number>();
+              // Group items by codigo_produto or nome (case-insensitive) and pick a stable representative
+              const groups = new Map<string, any[]>();
               for (const it of filtered) {
                 const key = ((it.codigo_produto || it.nome) || '').toString().trim().toLowerCase();
-                counts.set(key, (counts.get(key) || 0) + 1);
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key)!.push(it);
               }
-              const seen = new Set<string>();
-              const elements: JSX.Element[] = [];
-              for (const it of filtered) {
-                const key = ((it.codigo_produto || it.nome) || '').toString().trim().toLowerCase();
-                // skip subsequent duplicates entirely (do not render watermark)
-                if (seen.has(key)) continue;
-                seen.add(key);
-                elements.push(<SuprimentosCard key={it.id} item={it} onUpdate={update} onDelete={remove} />);
+
+              const representatives: any[] = [];
+              for (const [key, list] of groups) {
+                if (!list || list.length === 0) continue;
+                // choose representative with these priorities:
+                // 1) has peca_id
+                // 2) has estoque_minimo defined (non-null)
+                // 3) larger quantidade
+                list.sort((a: any, b: any) => {
+                  const aP = a.peca_id ? 1 : 0;
+                  const bP = b.peca_id ? 1 : 0;
+                  if (aP !== bP) return bP - aP;
+                  const aM = (a.estoque_minimo != null) ? 1 : 0;
+                  const bM = (b.estoque_minimo != null) ? 1 : 0;
+                  if (aM !== bM) return bM - aM;
+                  const aq = Number(a.quantidade) || 0;
+                  const bq = Number(b.quantidade) || 0;
+                  return bq - aq;
+                });
+                representatives.push(list[0]);
               }
-              return elements;
+
+              // render representatives
+              return representatives.map((it: any) => (
+                <SuprimentosCard key={it.id} item={it} onUpdate={update} onDelete={remove} />
+              ));
             })()}
           </div>
           {showReport && (

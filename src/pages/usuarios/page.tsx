@@ -216,11 +216,22 @@ export default function UsuariosPage() {
                 ativo: formData.ativo
               })
             });
-            const j = await resp.json();
+
+            // Be defensive when parsing response: the server may return empty body (204) or
+            // an error body that is not valid JSON. Read text and try to parse JSON.
+            const text = await resp.text();
+            let j: any = null;
+            try {
+              j = text ? JSON.parse(text) : null;
+            } catch (parseErr) {
+              j = { error: text || 'Invalid JSON response from admin API' };
+            }
+
             if (!resp.ok) {
               console.error('Erro admin-create-user:', j);
-              throw new Error(j.error || 'Erro ao criar usuário via admin API');
+              throw new Error(j?.error || 'Erro ao criar usuário via admin API');
             }
+
             // Profile already created server-side; nothing else to do here.
           } catch (authErr) {
             console.error('Erro ao criar usuário de autenticação via admin API:', authErr);

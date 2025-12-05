@@ -6,14 +6,13 @@ import {
   Slash,
   Package as PackageIcon,
   Factory,
-  Cpu,
   RefreshCcw,
   Clock,
   MonitorSmartphone,
-  Info,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import SuprimentosCard from '../components/SuprimentosCard';
 
 // A premium, TV-first dashboard for "CENTRAL DE ESTOQUE & SUPRIMENTOS – IBA SANTA LUZIA"
 // Usage: navigate to /estoque-tv (or import and mount in a route). Optimized for 16:9 TVs.
@@ -239,57 +238,7 @@ export default function EstoqueTV(): JSX.Element {
     </div>
   );
 
-  const SuprimentoCard = ({ s }: { s: SuprimentoRow }) => {
-    const qty = (s.saldo_estoque ?? s.quantidade ?? 0) as number;
-    // heuristics for conversions (same as other pages)
-    const up = (s.nome || '').toUpperCase();
-    let atende = `${fmt(qty)} ${s['unidade_medida'] ?? 'un'}`;
-    let dias: number | null = null;
-    if (up.includes('ARAME')) {
-      const totalFios = qty * 5;
-      const totalFardos = totalFios / 8;
-      atende = `${Math.round(totalFardos).toLocaleString('pt-BR')} fardos`;
-      dias = totalFardos / 1000;
-    } else if (up.includes('PAPEL KRAFT') || up.includes('KRAFT')) {
-      const totalMalas = qty * 300;
-      atende = `${totalMalas.toLocaleString('pt-BR')} malas`;
-      dias = totalMalas / 40;
-    } else if ((s.codigo_produto || '').trim() === '095407' || up.includes('TENAX')) {
-      const totalFardos = qty * 150;
-      atende = `${Math.round(totalFardos).toLocaleString('pt-BR')} fardos`;
-      dias = totalFardos / 1000;
-    }
-    const autonomyDays = dias ?? (typeof s.estoque_minimo === 'number' && s.estoque_minimo > 0 ? (qty / (s.estoque_minimo || 1)) : null);
-    const progress = autonomyDays == null ? 0 : Math.min(100, Math.round((autonomyDays / 30) * 100));
-    const barColor = autonomyDays == null ? 'bg-slate-600' : (autonomyDays > 20 ? 'bg-emerald-500' : (autonomyDays >= 10 ? 'bg-amber-400' : 'bg-red-500'));
-
-    return (
-      <div className="p-6 rounded-2xl border border-white/6 bg-white/5 shadow-2xl flex flex-col gap-3">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-lg bg-white/5">
-              <Factory size={28} />
-            </div>
-            <div>
-              <div className="text-sm text-slate-300">{s.nome}</div>
-              <div className="text-xs text-slate-400">{s.codigo_produto ?? '—'}</div>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-2xl font-extrabold">{fmt(qty)}</div>
-            <div className="text-xs text-slate-400">est. atual</div>
-          </div>
-        </div>
-
-        <div className="text-sm text-slate-200">Atende: <span className="font-semibold">{atende}</span></div>
-        {autonomyDays != null && <div className="text-sm text-slate-200">Dias de operação: <span className="font-semibold">{Math.round(autonomyDays)}</span></div>}
-
-        <div className="w-full bg-white/6 h-3 rounded-full overflow-hidden">
-          <div className={`${barColor} h-3 rounded-full transition-all`} style={{ width: `${progress}%` }} />
-        </div>
-      </div>
-    );
-  };
+  // Use the shared `SuprimentosCard` component for consistency with the Suprimentos page
 
   return (
     <div className={`min-h-screen text-white ${tvMode ? 'text-2xl' : 'text-base'} font-sans bg-[#071122]`}>
@@ -314,7 +263,7 @@ export default function EstoqueTV(): JSX.Element {
                   <div>
                     <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
                     <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                      {suprimentos.map(s => <SuprimentoCard key={`sup-${s.id}`} s={s} />)}
+                      {suprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} />)}
                     </div>
                   </div>
                 </div>
@@ -322,13 +271,7 @@ export default function EstoqueTV(): JSX.Element {
           </div>
         </div>
 
-        <footer className="mt-6 p-4 rounded-lg bg-white/4 border border-white/6 flex items-center justify-between">
-          <div className="text-sm">Última atualização: <strong>{lastUpdated ? lastUpdated.toLocaleString() : '—'}</strong></div>
-          <div className="text-sm">Total monitorados: <strong>{metrics.total}</strong></div>
-          <div>
-            <button onClick={() => alert('Informações da tela: Este painel é uma visualização TV para acompanhamento de estoques.')} className="px-3 py-1 rounded bg-white/5"> <Info /> Info</button>
-          </div>
-        </footer>
+        {/* Footer removed as requested (no last-updated card or info button) */}
       </main>
 
       {/* small styles for pulsing animations */}

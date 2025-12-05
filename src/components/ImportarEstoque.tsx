@@ -182,9 +182,17 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         const codigo = normalized['codigo'] ?? normalized['cod. produto'] ?? normalized['cod produto'] ?? normalized['codigo produto'] ?? normalized['codigo_produto'] ?? normalized['codigo'] ?? normalized['cod'] ?? '';
         const descricao = normalized['descricao'] ?? normalized['descrição'] ?? normalized['descricao'] ?? normalized['nome'] ?? '';
         const grupo = normalized['grupo produto'] ?? normalized['grupo_produto'] ?? normalized['grupo'] ?? normalized['grupo do produto'] ?? null;
-        const unidade = normalized['u.m.'] ?? normalized['u.m'] ?? normalized['um'] ?? normalized['unidade medida'] ?? normalized['unidade'] ?? null;
-        // prefer explicit columns whenever present in the sheet; be tolerant to headers like 'SALDOEM ESTOQUE' (no strict exact matching)
+        // gather normalized header keys early so we can robustly detect common variants (unit, saldo, valor)
         const keys = Object.keys(normalized || {});
+        // robust unit header detection: normalized keys may contain spaces ('u m'), punctuation removed
+        const unitKey = keys.find(k => {
+          const kk = String(k || '').toLowerCase();
+          const compact = kk.replace(/[^a-z0-9]+/g, ''); // remove spaces/punctuation -> 'um', 'u', 'unidademedida'
+          // match common variants: 'unid', 'unidade', 'um', 'u', 'u.m' etc
+          return /unid|unidade|^um$|^u$|^un$|unidademedida|unmedida/.test(compact);
+        }) ?? null;
+        const unidade = unitKey ? normalized[unitKey] : null;
+        // prefer explicit columns whenever present in the sheet; be tolerant to headers like 'SALDOEM ESTOQUE' (no strict exact matching)
         const explicitSaldoField = keys.find(k => k && k.toLowerCase().includes('saldo')) ?? null;
         const explicitValorField = keys.find(k => k && k.toLowerCase().includes('valor')) ?? null;
         let saldo = explicitSaldoField ? normalized[explicitSaldoField] : (normalized['saldo em estoque'] ?? normalized['saldo'] ?? normalized['saldo_estoque'] ?? normalized['quantidade'] ?? null);
@@ -331,12 +339,13 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
 
         // resolve group using mapping (if sheet contains a code) so pendentes show group names
         const resolvedGrupo = resolveGroupName(grupo);
-        // try to infer unit from explicit column or from name heuristics
-        const inferredUnit = unidade ? String(unidade).trim() : (inferUnitFromName(descricao) || 'UN');
+        // preserve explicit unit column exactly when present; otherwise infer from name as fallback
+        const explicitUnitProvided = !!unitKey;
+        const unitFinal = explicitUnitProvided ? (unidade ? String(unidade).trim() : '') : (inferUnitFromName(descricao) || 'UN');
         mapped.push({
           codigo: codigo ? String(codigo).trim() : '',
           descricao: (descricao ? String(descricao).trim() : ''),
-          unidade: inferredUnit,
+          unidade: unitFinal,
           saldo: parseNumber(saldo),
           valor_total: parseNumber(valorTotal),
           // try computed value, otherwise attempt compute from total/saldo, otherwise leave null
@@ -527,6 +536,10 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
               payload.saldo_estoque = row.saldo;
               // database column is `quantidade`
               payload.quantidade = row.saldo;
+            }
+            // preserve unidade_medida when provided in the sheet
+            if (row.unidade && typeof row.unidade === 'string') {
+              payload.unidade_medida = String(row.unidade).trim();
             }
             if (typeof row.valor_total === 'number') payload.valor_total = row.valor_total;
             // compute valor_unitario from valor_total / saldo when both are present in the sheet

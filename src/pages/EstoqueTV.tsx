@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import useSuprimentos from '../hooks/useSuprimentos';
 import {
   CheckCircle,
   AlertTriangle,
@@ -38,7 +39,8 @@ type SuprimentoRow = {
 
 export default function EstoqueTV(): JSX.Element {
   const [pecas, setPecas] = useState<PecaRow[]>([]);
-  const [suprimentos, setSuprimentos] = useState<SuprimentoRow[]>([]);
+  const [suprimentosState, setSuprimentosState] = useState<SuprimentoRow[]>([]);
+  const { data: suprimentosFromHook, fetch: fetchSuprimentos } = useSuprimentos();
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
@@ -49,19 +51,40 @@ export default function EstoqueTV(): JSX.Element {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const { data: pData, error: pErr } = await supabase
-        .from('pecas')
-        .select('id,nome,codigo_produto,quantidade,saldo_estoque,estoque_minimo')
-        .range(0, 19999);
-      if (pErr) console.warn('pecas fetch error', pErr);
-      const { data: sData, error: sErr } = await supabase
-        .from('suprimentos')
-        .select('id,nome,codigo_produto,quantidade,saldo_estoque,estoque_minimo,meta')
-        .range(0, 19999);
-      if (sErr) console.warn('suprimentos fetch error', sErr);
+      // helper: fetch in pages to avoid server-side row caps (e.g. PostgREST limits)
+      const fetchAllRows = async (table: string, cols: string) => {
+        const out: any[] = [];
+        const CHUNK = 1000;
+        let offset = 0;
+        while (true) {
+          try {
+            const { data, error } = await supabase.from(table).select(cols).range(offset, offset + CHUNK - 1);
+            if (error) {
+              console.warn(`${table} fetch chunk error`, { offset, error });
+              break;
+            }
+            if (!data || data.length === 0) break;
+            out.push(...data);
+            if (data.length < CHUNK) break;
+            offset += CHUNK;
+          } catch (e) {
+            console.warn(`${table} fetch chunk unexpected error`, e);
+            break;
+          }
+        }
+        return out;
+      };
+
+      const pData = await fetchAllRows('pecas', 'id,nome,codigo_produto,quantidade,saldo_estoque,estoque_minimo');
       setPecas(Array.isArray(pData) ? pData as PecaRow[] : []);
-      // Use only rows from `suprimentos` table — do not fall back to `pecas`.
-      setSuprimentos(Array.isArray(sData) ? sData as SuprimentoRow[] : []);
+      // populate suprimentos from the shared hook (ensure hook data is fresh)
+      try {
+        const fresh = await fetchSuprimentos();
+        setSuprimentosState(Array.isArray(fresh) ? fresh as SuprimentoRow[] : (Array.isArray(suprimentosFromHook) ? suprimentosFromHook as SuprimentoRow[] : []));
+      } catch (e) {
+        // fallback to hook data if fetch failed
+        setSuprimentosState(Array.isArray(suprimentosFromHook) ? suprimentosFromHook as SuprimentoRow[] : []);
+      }
       setLastUpdated(new Date());
     } catch (e) {
       console.error('fetchAll error', e);
@@ -87,35 +110,43 @@ export default function EstoqueTV(): JSX.Element {
   // metrics
   const metrics = useMemo(() => {
     let ok = 0, atMin = 0, below = 0;
-    const rows = pecas || [];
+    // include both pecas and suprimentos in the metrics so TV reflects all inventory sources
+    const rows = [...(pecas || []), ...((suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []))];
     for (const r of rows) {
-      const qty = (r.saldo_estoque ?? r.quantidade ?? 0) as number;
-      const min = (r.estoque_minimo ?? 0) as number;
+      const qty = Number(r.saldo_estoque ?? r.quantidade ?? 0) as number;
+      const min = Number(r.estoque_minimo ?? 0) as number;
       if (min > 0) {
         if (qty > min) ok++;
-        else if (qty > 0 && qty <= min) atMin++;
-        else if (qty <= 0) below++;
+        else if (qty === min) atMin++;
+        else /* qty < min */ below++;
       } else {
-        // if no min defined treat as OK (but still count in total)
+        // if no min defined treat as OK when positive, otherwise mark as below
         if (qty > 0) ok++; else below++;
       }
     }
     const total = rows.length || 1;
     const healthyPercent = Math.round((ok / total) * 100);
     return { ok, atMin, below, total, healthyPercent };
-  }, [pecas]);
+  }, [pecas, suprimentosState, suprimentosFromHook]);
 
   // computed alert list (merge pecas + suprimentos by name/code for listing alerts)
   const alertItems = useMemo(() => {
     const out: any[] = [];
     const addFrom = (r: any, kind: 'peca' | 'suprimento') => {
-      const qty = (r.saldo_estoque ?? r.quantidade ?? 0) as number;
-      const min = (r.estoque_minimo ?? 0) as number;
-      const status = (min > 0) ? (qty > min ? 'ok' : (qty > 0 ? 'min' : 'critical')) : (qty > 0 ? 'ok' : 'critical');
+      const qty = Number(r.saldo_estoque ?? r.quantidade ?? 0) as number;
+      const min = Number(r.estoque_minimo ?? 0) as number;
+      let status: 'ok' | 'min' | 'critical' = 'ok';
+      if (min > 0) {
+        if (qty > min) status = 'ok';
+        else if (qty === min) status = 'min';
+        else status = 'critical'; // qty < min (including zero)
+      } else {
+        status = qty > 0 ? 'ok' : 'critical';
+      }
       if (status !== 'ok') out.push({ kind, id: r.id, nome: r.nome, codigo: r.codigo_produto, qty, min, status });
     };
     (pecas || []).forEach(p => addFrom(p, 'peca'));
-    (suprimentos || []).forEach(s => addFrom(s, 'suprimento'));
+    (suprimentosState || suprimentosFromHook || []).forEach(s => addFrom(s, 'suprimento'));
     // sort by severity then by qty ascending
     out.sort((a, b) => {
       const sev = { 'critical': 2, 'min': 1 } as any;
@@ -125,7 +156,7 @@ export default function EstoqueTV(): JSX.Element {
       return a.qty - b.qty;
     });
     return out;
-  }, [pecas, suprimentos]);
+  }, [pecas, suprimentosState, suprimentosFromHook]);
 
   // helpers
   const fmt = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString('pt-BR'));
@@ -263,10 +294,10 @@ export default function EstoqueTV(): JSX.Element {
                   <div>
                     <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
                     <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                      {suprimentos.length === 0 ? (
-                        <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
+                      {( (suprimentosState && suprimentosState.length) || (suprimentosFromHook && suprimentosFromHook.length) ) ? (
+                        (suprimentosState || suprimentosFromHook || []).map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} />)
                       ) : (
-                        suprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} />)
+                        <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
                       )}
                     </div>
                   </div>

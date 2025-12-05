@@ -9,9 +9,10 @@ export function useSuprimentos() {
   const fetch = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: rows, error } = await supabase.from('suprimentos').select('*').order('nome', { ascending: true });
+      const { data: rows, error } = await supabase.from('suprimentos').select('*').neq('is_archived', true).order('nome', { ascending: true });
       if (error) throw error;
       setData(rows || []);
+      return rows || [];
       setMissingTable(false);
     } catch (err) {
       // Handle case where table does not exist in Supabase schema cache
@@ -97,7 +98,65 @@ export function useSuprimentos() {
     }
   };
 
-  return { data, loading, fetch, create, update, remove, copyFromPeca, missingTable };
+  const copyAllFromPecas = async () => {
+    try {
+      // fetch pecas that have estoque_minimo defined (>0)
+      const { data: pecas, error: pErr } = await supabase.from('pecas').select('*').gt('estoque_minimo', 0).range(0, 19999);
+      if (pErr) throw pErr;
+      if (!Array.isArray(pecas) || pecas.length === 0) return { inserted: 0 };
+      // fetch existing suprimentos to avoid duplicates
+      const { data: existingSup, error: sErr } = await supabase.from('suprimentos').select('id,peca_id,codigo_produto,nome').neq('is_archived', true);
+      if (sErr) throw sErr;
+      // helper: normalize names similar to importer
+      const normalizeName = (s: any) => {
+        if (s === null || s === undefined) return '';
+        try {
+          let t = String(s).trim();
+          t = t.normalize('NFD').replace(/\p{Diacritic}/gu, '');
+          t = t.replace(/[^\p{L}\p{N} ]+/gu, ' ');
+          t = t.replace(/\s+/g, ' ').trim().toUpperCase();
+          return t;
+        } catch (e) { return String(s).trim().toUpperCase(); }
+      };
+
+      const existingMap = new Map<string, boolean>();
+      (existingSup || []).forEach((s: any) => {
+        if (s.peca_id != null) existingMap.set(`peca:${String(s.peca_id)}`, true);
+        if (s.codigo_produto) existingMap.set(`code:${String(s.codigo_produto)}`, true);
+        if (s.nome) existingMap.set(`name:${normalizeName(s.nome)}`, true);
+      });
+      const toInsert: any[] = [];
+      for (const p of pecas) {
+        const keyByPeca = p.id ? `peca:${String(p.id)}` : null;
+        const keyByCode = p.codigo_produto ? `code:${String(p.codigo_produto)}` : null;
+        const keyByName = p.nome ? `name:${normalizeName(p.nome)}` : null;
+        if ((keyByPeca && existingMap.has(keyByPeca)) || (keyByCode && existingMap.has(keyByCode)) || (keyByName && existingMap.has(keyByName))) continue;
+        toInsert.push({
+          peca_id: p.id ? String(p.id) : null,
+          nome: p.nome || p.produto || null,
+          codigo_produto: p.codigo_produto || p.codigo_fabricante || null,
+          unidade_medida: p.unidade_medida || p.unidade || null,
+          quantidade: p.saldo_estoque != null ? Number(p.saldo_estoque) : (p.quantidade != null ? Number(p.quantidade) : 0),
+          estoque_minimo: p.estoque_minimo != null ? Number(p.estoque_minimo) : null,
+          meta: p.meta || null,
+        });
+        // also mark keys to avoid duplicates inside this run (prevent same-name multiple inserts)
+        if (keyByPeca) existingMap.set(keyByPeca, true);
+        if (keyByCode) existingMap.set(keyByCode, true);
+        if (keyByName) existingMap.set(keyByName, true);
+      }
+      if (toInsert.length === 0) return { inserted: 0 };
+      const { data: ins, error: insErr } = await supabase.from('suprimentos').insert(toInsert);
+      if (insErr) throw insErr;
+      await fetch();
+      return { inserted: Array.isArray(ins) ? ins.length : 1 };
+    } catch (err) {
+      console.error('Erro ao copiar todas pecas para suprimentos:', err);
+      throw err;
+    }
+  };
+
+  return { data, loading, fetch, create, update, remove, copyFromPeca, copyAllFromPecas, missingTable };
 }
 
 export default useSuprimentos;

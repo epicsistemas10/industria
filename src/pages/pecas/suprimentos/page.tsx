@@ -9,7 +9,7 @@ import { useToast } from '../../../hooks/useToast';
 
 export default function SuprimentosPage() {
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
-  const { data: items, loading, fetch, create, update, remove, copyFromPeca, missingTable } = useSuprimentos();
+  const { data: items, loading, fetch, create, update, remove, copyFromPeca, missingTable, copyAllFromPecas } = useSuprimentos();
   const [defaultsEnsured, setDefaultsEnsured] = useState(false);
   const [search, setSearch] = useState('');
   const { success, error: showError } = useToast();
@@ -528,6 +528,19 @@ export default function SuprimentosPage() {
           <div className="mb-4 flex items-center gap-2">
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar" className="px-3 py-2 rounded w-96" />
             <button onClick={() => refreshStock()} className="px-4 py-2 h-10 bg-blue-600 text-white rounded-lg text-sm whitespace-nowrap">Atualizar</button>
+            <button onClick={async () => {
+              try {
+                const res = await copyAllFromPecas();
+                if (res && res.inserted) {
+                  success(`Suprimentos sincronizados: ${res.inserted}`);
+                } else {
+                  success('Nada novo para sincronizar.');
+                }
+              } catch (e) {
+                console.error('sync failed', e);
+                showError('Falha ao sincronizar suprimentos. Veja console.');
+              }
+            }} className="px-4 py-2 h-10 bg-emerald-600 text-white rounded-lg text-sm whitespace-nowrap">Sincronizar de Peças</button>
             <button onClick={() => { buildReport(); }} className="px-4 py-2 h-10 bg-amber-600 text-white rounded-lg text-sm whitespace-nowrap">Relatório</button>
           </div>
 

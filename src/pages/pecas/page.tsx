@@ -14,7 +14,7 @@ import rawGroupMapping from '../../data/group-mapping.json';
 export default function PecasPage() {
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(true);
-  const { data: pecas, loading, fetch, create, update, remove } = usePecas();
+  const { data: pecas, loading, fetch, create, update, remove, upsertLocal } = usePecas();
   const [dbTotalCount, setDbTotalCount] = useState<number | null>(null);
   const { copyFromPeca } = useSuprimentos();
   const [showPecaModal, setShowPecaModal] = useState(false);
@@ -53,7 +53,71 @@ export default function PecasPage() {
       }
     };
     document.addEventListener('pecas-open-from-global', handler as EventListener);
-    return () => document.removeEventListener('pecas-open-from-global', handler as EventListener);
+    // listen for global requests to refresh peças list
+    const refreshHandler = () => { console.info('PecasPage: pecas-refresh received, fetching...'); fetch(); };
+    document.addEventListener('pecas-refresh', refreshHandler as EventListener);
+    // handle focus requests: set search term to code and fetch to surface the existing item
+    const focusHandler = async (e: any) => {
+      try {
+        const id = e?.detail?.id;
+        const codigo = e?.detail?.codigo;
+        console.info('PecasPage: pecas-focus received, id=', id, 'codigo=', codigo);
+        // reset filters that could hide the item
+        setFilterMode('all');
+        setColFilters({ nome: '', codigo: '', unidade: '', quantidadeMin: '', valorUnitMin: '' });
+        // fetch and inspect returned rows to ensure the item is present
+        const returned = await fetch();
+        const lowerCodigo = codigo ? String(codigo).trim().toLowerCase() : null;
+        const found = (returned || []).find((r: any) => {
+          const candidates = [r.nome, r.codigo_interno, r.codigo_fabricante, r.codigo_produto];
+          return lowerCodigo && candidates.some((c: any) => (c || '').toString().toLowerCase().includes(lowerCodigo));
+        });
+        if (lowerCodigo) setSearchTerm(String(codigo));
+        if (found) {
+          const key = found.grupo_produto || 'Sem Grupo';
+          // expand the group so the item is visible
+          setCollapsedGroups(prev => ({ ...prev, [key]: false }));
+          console.info('PecasPage: pecas-focus found item id=', found.id, 'grupo=', key);
+        } else {
+          console.info('PecasPage: pecas-focus did not find item after fetch — trying direct DB lookup');
+          try {
+            // do a direct lookup to bypass client-side pagination limits
+            const code = codigo ? String(codigo).trim() : '';
+            if (code) {
+              // try equality on common code fields and ilike on name
+              // include 'produto' (schema uses 'produto' column) as well as 'nome'
+              const orQuery = `codigo_produto.eq.${code},codigo_interno.eq.${code},codigo_fabricante.eq.${code},nome.ilike.%${code}%,produto.ilike.%${code}%`;
+              const { data: directRows, error: directErr } = await supabase.from('pecas').select('*').or(orQuery).limit(1);
+                console.info('PecasPage: pecas-focus direct lookup query=', orQuery, 'error=', directErr);
+                console.info('PecasPage: pecas-focus direct lookup returned rows=', Array.isArray(directRows) ? directRows.length : directRows);
+                if (!directErr && Array.isArray(directRows) && directRows.length > 0) {
+                  const df = directRows[0];
+                  console.info('PecasPage: pecas-focus direct lookup found id=', df.id);
+                // inject into local cache so it appears in the list despite pagination
+                try { upsertLocal(df); } catch (e) { /* ignore */ }
+                setSearchTerm(String(code));
+                setSelectedPecaId(df.id);
+                setShowPecaModal(true);
+                const key2 = df.grupo_produto || 'Sem Grupo';
+                setCollapsedGroups(prev => ({ ...prev, [key2]: false }));
+              } else {
+                console.info('PecasPage: pecas-focus direct lookup did not find anything', directErr);
+              }
+            }
+          } catch (e) {
+            console.warn('PecasPage: error during direct lookup', e);
+          }
+        }
+      } catch (err) {
+        console.warn('PecasPage: pecas-focus handler error', err);
+      }
+    };
+    document.addEventListener('pecas-focus', focusHandler as EventListener);
+    return () => {
+      document.removeEventListener('pecas-open-from-global', handler as EventListener);
+      document.removeEventListener('pecas-refresh', refreshHandler as EventListener);
+      document.removeEventListener('pecas-focus', focusHandler as EventListener);
+    };
   }, []);
 
   // keep an accurate total count from the DB (PostgREST exact count)
@@ -86,15 +150,15 @@ export default function PecasPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => { setSelectedPecaId(undefined); setShowPecaModal(true); }}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all whitespace-nowrap"
+                className="px-4 py-2 h-10 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all whitespace-nowrap text-sm"
               >
                 <i className="ri-add-line mr-2"></i>
                 Nova Peça
               </button>
-              <a href="/pecas/suprimentos" className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all whitespace-nowrap text-sm">Suprimentos</a>
+              <a href="/pecas/suprimentos" className="px-4 py-2 h-10 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all whitespace-nowrap text-sm">Suprimentos</a>
               <button
                 onClick={() => setShowImportPanel(v => !v)}
-                className="px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-all whitespace-nowrap"
+                className="px-4 py-2 h-10 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-all whitespace-nowrap text-sm"
               >
                 <i className="ri-file-upload-line mr-2"></i>
                 Importar Estoque Diário
@@ -147,13 +211,15 @@ export default function PecasPage() {
               })()}
             </div>
             <div className="flex items-center gap-3">
-              <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar por nome, código ou grupo" className="px-3 py-2 rounded border w-72" />
               <div className="flex items-center gap-2">
-                <button onClick={() => setFilterMode(f => f === 'min' ? 'all' : 'min')} className={`px-3 py-2 text-sm rounded ${filterMode === 'min' ? 'bg-amber-600 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Mínimo</button>
-                <button onClick={() => setFilterMode(f => f === 'below' ? 'all' : 'below')} className={`px-3 py-2 text-sm rounded ${filterMode === 'below' ? 'bg-red-600 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Abaixo do Mínimo</button>
-                <button onClick={() => setFilterMode(f => f === 'zero' ? 'all' : 'zero')} className={`px-3 py-2 text-sm rounded ${filterMode === 'zero' ? 'bg-gray-700 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Zerados</button>
+                <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar por nome, código ou grupo" className="px-3 py-2 rounded border w-72" />
               </div>
-              <button onClick={() => { setSearchTerm(''); setColFilters({ nome: '', codigo: '', unidade: '', quantidadeMin: '', valorUnitMin: '' }); setFilterMode('all'); }} className="px-3 py-2 bg-gray-200 text-sm rounded hover:bg-gray-300 transition">Limpar filtros</button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setFilterMode(f => f === 'min' ? 'all' : 'min')} className={`px-4 py-2 h-10 text-sm rounded whitespace-nowrap ${filterMode === 'min' ? 'bg-amber-600 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Mínimo</button>
+                <button onClick={() => setFilterMode(f => f === 'below' ? 'all' : 'below')} className={`px-4 py-2 h-10 text-sm rounded whitespace-nowrap ${filterMode === 'below' ? 'bg-red-600 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Abaixo do Mínimo</button>
+                <button onClick={() => setFilterMode(f => f === 'zero' ? 'all' : 'zero')} className={`px-4 py-2 h-10 text-sm rounded whitespace-nowrap ${filterMode === 'zero' ? 'bg-gray-700 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Zerados</button>
+              </div>
+              <button onClick={() => { setSearchTerm(''); setColFilters({ nome: '', codigo: '', unidade: '', quantidadeMin: '', valorUnitMin: '' }); setFilterMode('all'); }} className="px-4 py-2 h-10 bg-gray-200 text-sm rounded hover:bg-gray-300 transition">Limpar filtros</button>
               <button onClick={async () => {
                 setDeletingAll(true);
                 try {
@@ -193,7 +259,7 @@ export default function PecasPage() {
                 } finally {
                   setDeletingAll(false);
                 }
-              }} disabled={deletingAll} className={`px-3 py-2 text-sm rounded ${deletingAll ? 'bg-red-400' : 'bg-red-600 hover:bg-red-700'} text-white transition`}>{deletingAll ? 'Removendo...' : 'Excluir tudo'}</button>
+              }} disabled={deletingAll} className={`px-4 py-2 h-10 text-sm rounded whitespace-nowrap ${deletingAll ? 'bg-red-400' : 'bg-red-600 hover:bg-red-700'} text-white transition`}>{deletingAll ? 'Removendo...' : 'Excluir tudo'}</button>
             </div>
           </div>
 
@@ -292,27 +358,7 @@ export default function PecasPage() {
                         <th className="px-4 py-2 text-center">Alerta</th>
                         <th className="px-4 py-2 text-center">Ações</th>
                       </tr>
-                      <tr className={`${darkMode ? 'bg-slate-800' : 'bg-gray-50'}`}>
-                        <th className="px-4 py-2 text-left">
-                          <input value={colFilters.nome} onChange={(e) => setColFilters(f => ({ ...f, nome: e.target.value }))} placeholder="Filtrar Nome" className="w-full px-2 py-1 rounded bg-white/5 text-sm" />
-                        </th>
-                        <th className="px-4 py-2 text-left">
-                          <input value={colFilters.codigo} onChange={(e) => setColFilters(f => ({ ...f, codigo: e.target.value }))} placeholder="Filtrar Código" className="w-full px-2 py-1 rounded bg-white/5 text-sm" />
-                        </th>
-                        <th className="px-4 py-2 text-left">
-                          <input value={colFilters.unidade || ''} onChange={(e) => setColFilters(f => ({ ...f, unidade: e.target.value }))} placeholder="Filtrar Unidade" className="w-full px-2 py-1 rounded bg-white/5 text-sm" />
-                        </th>
-                        <th className="px-4 py-2 text-right">
-                          <input type="number" value={colFilters.quantidadeMin} onChange={(e) => setColFilters(f => ({ ...f, quantidadeMin: e.target.value }))} placeholder="Min" className="w-20 px-2 py-1 rounded bg-white/5 text-sm text-right" />
-                        </th>
-                        <th className="px-4 py-2 text-right">
-                          <input type="number" value={colFilters.valorUnitMin} onChange={(e) => setColFilters(f => ({ ...f, valorUnitMin: e.target.value }))} placeholder="Min" className="w-28 px-2 py-1 rounded bg-white/5 text-sm text-right" />
-                        </th>
-                        <th className="px-4 py-2 text-right"></th>
-                        <th className="px-4 py-2 text-right"></th>
-                        <th className="px-4 py-2 text-center"></th>
-                        <th className="px-4 py-2 text-center"></th>
-                      </tr>
+                      
                     </thead>
                     <tbody>
                       {groupKeys.map((g) => {

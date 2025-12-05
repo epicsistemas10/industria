@@ -140,6 +140,40 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     setLoading(true);
     // Build payload differently for update vs insert.
     const basePayload: any = { nome: formData.nome };
+    const trySave = async (operation: 'update' | 'insert', initialPayload: any) => {
+      const maxRetries = 6;
+      let attempt = 0;
+      let currentPayload = { ...initialPayload };
+      while (attempt < maxRetries) {
+        attempt++;
+        try {
+          if (operation === 'update') {
+            const { error } = await supabase.from('pecas').update(currentPayload).eq('id', pecaId);
+            if (error) throw error;
+            return;
+          } else {
+            const { data, error } = await supabase.from('pecas').insert(currentPayload).select().single();
+            if (error) throw error;
+            return;
+          }
+        } catch (err: any) {
+          // try to detect PostgREST missing-column errors in different formats
+          const msg = (err && (err.message || '')).toString();
+          // pattern: Could not find the 'X' column
+          let m = msg.match(/Could not find the '(.+?)' column/);
+          // pattern: column pecas.X does not exist
+          if (!m) m = msg.match(/column\s+(?:[\w\"]+\.)?\"?([\w_]+)\"?\s+does not exist/i);
+          // also check for error.code === '42703' and try to extract from message
+          const col = m ? m[1] : (err && err.code === '42703' ? (msg.match(/\"?([\w_]+)\"?/) || [])[1] : null);
+          if (col && Object.prototype.hasOwnProperty.call(currentPayload, col)) {
+            delete currentPayload[col];
+            continue;
+          }
+          throw err;
+        }
+      }
+      throw new Error('Máximo de tentativas excedido ao tentar salvar peça');
+    };
     if (!pecaId) {
       // Insert: include sensible defaults
       // convert displayed group name back to stored code when possible
@@ -162,13 +196,47 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       };
       // proceed to insert
       try {
+        // Pre-insert duplicate check by codigo_produto to give immediate feedback
+        if (payload.codigo_produto) {
+          try {
+            const { data: existing, error: dupErr } = await supabase.from('pecas').select('id,nome').eq('codigo_produto', payload.codigo_produto).limit(1);
+            if (!dupErr && Array.isArray(existing) && existing.length > 0) {
+              const ex = existing[0];
+              setDuplicateFound({ id: ex.id, nome: ex.nome });
+              try { document.dispatchEvent(new CustomEvent('pecas-focus', { detail: { id: ex.id, codigo: payload.codigo_produto || payload.codigo_interno || payload.nome } })); } catch (e) { /* ignore */ }
+              showError('Código do produto já existe em outra peça. Você pode abrir o registro existente.');
+              setLoading(false);
+              return;
+            }
+          } catch (e) {
+            // ignore lookup failures and continue to attempt insert
+          }
+        }
         await trySave('insert', payload);
         success('Peça criada');
-        onSuccess();
+        // notify pages/components to refresh peças list in case parent handler didn't propagate
+        try { document.dispatchEvent(new CustomEvent('pecas-refresh')); } catch (e) { /* ignore */ }
+        try { if (onSuccess) await onSuccess(); } catch (e) { /* ignore */ }
         onClose();
       } catch (err: any) {
         console.error('Erro ao salvar peça:', err);
         if (err && (err.code === '23505' || (err.error && err.error.code === '23505'))) {
+          // duplicate key: try to fetch the existing record to help the user
+          try {
+            if (payload && payload.codigo_produto) {
+              const { data: existing2, error: e2 } = await supabase.from('pecas').select('id,nome').eq('codigo_produto', payload.codigo_produto).limit(1);
+              if (!e2 && Array.isArray(existing2) && existing2.length > 0) {
+                const ex2 = existing2[0];
+                setDuplicateFound({ id: ex2.id, nome: ex2.nome });
+                try { document.dispatchEvent(new CustomEvent('pecas-focus', { detail: { id: ex2.id, codigo: payload.codigo_produto || payload.codigo_interno || payload.nome } })); } catch (e) { /* ignore */ }
+                showError('Código do produto já existe em outra peça. Você pode abrir o registro existente.');
+                setLoading(false);
+                return;
+              }
+            }
+          } catch (e) {
+            // ignore
+          }
           showError('Código do produto já existe em outra peça. Escolha outro código.');
         } else {
           showError('Erro ao salvar peça');
@@ -218,40 +286,7 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       console.warn('Erro ao verificar duplicatas:', e);
     }
 
-    const trySave = async (operation: 'update' | 'insert', initialPayload: any) => {
-      const maxRetries = 6;
-      let attempt = 0;
-      let currentPayload = { ...initialPayload };
-      while (attempt < maxRetries) {
-        attempt++;
-        try {
-          if (operation === 'update') {
-            const { error } = await supabase.from('pecas').update(currentPayload).eq('id', pecaId);
-            if (error) throw error;
-            return;
-          } else {
-            const { data, error } = await supabase.from('pecas').insert(currentPayload).select().single();
-            if (error) throw error;
-            return;
-          }
-        } catch (err: any) {
-          // try to detect PostgREST missing-column errors in different formats
-          const msg = (err && (err.message || '')).toString();
-          // pattern: Could not find the 'X' column
-          let m = msg.match(/Could not find the '(.+?)' column/);
-          // pattern: column pecas.X does not exist
-          if (!m) m = msg.match(/column\s+(?:[\w"]+\.)?"?([\w_]+)"?\s+does not exist/i);
-          // also check for error.code === '42703' and try to extract from message
-          const col = m ? m[1] : (err && err.code === '42703' ? (msg.match(/"?([\w_]+)"?/) || [])[1] : null);
-          if (col && Object.prototype.hasOwnProperty.call(currentPayload, col)) {
-            delete currentPayload[col];
-            continue;
-          }
-          throw err;
-        }
-      }
-      throw new Error('Máximo de tentativas excedido ao tentar salvar peça');
-    };
+    
 
     try {
       if (pecaId) {
@@ -262,7 +297,8 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
         } else {
           await trySave('update', payload);
           success('Peça atualizada');
-          onSuccess();
+          try { document.dispatchEvent(new CustomEvent('pecas-refresh')); } catch (e) { /* ignore */ }
+          try { if (onSuccess) await onSuccess(); } catch (e) { /* ignore */ }
           onClose();
         }
       }

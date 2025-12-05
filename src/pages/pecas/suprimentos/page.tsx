@@ -17,8 +17,55 @@ export default function SuprimentosPage() {
   const [reportText, setReportText] = useState('');
 
   const filtered = (items || []).filter((i: any) => !search || (i.nome || '').toLowerCase().includes(search.toLowerCase()));
-    const getQty = (it: any) => Number(it.saldo_estoque != null ? it.saldo_estoque : (it.quantidade != null ? it.quantidade : 0)) || 0;
+  // parse formatted numbers robustly (handles '29.272', '29,272', '29.272,50')
+  const parseNumber = (v: any) => {
+    if (v == null) return null;
+    const s = String(v).trim();
+    if (s === '') return null;
+    const cleaned = s.replace(/\s/g, '');
+    const hasComma = cleaned.indexOf(',') >= 0;
+    const hasDot = cleaned.indexOf('.') >= 0;
+    try {
+      if (hasComma && !hasDot) {
+        const after = cleaned.split(',')[1] || '';
+        if (after.length === 3) return Number(cleaned.replace(/,/g, ''));
+        return Number(cleaned.replace(/,/g, '.'));
+      }
+      if (hasDot && !hasComma) {
+        const groups = cleaned.split('.');
+        if (groups.length > 1 && groups[groups.length - 1].length === 3) return Number(cleaned.replace(/\./g, ''));
+        return Number(cleaned);
+      }
+      if (hasDot && hasComma) {
+        const lastComma = cleaned.lastIndexOf(',');
+        const lastDot = cleaned.lastIndexOf('.');
+        if (lastComma > lastDot) return Number(cleaned.replace(/\./g, '').replace(/,/g, '.'));
+        return Number(cleaned.replace(/,/g, ''));
+      }
+      return Number(cleaned);
+    } catch (e) {
+      return Number(cleaned.replace(/[^0-9.-]/g, '')) || null;
+    }
+  };
+  const getQty = (it: any) => parseNumber(it.saldo_estoque != null ? it.saldo_estoque : (it.quantidade != null ? it.quantidade : 0)) || 0;
   const PRODUCTION_PER_DAY = 1000; // used to convert fardos -> dias
+
+  // helpers for name normalization (copied from importer to improve matching)
+  function stripDiacritics(s: string) {
+    try { return s.normalize('NFD').replace(/\p{Diacritic}/gu, ''); } catch (e) { return s; }
+  }
+  function normalizeLookupName(s: any) {
+    if (s === null || s === undefined) return '';
+    try {
+      let t = String(s).trim();
+      if (!t) return '';
+      t = stripDiacritics(t);
+      t = t.replace(/[\u00A0\s]+/g, ' ');
+      t = t.replace(/[^\p{L}\p{N} ]+/gu, ' ');
+      t = t.replace(/\s+/g, ' ').trim().toUpperCase();
+      return t;
+    } catch (e) { return String(s).trim().toUpperCase(); }
+  }
 
   // default product definitions (idempotent seed)
   const defaultProducts = [
@@ -29,138 +76,6 @@ export default function SuprimentosPage() {
     { nome: '095407 - FITA TENAX 2225CJ C 2040M - RL', codigo_produto: '095407', unidade_medida: 'UN', quantidade: 212, meta: { kind: 'fita' } },
     { nome: 'LONA PLÁSTICA PRETA 6x100 40 micras 24KG', unidade_medida: 'UN', quantidade: 198, meta: { kind: 'lona_preta' } },
   ];
-
-  // Ensure default products exist in the database (idempotent): create if not found by nome or codigo
-  const ensureDefaults = async () => {
-    if (missingTable || defaultsEnsured) return;
-    try {
-      // fetch latest items directly to avoid stale closure
-      const { data: latest, error: lErr } = await supabase.from('suprimentos').select('id,nome,codigo_produto');
-      if (lErr) {
-        console.warn('Não foi possível buscar suprimentos existentes antes do seed:', lErr);
-      }
-      const existingNames = new Set((latest || []).map((it: any) => (it.nome || '').toLowerCase()));
-      const existingCodes = new Set((latest || []).map((it: any) => (it.codigo_produto || '').toString()));
-      for (const p of defaultProducts) {
-        const nameKey = (p.nome || '').toLowerCase();
-        const codeKey = (p.codigo_produto || '').toString();
-        if (p.codigo_produto && existingCodes.has(codeKey)) continue;
-        if (existingNames.has(nameKey)) continue;
-        try {
-          await create({ nome: p.nome, codigo_produto: p.codigo_produto || null, unidade_medida: p.unidade_medida || null, quantidade: p.quantidade || 0, estoque_minimo: p.estoque_minimo || null, meta: p.meta || null });
-        } catch (err) {
-          console.warn('Não foi possível criar default suprimento', p.nome, err);
-        }
-      }
-    } finally {
-      setDefaultsEnsured(true);
-      await fetch();
-    }
-  };
-
-  // run ensure once when items load
-  React.useEffect(() => {
-    if (!loading) ensureDefaults();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, missingTable]);
-
-  const buildReport = () => {
-    const rows = items || [];
-    // dedupe
-    const seen = new Set<string>();
-    const unique: any[] = [];
-    for (const it of rows) {
-      const key = (it.codigo_produto || it.nome || '').toString().toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push(it);
-    }
-
-    const lines: string[] = [];
-    const now = new Date();
-    lines.push('*IBA Santa Luzia - Controle de Suprimentos*');
-    lines.push(`Data: ${now.toLocaleString()}`);
-    lines.push('');
-    for (const it of unique) {
-      const nome = it.nome || it.produto || '-';
-      const qtd = getQty(it);
-      const unidade = it.unidade_medida || it.unidade || 'unidades';
-      // determine ALERTA using same heuristics as the card
-      const upName = (nome || '').toUpperCase();
-      const isArame = upName.includes('ARAME');
-      const isBobinaKraft = upName.includes('PAPEL KRAFT') || upName.includes('KRAFT');
-      const isLonaTransp = upName.includes('LONA PLÁSTICA TRANSPARENTE') || upName.includes('TRANSPARENTE');
-      const isPolycinta = upName.includes('POLYCINTA') || upName.includes('POLY');
-      const isFita095407 = (it.codigo_produto || '') === '095407' || upName.includes('TENAX');
-      const isLonaPreta = upName.includes('LONA PLÁSTICA PRETA') || upName.includes('PRETA');
-      const minRaw = (it.estoque_minimo != null) ? Number(it.estoque_minimo) : null;
-      const rawMinUnit = (it.meta && (it.meta.min_type || it.meta.min_unit)) || 'unidades';
-      const minUnit = rawMinUnit === 'days' ? 'dias' : rawMinUnit;
-      let isAlert = false;
-      if (minRaw != null && minRaw > 0) {
-        if (isArame || isFita095407) {
-          const currentFardos = isArame ? ((qtd * 5) / 8) : (qtd * 150);
-          isAlert = (minUnit === 'fardos') ? (currentFardos < minRaw) : (qtd < minRaw);
-        } else if (isBobinaKraft) {
-          const totalMalas = qtd * 300;
-          isAlert = (minUnit === 'dias') ? ((totalMalas / 40) < minRaw) : (totalMalas < minRaw);
-        } else if (isLonaTransp || isPolycinta || isLonaPreta) {
-          isAlert = qtd < minRaw;
-        } else {
-          isAlert = qtd < minRaw;
-        }
-      }
-      let atende = '-';
-      let diasOp: number | null = null;
-      if (upName.includes('ARAME')) {
-        const totalFios = qtd * 5;
-        const totalFardos = totalFios / 8;
-        const roundedFardos = Math.round(totalFardos);
-        atende = `${roundedFardos.toLocaleString('pt-BR')} fardos`;
-        diasOp = totalFardos / PRODUCTION_PER_DAY;
-      } else if (upName.includes('PAPEL KRAFT')) {
-        const totalMalas = qtd * 300;
-        atende = `${totalMalas.toLocaleString('pt-BR')} malas`;
-        diasOp = totalMalas / 40;
-      } else if (upName.includes('LONA PLÁSTICA TRANSPARENTE')) {
-        const totalBlocos = qtd * 4;
-        atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
-      } else if (upName.includes('POLYCINTA')) {
-        const totalBlocos = qtd * 10;
-        atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
-      } else if ((it.codigo_produto || '') === '095407' || upName.includes('TENAX')) {
-        const totalFardos = qtd * 150;
-        const roundedFardos = Math.round(totalFardos);
-        atende = `${roundedFardos.toLocaleString('pt-BR')} fardos`;
-        diasOp = totalFardos / PRODUCTION_PER_DAY;
-      } else if (upName.includes('LONA PLÁSTICA PRETA')) {
-        // Lona preta: conversion is division (units per carreta)
-        const totalCarretas = qtd / 4;
-        atende = `${Math.round(totalCarretas).toLocaleString('pt-BR')} carretas`;
-      } else {
-        atende = `${qtd.toLocaleString('pt-BR')} ${unidade}`;
-      }
-
-      const minimo = (it.estoque_minimo != null && Number(it.estoque_minimo) > 0) ? Number(it.estoque_minimo).toLocaleString('pt-BR') : '-';
-          if (diasOp != null) lines.push(`Dias de operação: *${Math.round(diasOp).toLocaleString('pt-BR')}*`);
-
-      // build a block per product with separators and WhatsApp-friendly bold (*)
-      lines.push('----------------------------------------');
-      if (isAlert) lines.push('⚠️ *ABAIXO DO MÍNIMO*');
-      lines.push(`*${nome}*`);
-      lines.push(`Estoque atual: *${qtd.toLocaleString('pt-BR')}* ${unidade}`);
-      lines.push(`Atende: ${atende}`);
-      if (diasOp != null) lines.push(`Dias de operação: *${Math.round(diasOp).toLocaleString('pt-BR')}*`);
-      if (isAlert) lines.push(`*Mínimo programado: ${minimo}* (${minUnit})`);
-      else lines.push(`Mínimo programado: *${minimo}* (${minUnit})`);
-      lines.push('');
-    }
-
-    lines.push('----------------------------------------');
-    const text = lines.join('\n');
-    setReportText(text);
-    setShowReport(true);
-  };
 
   const printReport = async () => {
     const now = new Date();
@@ -223,10 +138,8 @@ export default function SuprimentosPage() {
         const aM = (a.estoque_minimo != null) ? 1 : 0;
         const bM = (b.estoque_minimo != null) ? 1 : 0;
         if (aM !== bM) return bM - aM;
-        const aq = Number(a.quantidade) || 0;
         const aq = getQty(a);
         const bq = getQty(b);
-          const qtd = getQty(it);
         return bq - aq;
       });
       uniqueRows.push(list[0]);
@@ -236,7 +149,7 @@ export default function SuprimentosPage() {
 
     const cardsHtml = uniqueRows.map((it) => {
       const nome = escape(it.nome || it.produto || '-');
-      const qtd = Number(it.quantidade) || 0;
+      const qtd = getQty(it);
       const unidade = escape(it.unidade_medida || it.unidade || 'unidades');
       const minimo = (it.estoque_minimo != null && Number(it.estoque_minimo) > 0) ? escape(Number(it.estoque_minimo).toLocaleString('pt-BR')) : '-';
       const rawMinUnit = (it.meta && (it.meta.min_type || it.meta.min_unit)) || 'unidades';
@@ -341,6 +254,117 @@ export default function SuprimentosPage() {
     setTimeout(() => { w.print(); }, 300);
   };
 
+  // Build a plain-text report (for copying to WhatsApp or clipboard)
+  const buildReport = () => {
+    try {
+      const allRows = items || [];
+      const groups = new Map<string, any[]>();
+      for (const it of allRows) {
+        const key = ((it.codigo_produto || it.nome) || '').toString().trim().toLowerCase();
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(it);
+      }
+      const uniqueRows: any[] = [];
+      for (const [key, list] of groups) {
+        if (!list || list.length === 0) continue;
+        list.sort((a: any, b: any) => {
+          const aP = a.peca_id ? 1 : 0;
+          const bP = b.peca_id ? 1 : 0;
+          if (aP !== bP) return bP - aP;
+          const aM = (a.estoque_minimo != null) ? 1 : 0;
+          const bM = (b.estoque_minimo != null) ? 1 : 0;
+          if (aM !== bM) return bM - aM;
+          const aq = getQty(a);
+          const bq = getQty(b);
+          return bq - aq;
+        });
+        uniqueRows.push(list[0]);
+      }
+      // build text lines with alerts, mínimo and days of usage
+      const lines: string[] = [];
+      lines.push('Relatório de Suprimentos - ' + new Date().toLocaleString());
+      lines.push('');
+      for (const it of uniqueRows) {
+        const nome = (it.nome || it.produto || '-').toString();
+        const qtd = getQty(it);
+        const unidade = it.unidade_medida || it.unidade || 'un';
+        const minRaw = (it.estoque_minimo != null) ? Number(it.estoque_minimo) : null;
+        const rawMinUnit = (it.meta && (it.meta.min_type || it.meta.min_unit)) || 'unidades';
+        const minUnit = rawMinUnit === 'days' ? 'dias' : rawMinUnit;
+
+        // heuristics for alert and days similar to printReport
+        const up = nome.toUpperCase();
+        const isArame = up.includes('ARAME');
+        const isBobinaKraft = up.includes('PAPEL KRAFT') || up.includes('KRAFT');
+        const isLonaTransp = up.includes('LONA PLÁSTICA TRANSPARENTE') || up.includes('TRANSPARENTE');
+        const isPolycinta = up.includes('POLYCINTA') || up.includes('POLY');
+        const isFita095407 = (it.codigo_produto || '') === '095407' || up.includes('TENAX');
+        const isLonaPreta = up.includes('LONA PLÁSTICA PRETA') || up.includes('PRETA');
+
+        let atende = '';
+        let diasOp: number | null = null;
+        if (isArame) {
+          const totalFios = qtd * 5;
+          const totalFardos = totalFios / 8;
+          const rounded = Math.round(totalFardos);
+          atende = `${rounded.toLocaleString('pt-BR')} fardos`;
+          diasOp = totalFardos / PRODUCTION_PER_DAY;
+        } else if (isBobinaKraft) {
+          const totalMalas = qtd * 300;
+          atende = `${totalMalas.toLocaleString('pt-BR')} malas`;
+          diasOp = totalMalas / 40;
+        } else if (isLonaTransp) {
+          const totalBlocos = qtd * 4;
+          atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
+        } else if (isPolycinta) {
+          const totalBlocos = qtd * 10;
+          atende = `${totalBlocos.toLocaleString('pt-BR')} blocos`;
+        } else if (isFita095407) {
+          const totalFardos = qtd * 150;
+          const rounded = Math.round(totalFardos);
+          atende = `${rounded.toLocaleString('pt-BR')} fardos`;
+          diasOp = totalFardos / PRODUCTION_PER_DAY;
+        } else if (isLonaPreta) {
+          const totalCarretas = qtd / 4;
+          atende = `${Math.round(totalCarretas).toLocaleString('pt-BR')} carretas`;
+        } else {
+          atende = `${qtd.toLocaleString('pt-BR')} ${unidade}`;
+        }
+
+        let isAlert = false;
+        if (minRaw != null && minRaw > 0) {
+          if (isArame || isFita095407) {
+            const currentFardos = isArame ? ((qtd * 5) / 8) : (qtd * 150);
+            isAlert = (minUnit === 'fardos') ? (currentFardos < minRaw) : (qtd < minRaw);
+          } else if (isBobinaKraft) {
+            const totalMalas = qtd * 300;
+            isAlert = (minUnit === 'dias') ? ((totalMalas / 40) < minRaw) : (totalMalas < minRaw);
+          } else if (isLonaTransp || isPolycinta || isLonaPreta) {
+            isAlert = qtd < minRaw;
+          } else {
+            isAlert = qtd < minRaw;
+          }
+        }
+
+        // Build a clearer block per product: name, then one info per line, blank line between products
+        lines.push(nome);
+        lines.push(`  Qtd: ${qtd.toLocaleString('pt-BR')} ${unidade}`);
+        if (minRaw != null) lines.push(`  Mínimo: ${minRaw.toLocaleString('pt-BR')} (${minUnit})`);
+        lines.push(`  Atende: ${atende}`);
+        if (diasOp != null) lines.push(`  Dias: ${Math.round(diasOp).toLocaleString('pt-BR')}`);
+        lines.push(`  Alerta: ${isAlert ? 'SIM' : '—'}`);
+        lines.push('');
+      }
+      const text = lines.join('\n');
+      setReportText(text);
+      setShowReport(true);
+    } catch (e) {
+      console.error('Erro ao gerar relatório de texto', e);
+      setReportText('Erro ao gerar relatório');
+      setShowReport(true);
+    }
+  };
+
   // Refresh stock quantities by pulling from `pecas` table for matching peca_id or codigo_produto
   const refreshStock = async () => {
     try {
@@ -354,7 +378,7 @@ export default function SuprimentosPage() {
         let pecaPromise: Promise<any> | null = null;
         // try several matching strategies: peca_id, exact codigo_produto, codigo_fabricante, then ilike
         if (it.peca_id) {
-          pecaPromise = supabase.from('pecas').select('id,saldo_estoque,quantidade').eq('id', it.peca_id).limit(1).maybeSingle();
+          pecaPromise = supabase.from('pecas').select('id,nome,codigo_produto,saldo_estoque,quantidade').eq('id', it.peca_id).limit(1).maybeSingle();
         } else {
           // derive a candidate code from codigo_produto or from leading digits in nome
           const codeRaw = (it.codigo_produto || '').toString().trim();
@@ -365,33 +389,71 @@ export default function SuprimentosPage() {
           }
           if (codeCandidate) {
             // try exact match on codigo_produto
-            pecaPromise = supabase.from('pecas').select('id,saldo_estoque,quantidade').eq('codigo_produto', codeCandidate).limit(1).maybeSingle();
+            pecaPromise = supabase.from('pecas').select('id,nome,codigo_produto,saldo_estoque,quantidade').eq('codigo_produto', codeCandidate).limit(1).maybeSingle();
             // if not found, try codigo_fabricante
             pecaPromise = pecaPromise.then(async (res: any) => {
               const found = res && (res.data || res) ? (res.data || res) : null;
               if (found) return res;
-              return supabase.from('pecas').select('id,saldo_estoque,quantidade').eq('codigo_fabricante', codeCandidate).limit(1).maybeSingle();
+              return supabase.from('pecas').select('id,nome,codigo_produto,saldo_estoque,quantidade').eq('codigo_fabricante', codeCandidate).limit(1).maybeSingle();
             });
             // fallback to ilike on codigo_produto
             pecaPromise = pecaPromise.then(async (res: any) => {
               const found = res && (res.data || res) ? (res.data || res) : null;
               if (found) return res;
-              return supabase.from('pecas').select('id,saldo_estoque,quantidade').ilike('codigo_produto', `%${codeCandidate}%`).limit(1).maybeSingle();
+              return supabase.from('pecas').select('id,nome,codigo_produto,saldo_estoque,quantidade').ilike('codigo_produto', `%${codeCandidate}%`).limit(1).maybeSingle();
             });
           } else if (it.nome) {
             // fallback: try matching by product name
             const nameQ = String(it.nome).slice(0, 60);
-            pecaPromise = supabase.from('pecas').select('id,saldo_estoque,quantidade').ilike('produto', `%${nameQ}%`).limit(1).maybeSingle();
+            // try both `nome` and `produto` columns (some schemas use `produto`)
+            const orName = `nome.ilike.%${nameQ}%,produto.ilike.%${nameQ}%`;
+            pecaPromise = supabase.from('pecas').select('id,nome,codigo_produto,saldo_estoque,quantidade').or(orName).limit(1).maybeSingle();
           }
         }
         if (!pecaPromise) continue;
         const op = pecaPromise.then(async (res: any) => {
-          const peca = (res && (res.data || res)) || null;
-          if (!peca) return null;
-          const newQty = (peca.saldo_estoque != null) ? Number(peca.saldo_estoque) : (peca.quantidade != null ? Number(peca.quantidade) : null);
-          if (newQty == null) return null;
-          const { error } = await supabase.from('suprimentos').update({ quantidade: newQty, saldo_estoque: newQty }).eq('id', it.id);
-          if (error) throw error;
+          // normalize various supabase return shapes: { data } or raw row
+          let peca = (res && (res.data ?? res)) || null;
+          if (!peca) {
+            console.info('[refreshStock] no match for suprimento', { suprimentoId: it.id, nome: it.nome, codigo: it.codigo_produto, raw: res });
+            return null;
+          }
+          // normalize field names: prefer saldo_estoque, then saldo, then quantidade
+          let rawSaldo = peca.saldo_estoque ?? peca.saldo ?? peca.quantidade ?? null;
+          let newQty = (rawSaldo != null) ? parseNumber(rawSaldo) : null;
+
+          // If we matched a row but it lacks expected saldo fields, try a fresh select for alternative columns
+          if (newQty == null && peca && peca.id) {
+            try {
+              const fresh = await supabase.from('pecas').select('id,produto,nome,codigo_produto,saldo_estoque,saldo,quantidade').eq('id', peca.id).maybeSingle();
+              const freshRow = (fresh && (fresh.data ?? fresh)) || null;
+              if (freshRow) {
+                // prefer freshest values
+                rawSaldo = freshRow.saldo_estoque ?? freshRow.saldo ?? freshRow.quantidade ?? null;
+                newQty = (rawSaldo != null) ? parseNumber(rawSaldo) : null;
+                if (newQty != null) peca = freshRow;
+              }
+            } catch (e) {
+              console.warn('[refreshStock] re-fetch pecas failed', { suprimentoId: it.id, pecasId: peca.id, error: e });
+            }
+          }
+
+          // If still no numeric saldo, force zero (log clearly) so suprimentos reflects empty stock
+          if (newQty == null) {
+            console.info('[refreshStock] matched pecas row but saldo missing; forcing quantidade=0', { suprimentoId: it.id, pecasId: peca.id, pecasNome: (peca.nome || peca.produto), pecasCodigo: peca.codigo_produto, rawPeca: peca });
+            newQty = 0;
+          }
+          console.info('[refreshStock] applying update', { suprimentoId: it.id, matchedPecaId: peca.id, matchedPecaNome: peca.nome, matchedCodigo: peca.codigo_produto, newQty });
+          // Update only `quantidade` to avoid failing when `saldo_estoque` column is not present in the schema.
+          const { error } = await supabase.from('suprimentos').update({ quantidade: newQty }).eq('id', it.id);
+          if (error) {
+            // If PostgREST reports missing column for saldo_estoque elsewhere, surface a clearer warning.
+            if (error.code === 'PGRST204' && /saldo_estoque/.test(String(error.message || ''))) {
+              console.warn('[refreshStock] suprimentos table schema missing `saldo_estoque` — updated `quantidade` only', { suprimentoId: it.id, error });
+              return null;
+            }
+            throw error;
+          }
           return true;
         }).catch((e) => { console.warn('refreshStock item failed', it.id, e); return null; });
         ops.push(op);
@@ -458,34 +520,28 @@ export default function SuprimentosPage() {
                 <input name="unidade" placeholder="Unidade" className="px-3 py-2 rounded w-28" />
                 <input name="quantidade" type="number" placeholder="Qtd" className="px-3 py-2 rounded w-20" />
                 <input name="estoque_minimo" type="number" placeholder="Mínimo" className="px-3 py-2 rounded w-24" />
-                <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded">Adicionar</button>
+                <button type="submit" className="px-4 py-2 h-10 bg-green-600 text-white rounded-lg text-sm">Adicionar</button>
               </form>
             </div>
           </div>
 
           <div className="mb-4 flex items-center gap-2">
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar" className="px-3 py-2 rounded w-96" />
-            <button onClick={() => refreshStock()} className="px-3 py-2 bg-blue-600 text-white rounded">Atualizar</button>
-            <button onClick={() => { buildReport(); }} className="px-3 py-2 bg-amber-600 text-white rounded">Relatório</button>
+            <button onClick={() => refreshStock()} className="px-4 py-2 h-10 bg-blue-600 text-white rounded-lg text-sm whitespace-nowrap">Atualizar</button>
+            <button onClick={() => { buildReport(); }} className="px-4 py-2 h-10 bg-amber-600 text-white rounded-lg text-sm whitespace-nowrap">Relatório</button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 items-stretch">
             {(() => {
-              // Group items by codigo_produto or nome (case-insensitive) and pick a stable representative
               const groups = new Map<string, any[]>();
               for (const it of filtered) {
                 const key = ((it.codigo_produto || it.nome) || '').toString().trim().toLowerCase();
                 if (!groups.has(key)) groups.set(key, []);
                 groups.get(key)!.push(it);
               }
-
               const representatives: any[] = [];
               for (const [key, list] of groups) {
                 if (!list || list.length === 0) continue;
-                // choose representative with these priorities:
-                // 1) has peca_id
-                // 2) has estoque_minimo defined (non-null)
-                // 3) larger quantidade
                 list.sort((a: any, b: any) => {
                   const aP = a.peca_id ? 1 : 0;
                   const bP = b.peca_id ? 1 : 0;
@@ -493,17 +549,16 @@ export default function SuprimentosPage() {
                   const aM = (a.estoque_minimo != null) ? 1 : 0;
                   const bM = (b.estoque_minimo != null) ? 1 : 0;
                   if (aM !== bM) return bM - aM;
-                  const aq = Number(a.quantidade) || 0;
                   const aq = getQty(a);
                   const bq = getQty(b);
                   return bq - aq;
                 });
                 representatives.push(list[0]);
               }
-
-              // render representatives
               return representatives.map((it: any) => (
-                <SuprimentosCard key={it.id} item={it} onUpdate={update} onDelete={remove} />
+                <div key={it.id} className="h-full">
+                  <SuprimentosCard item={it} onUpdate={update} onDelete={remove} />
+                </div>
               ));
             })()}
           </div>

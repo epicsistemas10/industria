@@ -33,6 +33,32 @@ function normalizeHeader(h: string) {
   return s.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+function stripDiacritics(s: string) {
+  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '');
+}
+
+function normalizeLookupName(s: any) {
+  if (s === null || s === undefined) return '';
+  try {
+    let t = String(s).trim();
+    if (!t) return '';
+    t = stripDiacritics(t);
+    t = t.replace(/[\u00A0\s]+/g, ' ');
+    // replace punctuation with space, keep letters and numbers
+    t = t.replace(/[^\p{L}\p{N} ]+/gu, ' ');
+    t = t.replace(/\s+/g, ' ').trim().toUpperCase();
+    return t;
+  } catch (e) { return String(s).trim().toUpperCase(); }
+}
+
+function normalizeCodigoKey(s: any) {
+  if (s === null || s === undefined) return '';
+  const t = String(s).trim();
+  if (!t) return '';
+  const noLeadingZeros = t.replace(/^0+/, '') || t;
+  return `${t}||${noLeadingZeros}`; // composite so we can easily store variants
+}
+
 function parseNumber(v: any): number | null {
   if (v === null || v === undefined || v === '') return null;
   let s = String(v).trim();
@@ -63,11 +89,16 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
   const [completedOps, setCompletedOps] = useState(0);
   const [processedResult, setProcessedResult] = useState<{ updates: number; news: number } | null>(null);
   const [failedUpdates, setFailedUpdates] = useState<any[]>([]);
+  const [zeroedProductsPreview, setZeroedProductsPreview] = useState<any[]>([]);
+  const [appliedZeroedProducts, setAppliedZeroedProducts] = useState<any[] | null>(null);
+  const [newProductsApplied, setNewProductsApplied] = useState<any[] | null>(null);
+  const [showImportSummary, setShowImportSummary] = useState(false);
   const [preparedUpdates, setPreparedUpdates] = useState<{ match: { field: string; value: any }; payload: any }[]>([]);
   const [parseWarnings, setParseWarnings] = useState<any[]>([]);
   const [groupSuggestions, setGroupSuggestions] = useState<string[]>([]);
   const [groupCodeMap, setGroupCodeMap] = useState<Record<string, string>>({});
   const [mappingText, setMappingText] = useState<string>('');
+  const [autoInsertNew, setAutoInsertNew] = useState<boolean>(false);
   const [debugEnableSave, setDebugEnableSave] = useState(false);
   const { success, error } = useToast();
 
@@ -385,45 +416,36 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
       const codigos = parsed.map(p => p.codigo).filter(Boolean);
       const nomes = parsed.map(p => p.descricao).filter(Boolean);
 
-      // query db for matches by codigo_produto or nome
-      // IMPORTANT: avoid building one huge .in(...) list (very long URLs -> net::ERR_FAILED / 400).
-      // Instead, fetch in small chunks and merge results. Consider adding a server RPC later.
-      const chunkArray = (arr: string[], size: number) => {
-        const out: string[][] = [];
-        for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-        return out;
-      };
-
-      const CHUNK_SIZE = 50; // safe default — adjust if necessary
+      // Query DB for matches. To make name-matching robust (handle small variations and diacritics),
+      // fetch a reasonable slice of `pecas` and build normalized lookup maps locally rather than
+      // relying on exact `.in('nome', ...)` matching which fails for slightly different strings.
+      // NOTE: we limit to 20k rows (range 0,19999) — adjust if your dataset is larger.
       let existentes: any[] = [];
-
-      if (codigos.length) {
-        const chunks = chunkArray(codigos, CHUNK_SIZE);
-        for (const c of chunks) {
-          try {
-            const { data: byCode, error: byCodeErr } = await supabase.from('pecas').select('*').in('codigo_produto', c).range(0, 19999);
-            if (byCodeErr) {
-              console.warn('chunked lookup by codigo failed for chunk', c.slice(0,3), '... err=', byCodeErr);
-            }
-            existentes = existentes.concat(byCode || []);
-          } catch (e) {
-            console.warn('Unexpected error during chunked codigo lookup', e);
-          }
+      try {
+        const { data: all, error: allErr } = await supabase.from('pecas').select('*').range(0, 19999);
+        if (allErr) {
+          console.warn('failed to fetch pecas for matching, falling back to chunked lookups', allErr);
+        } else {
+          existentes = all || [];
         }
+      } catch (e) {
+        console.warn('Unexpected error fetching pecas for matching', e);
       }
 
-      if (nomes.length) {
-        const chunksN = chunkArray(nomes, CHUNK_SIZE);
-        for (const c of chunksN) {
+      // If we couldn't fetch the full list, fall back to chunked lookups by codigo (best-effort)
+      if (!existentes.length && codigos.length) {
+        const chunkArray = (arr: string[], size: number) => {
+          const out: string[][] = [];
+          for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+          return out;
+        };
+        const CHUNK_SIZE = 50;
+        for (const c of chunkArray(codigos, CHUNK_SIZE)) {
           try {
-            const { data: byName, error: byNameErr } = await supabase.from('pecas').select('*').in('nome', c).range(0, 19999);
-            if (byNameErr) {
-              console.warn('chunked lookup by nome failed for chunk', c.slice(0,3), '... err=', byNameErr);
-            }
-            existentes = existentes.concat(byName || []);
-          } catch (e) {
-            console.warn('Unexpected error during chunked nome lookup', e);
-          }
+            const { data: byCode, error: byCodeErr } = await supabase.from('pecas').select('*').in('codigo_produto', c).range(0, 19999);
+            if (byCodeErr) console.warn('chunked lookup by codigo failed for chunk', c.slice(0,3), '... err=', byCodeErr);
+            existentes = existentes.concat(byCode || []);
+          } catch (e) { console.warn('Unexpected error during chunked codigo lookup', e); }
         }
       }
 
@@ -431,10 +453,23 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
       const mapExist: Record<string, any> = {};
       (existentes || []).forEach(e => { if (e && e.id) mapExist[e.id] = e; });
 
-      // build maps by codigo and nome for quick lookup
+      // build maps by codigo and nome for quick lookup (with normalization)
       const byCodigo: Record<string, any> = {};
       const byNome: Record<string, any> = {};
-      (existentes || []).forEach(e => { if (e.codigo_produto) byCodigo[String(e.codigo_produto).trim()] = e; if (e.nome) byNome[String(e.nome).trim()] = e; });
+      (existentes || []).forEach(e => {
+        try {
+          if (e && e.codigo_produto) {
+            const key = String(e.codigo_produto).trim();
+            byCodigo[key] = e;
+            const keyNoZero = String(key).replace(/^0+/, '') || key;
+            byCodigo[keyNoZero] = e;
+          }
+          if (e && e.nome) {
+            const nkey = normalizeLookupName(e.nome);
+            if (nkey) byNome[nkey] = e;
+          }
+        } catch (err) { /* ignore */ }
+      });
 
       const toUpdate: { match: { field: string; value: any }; payload: any }[] = [];
       const newItems: ParsedRow[] = [];
@@ -443,8 +478,19 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         const code = row.codigo?.trim();
         const name = row.descricao?.trim();
         let found = null;
-        if (code && byCodigo[code]) found = byCodigo[code];
-        else if (name && byNome[name]) found = byNome[name];
+        // try exact codigo match, then trimmed-leading-zero variant
+        if (code) {
+          if (byCodigo[code]) found = byCodigo[code];
+          else {
+            const noz = String(code).replace(/^0+/, '');
+            if (byCodigo[noz]) found = byCodigo[noz];
+          }
+        }
+        // try normalized name match
+        if (!found && name) {
+          const nkey = normalizeLookupName(name);
+          if (nkey && byNome[nkey]) found = byNome[nkey];
+        }
 
         if (found) {
           // update only estoque/valor_total (and saldo_estoque when column present)
@@ -488,13 +534,22 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
       // Do NOT execute updates now. Prepare updates and present them to the user.
       // The user must click "Salvar no sistema" to apply updates and inserts.
       setPreparedUpdates(toUpdate);
+      try {
+        console.info('[ImportarEstoque] preparedUpdates preview', { count: toUpdate.length, sample: toUpdate.slice(0,5) });
+        const specific = toUpdate.filter(u => String(u.match.value).includes('042141') || (u.existing && String(u.existing.codigo_produto || '').includes('042141')));
+        if (specific.length) console.info('[ImportarEstoque] preparedUpdates includes 042141', specific.slice(0,5));
+      } catch (e) { /* ignore */ }
       // After preparing updates for rows present in the file, detect products that exist in the system
       // but were NOT present in the uploaded file. These should be presented to the user so they can
       // confirm zeroing their stock (they are not removed from system).
       try {
         const { data: allPecas, error: allErr } = await supabase.from('pecas').select('id,codigo_produto,nome,quantidade,saldo_estoque,grupo_produto,estoque_minimo').range(0, 19999);
         if (!allErr && Array.isArray(allPecas)) {
-          const matchedIds = new Set((existentes || []).map((e: any) => e && e.id).filter(Boolean));
+          // Build matchedIds from the actual matches we prepared (toUpdate)
+          const matchedIds = new Set((toUpdate || []).map((u: any) => u && u.existing && u.existing.id).filter(Boolean));
+          // Also include any items in 'existentes' that we matched earlier by code/name
+          // (this is defensive; primary source is toUpdate)
+          (existentes || []).forEach((e: any) => { if (e && e.id && (parsed.some(p => (p.codigo && String(p.codigo).trim() === String(e.codigo_produto).trim()) || (p.descricao && normalizeLookupName(p.descricao) === normalizeLookupName(e.nome))))) matchedIds.add(e.id); });
           const missing = (allPecas || []).filter((p: any) => !matchedIds.has(p.id)).map((p: any) => ({
             id: p.id,
             codigo: p.codigo_produto || '',
@@ -506,12 +561,20 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
           }));
           // only set missingProducts if there are any
           if (missing.length > 0) setMissingProducts(missing);
+          // prepare preview of items that would be zeroed (user-selected)
+          try {
+            const zeroPreview = (missing || []).filter((p: any) => p.selected && (p.sistema_saldo ?? 0) > 0);
+            if (zeroPreview.length) setZeroedProductsPreview(zeroPreview);
+          } catch (e) {}
         }
       } catch (e) {
         console.warn('Erro ao detectar produtos ausentes no arquivo', e);
       }
       // consider newItems as processed for progress UI (they still require user confirmation to save)
       if (newItems.length > 0) setCompletedOps(prev => prev + newItems.length);
+
+      // prepare a simple report download button visible after processing
+      // (we'll add UI hook later in processedResult area)
 
       // debug: log pendentes for inspection
       try {
@@ -523,6 +586,16 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
 
       // finished preparing updates; leave pendentes for user confirmation
       setProcessedResult({ updates: toUpdate.length, news: newItems.length });
+      // If configured, automatically create new products found in the file.
+      try {
+        if (newItems.length > 0 && autoInsertNew) {
+          console.info('[ImportarEstoque] autoInsertNew enabled — creating pendentes automatically', { count: newItems.length });
+          // pass prepared updates directly to avoid reading stale state inside cadastrarNovosProdutos
+          await cadastrarNovosProdutos(newItems, toUpdate);
+        }
+      } catch (e) {
+        console.warn('[ImportarEstoque] auto-insert failed', e);
+      }
       // If file had additional rows (blank/ignored), include that info in toast
       if (fileRowsCount && fileRowsCount > parsed.length) {
         success(`Processamento concluído. ${parsed.length} linhas processadas de ${fileRowsCount} lidas. ${toUpdate.length} atualizações prontas. ${newItems.length} novos encontrados.`);
@@ -540,13 +613,14 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
     }
   };
 
-  const cadastrarNovosProdutos = async (lista: ParsedRow[]) => {
+  const cadastrarNovosProdutos = async (lista: ParsedRow[], pendingUpdatesParam?: { match: { field: string; value: any }; payload: any }[]) => {
     // 'lista' may be empty — we still want to apply any preparedUpdates detected during processing.
     // Validate required fields only when there are pendentes to insert.
     if (lista && lista.length > 0) {
       for (const it of lista) {
-        if (!it.descricao || !it.codigo || !it.unidade) {
-          error('Preencha nome, código e unidade para todos os itens pendentes antes de salvar.');
+        // require only descrição and unidade; codigo is optional (we can infer or leave null)
+        if (!it.descricao || !it.unidade) {
+          error('Preencha nome e unidade para todos os itens pendentes antes de salvar.');
           return;
         }
       }
@@ -555,7 +629,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
     try {
       console.info('[ImportarEstoque] cadastrarNovosProdutos called, lista.length=', lista.length);
       // prepare progress UI: total ops = prepared updates + new inserts
-      const pendingUpdatesPreview = preparedUpdates || [];
+      const pendingUpdatesPreview = pendingUpdatesParam || preparedUpdates || [];
       setProcessing(true);
       setTotalOps((pendingUpdatesPreview.length || 0) + (lista ? lista.length : 0));
       setCompletedOps(0);
@@ -564,7 +638,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
       console.groupEnd();
 
       // First: apply any prepared updates (these were detected during processing)
-      const pendingUpdates = preparedUpdates || [];
+      const pendingUpdates = pendingUpdatesParam || preparedUpdates || [];
       // also include prepared zero-updates for missing products (if any)
       if (missingProducts && missingProducts.length > 0) {
         const zeroUpdates = missingProducts.filter(m => m.selected).map(m => {
@@ -585,31 +659,28 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
 
         const applyUpdate = async (u: any) => {
           try {
+            console.info('[ImportarEstoque] applying prepared update', { match: u.match, payload: u.payload });
             const field = u.match.field;
             const value = u.match.value;
             if (debugEnableSave) {
-              // only fetch before when debug is enabled (slower)
               try {
-                const { data: b } = await supabase.from('pecas').select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').eq(field, value as any).maybeSingle();
-                console.info('[ImportarEstoque] update BEFORE', { match: u.match, before: b, payload: u.payload });
+                const beforeRes = await supabase.from('pecas').select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').eq(field, value as any).maybeSingle();
+                const before = (beforeRes && (beforeRes.data ?? beforeRes)) || beforeRes;
+                console.info('[ImportarEstoque] update BEFORE', { match: u.match, before, payload: u.payload });
               } catch (e) { /* ignore */ }
             }
 
-            const { error: upErr } = await supabase.from('pecas').update(u.payload).eq(field, value as any);
+            const { data: upRes, error: upErr } = await supabase.from('pecas').update(u.payload).eq(field, value as any).select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').maybeSingle();
             if (upErr) {
               console.warn('update error for', field, value, upErr);
               updateFailures.push({ match: u.match, payload: u.payload, error: upErr });
-            } else if (debugEnableSave) {
-              // only fetch after when debug is enabled
-              try {
-                const { data: a } = await supabase.from('pecas').select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').eq(field, value as any).maybeSingle();
-                console.info('[ImportarEstoque] update AFTER', { match: u.match, after: a });
-              } catch (e) { /* ignore */ }
+            } else {
+              console.info('[ImportarEstoque] update RESULT', { match: u.match, result: upRes });
             }
-            setCompletedOps(prev => prev + 1);
           } catch (e) {
             console.error('unexpected update error', e);
             updateFailures.push({ match: u.match, payload: u.payload, error: e });
+          } finally {
             setCompletedOps(prev => prev + 1);
           }
         };
@@ -626,10 +697,13 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         error(`Falha em ${updateFailures.length} atualizações. Verifique os itens e tente novamente.`);
       } else if (pendingUpdates.length > 0) {
         success(`Atualizações aplicadas: ${pendingUpdates.length}`);
+        // record applied zeroed products preview for summary
+        try {
+          if (zeroedProductsPreview && zeroedProductsPreview.length) setAppliedZeroedProducts(zeroedProductsPreview);
+        } catch (e) {}
         // clear prepared data and UI preview since updates were applied
         setPreparedUpdates([]);
         setPendentes([]);
-          setMissingProducts([]);
         setMissingProducts([]);
         setParsed([]);
         setProcessedResult(null);
@@ -638,18 +712,39 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         setProcessing(false);
         if (onImported) await onImported();
         if (onClose) onClose();
-        // if there were no new items to insert (lista is empty), finish here
-        if (!lista || lista.length === 0) return;
+        // if there were no new items to insert (lista is empty), finish here and show summary
+        if (!lista || lista.length === 0) {
+          setShowImportSummary(true);
+          return;
+        }
       }
 
       // Clear prepared updates regardless (we recorded failures separately)
       setPreparedUpdates([]);
 
       // Now proceed to insert new products (lista)
-      const payload = lista.map(it => {
+      // Preprocess pendentes: if codigo is missing, try to extract a leading numeric code from descricao
+        const preprocessed = (lista || []).map(it => {
+          let nome = it.descricao || '';
+          let codigo = it.codigo || '';
+          try {
+            const m = String(nome).trim().match(/^\s*([0-9]{3,})\s*[-–:.]*\s*(.+)$/);
+            if (!codigo && m) {
+              codigo = m[1];
+              nome = m[2];
+            }
+            // also remove common prefixes like '095407 - ' even if code is non-numeric groups
+            nome = String(nome).replace(/^\s*[-–:.\s]+/, '').trim();
+          } catch (e) {
+            // ignore
+          }
+          return { ...it, descricao: nome, codigo };
+        });
+
+      const payload = preprocessed.map(it => {
         const p: any = {
           nome: it.descricao,
-          codigo_produto: it.codigo,
+          codigo_produto: it.codigo || null,
           unidade_medida: it.unidade,
           grupo_produto: it.grupo ?? null,
         };
@@ -670,34 +765,91 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         return p;
       });
 
-      // Remove codes that already exist to avoid duplicate-key errors
-      const codes = payload.map(p => p.codigo_produto).filter(Boolean);
-      if (codes.length) {
-        const { data: existing = [] } = await supabase.from('pecas').select('codigo_produto').in('codigo_produto', codes as string[]).range(0, 19999);
-        const existingSet = new Set((existing || []).map((e: any) => String(e.codigo_produto).trim()));
-        const filtered = payload.filter(p => !existingSet.has(String(p.codigo_produto).trim()));
-        if (filtered.length === 0) {
-          success('Nenhum novo produto para inserir (já existem no sistema).');
-          setPendentes([]);
-            setMissingProducts([]);
-          setParsed([]);
-          setProcessedResult(null);
-          setProcessing(false);
-          if (onImported) await onImported();
-          if (onClose) onClose();
-          return;
-        }
-
-        // Try upsert on codigo_produto to be safer (will update if exists)
-        let attemptPayload = filtered.map(p => ({ ...p }));
+        // Debug: log any payload items with LONA in nome before attempting upsert
         try {
-          const { data, error: upsertErr } = await supabase.from('pecas').upsert(attemptPayload, { onConflict: 'codigo_produto' });
+          const lonaPayload = payload.filter(p => /LONA/i.test(String(p.nome || '')));
+          if (lonaPayload.length) console.info('[ImportarEstoque] debug LONA payload before upsert', { count: lonaPayload.length, sample: lonaPayload.slice(0,5) });
+        } catch (e) { /* ignore */ }
+
+      // We'll attempt to upsert all payload items directly. This mirrors the
+      // spreadsheet contents into the DB: existing rows (by codigo_produto)
+      // will be updated and new ones inserted. Avoid pre-filtering codes so
+      // we don't silently drop rows the user expects to import.
+      const attemptPayload = payload.map(p => ({ ...p }));
+        try {
+          console.info('[ImportarEstoque] attempting upsert payload', { count: attemptPayload.length, sample: attemptPayload.slice(0,3) });
+          // Request representation to get returned rows when possible
+          const { data, error: upsertErr } = await supabase.from('pecas').upsert(attemptPayload, { onConflict: 'codigo_produto', returning: 'representation' } as any);
+          // log full server response for diagnosis
+          console.info('[ImportarEstoque] upsert server response', { data, upsertErr });
           if (upsertErr) {
             console.warn('Upsert errored, fallback to insert attempt', upsertErr);
           } else {
-            success(`Inseridos/atualizados ${Array.isArray(data) ? data.length : 0} produtos`);
+            const insertedCount = Array.isArray(data) ? data.length : (data ? 1 : 0);
+            console.info('[ImportarEstoque] upsert result', { inserted: insertedCount, sample: (Array.isArray(data) ? data.slice(0,3) : data) });
+            success(`Inseridos/atualizados ${insertedCount} produtos`);
+            // record newly applied products for summary (use returned data when available)
+            try {
+              const newNames = Array.isArray(data) ? data.map((d: any) => d.nome).filter(Boolean) : (data ? [data.nome] : attemptPayload.map(p => p.nome));
+              setNewProductsApplied(newNames);
+            } catch (e) {}
+            // If upsert returned no rows (some Supabase/PostgREST configs may not return representation),
+            // perform an explicit presence check for payload items and try inserting individually
+            // any items that still don't exist. This is a defensive fallback to ensure nothing
+            // from the spreadsheet is silently dropped.
+            try {
+              const missingAfterUpsert: any[] = [];
+              for (const p of attemptPayload) {
+                let found = null;
+                try {
+                  if (p.codigo_produto) {
+                    const { data: byCode } = await supabase.from('pecas').select('id,nome,codigo_produto').eq('codigo_produto', p.codigo_produto).limit(1).maybeSingle();
+                    found = byCode && (byCode.data || byCode) ? (byCode.data || byCode) : byCode;
+                  }
+                } catch (e) { /* ignore */ }
+                if (!found && p.nome) {
+                  try {
+                    const nameQ = String(p.nome).slice(0, 60);
+                    const { data: byName } = await supabase.from('pecas').select('id,nome,codigo_produto').ilike('nome', `%${nameQ}%`).limit(1).maybeSingle();
+                    found = byName && (byName.data || byName) ? (byName.data || byName) : byName;
+                  } catch (e) { /* ignore */ }
+                }
+                if (!found) missingAfterUpsert.push(p);
+              }
+              console.info('[ImportarEstoque] post-upsert missing count', { missingCount: missingAfterUpsert.length });
+              const insertedIndividually: any[] = [];
+              const insertErrors: any[] = [];
+              for (const p of missingAfterUpsert) {
+                try {
+                  console.info('[ImportarEstoque] attempting individual insert for missing item', { nome: p.nome, codigo: p.codigo_produto });
+                  const { data: insData, error: insErr } = await supabase.from('pecas').insert(p).select('*').maybeSingle();
+                  if (insErr) {
+                    console.warn('[ImportarEstoque] individual insert failed', { nome: p.nome, codigo: p.codigo_produto, error: insErr });
+                    insertErrors.push({ item: p, error: insErr });
+                  } else {
+                    insertedIndividually.push(insData);
+                    console.info('[ImportarEstoque] individual insert success', { nome: p.nome, codigo: p.codigo_produto, id: insData && insData.id });
+                  }
+                } catch (e) {
+                  console.error('[ImportarEstoque] unexpected error inserting item', p, e);
+                  insertErrors.push({ item: p, error: e });
+                }
+              }
+              if (insertedIndividually.length) console.info('[ImportarEstoque] inserted individually', { count: insertedIndividually.length, sample: insertedIndividually.slice(0,5) });
+              if (insertErrors.length) console.warn('[ImportarEstoque] insert errors', { count: insertErrors.length, sample: insertErrors.slice(0,5) });
+                // capture individually inserted names for summary
+                try {
+                  if (insertedIndividually.length) setNewProductsApplied((insertedIndividually || []).map((r: any) => r.nome).filter(Boolean));
+                  else if (!newProductsApplied) setNewProductsApplied(attemptPayload.map(p => p.nome));
+                  // ensure summary is visible after inserts
+                  setShowImportSummary(true);
+                } catch (e) {}
+            } catch (e) {
+              console.warn('[ImportarEstoque] post-upsert presence check/insert failed', e);
+            }
+
             setPendentes([]);
-              setMissingProducts([]);
+            setMissingProducts([]);
             setParsed([]);
             setProcessedResult(null);
             setProcessing(false);
@@ -716,6 +868,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
           const { data, error: insertErr } = await supabase.from('pecas').insert(attemptPayload2);
           if (!insertErr) {
             success(`Inseridos ${Array.isArray(data) ? data.length : 0} novos produtos`);
+            try { setNewProductsApplied((attemptPayload2 || []).map(p => p.nome).filter(Boolean)); } catch(e) {}
             setPendentes([]);
                 setMissingProducts([]);
             setParsed([]);
@@ -756,16 +909,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         console.error('Erro ao inserir novos produtos', finalError);
         setProcessing(false);
         error('Erro ao inserir novos produtos. Veja console para detalhes.');
-      } else {
-        // nothing to insert
-        success('Nenhum novo produto para inserir.');
-        setPendentes([]);
-        setParsed([]);
-        setProcessedResult(null);
-        setProcessing(false);
-        if (onImported) await onImported();
-        if (onClose) onClose();
-      }
+      
     } catch (err: any) {
       console.error(err);
       error('Erro ao inserir novos produtos. Veja console para detalhes.');
@@ -840,7 +984,13 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         </div>
 
         <div className="mb-4">
-          <button onClick={processarDadosPlanilha} disabled={parsed.length === 0 || processing} className={`px-4 py-2 rounded text-white ${parsed.length === 0 || processing ? 'bg-gray-400' : 'bg-emerald-600 hover:bg-emerald-700'}`}>{processing ? 'Processando...' : 'Processar Planilha'}</button>
+          <div className="flex items-center gap-3">
+            <button onClick={processarDadosPlanilha} disabled={parsed.length === 0 || processing} className={`px-4 py-2 rounded text-white ${parsed.length === 0 || processing ? 'bg-gray-400' : 'bg-emerald-600 hover:bg-emerald-700'}`}>{processing ? 'Processando...' : 'Processar Planilha'}</button>
+            <label className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2"> 
+              <input type="checkbox" checked={autoInsertNew} onChange={(e) => setAutoInsertNew(e.target.checked)} />
+              <span>Inserir automaticamente novos produtos</span>
+            </label>
+          </div>
         </div>
 
         {processing && totalOps > 0 && (
@@ -875,6 +1025,32 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
                             error('Erro ao salvar. Veja console para detalhes.');
                           }
                         }} className={`px-4 py-2 rounded text-white ${!(allPendentesValid || (processedResult && processedResult.updates > 0) || debugEnableSave) ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}>Salvar no sistema</button>
+                        <button onClick={() => {
+                          try {
+                            // generate CSV report of missingProducts + preparedUpdates for confirmation
+                            const rows: any[] = [];
+                            // missing products: will be zeroed if selected
+                            (missingProducts || []).forEach((m: any) => {
+                              rows.push({ tipo: 'ausente_no_arquivo', id: m.id, codigo: m.codigo, nome: m.nome, sistema_saldo: m.sistema_saldo, grupo_produto: m.grupo_produto, estoque_minimo: m.estoque_minimo, vai_zerar: !!m.selected });
+                            });
+                            // prepared updates
+                            (preparedUpdates || []).forEach((u: any) => {
+                              rows.push({ tipo: 'atualizacao_preparada', match_field: u.match.field, match_value: u.match.value, payload: JSON.stringify(u.payload) });
+                            });
+                            if (rows.length === 0) { error('Nada para reportar'); return; }
+                            const csv = rows.map(r => Object.values(r).map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n');
+                            const header = Object.keys(rows[0]).map(h => '"' + h + '"').join(',') + '\n';
+                            const blob = new Blob([header + csv], { type: 'text/csv;charset=utf-8;' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `relatorio_importacao_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                          } catch (e) { console.error('Erro ao gerar relatorio', e); error('Erro ao gerar relatório. Veja console.'); }
+                        }} className="px-3 py-2 rounded bg-gray-200">Gerar relatório (CSV)</button>
                         {processedResult.updates > 0 && (pendentes.length === 0) && (
                           <div className="text-xs text-gray-600 dark:text-gray-300 ml-3">(Atualizações aplicadas automaticamente; nenhum novo produto para salvar.)</div>
                         )}
@@ -1053,6 +1229,39 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
               <button onClick={() => setMissingProducts(prev => prev.map(p => ({ ...p, selected: true })))} className="px-3 py-2 rounded bg-emerald-600 text-white">Marcar todos</button>
               <button onClick={() => setMissingProducts(prev => prev.map(p => ({ ...p, selected: false })))} className="px-3 py-2 rounded bg-gray-200">Desmarcar todos</button>
               <div className="text-sm text-gray-600 dark:text-gray-300">Os itens marcados serão preparados para terem o saldo zerado ao clicar em "Salvar no sistema".</div>
+            </div>
+          </div>
+        )}
+        {showImportSummary && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white text-black rounded-lg w-11/12 md:w-2/3 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold">Resumo da Importação</h3>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { try { const text = ['Produtos zerados:', ...(appliedZeroedProducts || []).map(p => `- ${p.nome} (antes: ${p.sistema_saldo})`), '', 'Novos produtos importados:', ...(newProductsApplied || []).map(n => `- ${n}`)].join('\n'); navigator.clipboard.writeText(text).then(() => success('Copiado para área de transferência')).catch(() => error('Erro ao copiar')); } catch (e) {}}} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">Copiar</button>
+                  <button onClick={() => setShowImportSummary(false)} className="px-3 py-1 bg-red-600 text-white rounded text-sm">Fechar</button>
+                </div>
+              </div>
+              <div className="mb-2">
+                <h4 className="font-semibold">Produtos que tiveram estoque zerado ({(appliedZeroedProducts || []).length})</h4>
+                {(!appliedZeroedProducts || appliedZeroedProducts.length === 0) ? (
+                  <div className="text-sm text-gray-600">Nenhum produto foi zerado.</div>
+                ) : (
+                  <ul className="list-disc list-inside text-sm max-h-48 overflow-auto">
+                    {(appliedZeroedProducts || []).map((p: any) => <li key={p.id}>{p.nome} — antes: {p.sistema_saldo}</li>)}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <h4 className="font-semibold">Novos produtos importados ({(newProductsApplied || []).length})</h4>
+                {(!newProductsApplied || newProductsApplied.length === 0) ? (
+                  <div className="text-sm text-gray-600">Nenhum novo produto importado.</div>
+                ) : (
+                  <ul className="list-disc list-inside text-sm max-h-48 overflow-auto">
+                    {(newProductsApplied || []).map((n: any, i: number) => <li key={i}>{n}</li>)}
+                  </ul>
+                )}
+              </div>
             </div>
           </div>
         )}

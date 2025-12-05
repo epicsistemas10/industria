@@ -9,11 +9,15 @@ export function usePecas(componenteId?: string) {
   const fetch = useCallback(async () => {
     setLoading(true)
     try {
-      // fetch a large range to avoid PostgREST default 1000-row limit
-      let q = supabase.from('pecas').select('*').range(0, 19999)
-      if (componenteId) q = q.eq('componente_id', componenteId)
-      const { data: rows, error } = await q
-      if (error) {
+        // fetch in chunks to avoid PostgREST limits (return all rows regardless of server page size)
+        const chunkSize = 1000;
+        let offset = 0;
+        const allRows: any[] = [];
+        while (true) {
+          let q = supabase.from('pecas').select('*').range(offset, offset + chunkSize - 1);
+          if (componenteId) q = q.eq('componente_id', componenteId);
+          const { data: rows, error } = await q;
+          if (error) {
         // If the table doesn't exist on the database, PostgREST returns 404.
         // Suppress that specific error to avoid noisy console logs and return an empty list.
         const msg = (error && (error.message || '')).toString();
@@ -24,8 +28,18 @@ export function usePecas(componenteId?: string) {
         } else {
           setError(error.message)
         }
-      } else {
-        setData(rows || [])
+          } else {
+            const chunk = rows || [];
+            allRows.push(...chunk);
+            // if we received fewer than chunkSize rows, we've reached the end
+            if (!Array.isArray(chunk) || chunk.length < chunkSize) {
+              setData(allRows)
+              console.info('usePecas.fetch: fetched rows=', allRows.length)
+              return allRows
+            }
+            // otherwise continue to next chunk
+            offset += chunkSize;
+          }
       }
     } catch (e: any) {
       console.error('usePecas: erro ao buscar pecas:', e)
@@ -34,6 +48,7 @@ export function usePecas(componenteId?: string) {
     } finally {
       setLoading(false)
     }
+      return []
   }, [componenteId])
 
   useEffect(() => { fetch() }, [fetch])
@@ -70,5 +85,13 @@ export function usePecas(componenteId?: string) {
     setData((d) => d.filter((x) => x.id !== id))
   }
 
-  return { data, loading, error, fetch, create, update, remove }
+  const upsertLocal = (row: any) => {
+    if (!row || !row.id) return;
+    setData((d) => {
+      const filtered = (d || []).filter((x) => x.id !== row.id);
+      return [row, ...filtered];
+    });
+  }
+
+  return { data, loading, error, fetch, create, update, remove, upsertLocal }
 }

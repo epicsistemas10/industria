@@ -57,6 +57,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
   const [parsed, setParsed] = useState<ParsedRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendentes, setPendentes] = useState<ParsedRow[]>([]);
+  const [missingProducts, setMissingProducts] = useState<Array<any>>([]);
   const [processing, setProcessing] = useState(false);
   const [totalOps, setTotalOps] = useState(0);
   const [completedOps, setCompletedOps] = useState(0);
@@ -98,6 +99,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
   const handleFile = async (file: File | null) => {
     setParsed([]);
     setPendentes([]);
+          setMissingProducts([]);
     setFileName(file ? file.name : null);
     if (!file) return;
     setLoading(true);
@@ -486,6 +488,28 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
       // Do NOT execute updates now. Prepare updates and present them to the user.
       // The user must click "Salvar no sistema" to apply updates and inserts.
       setPreparedUpdates(toUpdate);
+      // After preparing updates for rows present in the file, detect products that exist in the system
+      // but were NOT present in the uploaded file. These should be presented to the user so they can
+      // confirm zeroing their stock (they are not removed from system).
+      try {
+        const { data: allPecas, error: allErr } = await supabase.from('pecas').select('id,codigo_produto,nome,quantidade,saldo_estoque,grupo_produto,estoque_minimo').range(0, 19999);
+        if (!allErr && Array.isArray(allPecas)) {
+          const matchedIds = new Set((existentes || []).map((e: any) => e && e.id).filter(Boolean));
+          const missing = (allPecas || []).filter((p: any) => !matchedIds.has(p.id)).map((p: any) => ({
+            id: p.id,
+            codigo: p.codigo_produto || '',
+            nome: p.nome || '',
+            sistema_saldo: p.saldo_estoque ?? p.quantidade ?? 0,
+            grupo_produto: p.grupo_produto ?? null,
+            estoque_minimo: p.estoque_minimo ?? null,
+            selected: true
+          }));
+          // only set missingProducts if there are any
+          if (missing.length > 0) setMissingProducts(missing);
+        }
+      } catch (e) {
+        console.warn('Erro ao detectar produtos ausentes no arquivo', e);
+      }
       // consider newItems as processed for progress UI (they still require user confirmation to save)
       if (newItems.length > 0) setCompletedOps(prev => prev + newItems.length);
 
@@ -541,6 +565,18 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
 
       // First: apply any prepared updates (these were detected during processing)
       const pendingUpdates = preparedUpdates || [];
+      // also include prepared zero-updates for missing products (if any)
+      if (missingProducts && missingProducts.length > 0) {
+        const zeroUpdates = missingProducts.filter(m => m.selected).map(m => {
+          // prefer matching by codigo_produto when available
+          if (m.codigo) return { match: { field: 'codigo_produto', value: String(m.codigo).trim() }, payload: { saldo_estoque: 0, quantidade: 0 } };
+          return { match: { field: 'id', value: m.id }, payload: { saldo_estoque: 0, quantidade: 0 } };
+        });
+        // merge, avoiding duplicates by match key
+        const keyFor = (u: any) => `${u.match.field}:${String(u.match.value)}`;
+        const existingKeys = new Set((pendingUpdates || []).map((u: any) => keyFor(u)));
+        for (const z of zeroUpdates) if (!existingKeys.has(keyFor(z))) pendingUpdates.push(z);
+      }
       const updateFailures: any[] = [];
       if (pendingUpdates.length > 0) {
         console.info('[ImportarEstoque] applying prepared updates (concurrent batches):', pendingUpdates.length);
@@ -593,6 +629,8 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         // clear prepared data and UI preview since updates were applied
         setPreparedUpdates([]);
         setPendentes([]);
+          setMissingProducts([]);
+        setMissingProducts([]);
         setParsed([]);
         setProcessedResult(null);
         // finalize progress and close modal
@@ -641,6 +679,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         if (filtered.length === 0) {
           success('Nenhum novo produto para inserir (já existem no sistema).');
           setPendentes([]);
+            setMissingProducts([]);
           setParsed([]);
           setProcessedResult(null);
           setProcessing(false);
@@ -658,6 +697,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
           } else {
             success(`Inseridos/atualizados ${Array.isArray(data) ? data.length : 0} produtos`);
             setPendentes([]);
+              setMissingProducts([]);
             setParsed([]);
             setProcessedResult(null);
             setProcessing(false);
@@ -677,6 +717,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
           if (!insertErr) {
             success(`Inseridos ${Array.isArray(data) ? data.length : 0} novos produtos`);
             setPendentes([]);
+                setMissingProducts([]);
             setParsed([]);
             setProcessedResult(null);
             setProcessing(false);
@@ -696,6 +737,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
               if (attemptPayload2.length === 0) {
                 success('Inserção concluída parcialmente; restos já existiam.');
                 setPendentes([]);
+                  setMissingProducts([]);
                 setParsed([]);
                 if (onImported) await onImported();
                 return;
@@ -752,7 +794,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold dark:text-white">Importar Estoque Diário</h2>
           <div className="flex items-center gap-2">
-            <button onClick={() => { setParsed([]); setPendentes([]); setFileName(null); if (onClose) onClose(); }} className="px-3 py-1 rounded bg-gray-200 dark:bg-slate-700">Fechar</button>
+            <button onClick={() => { setParsed([]); setPendentes([]); setMissingProducts([]); setFileName(null); if (onClose) onClose(); }} className="px-3 py-1 rounded bg-gray-200 dark:bg-slate-700">Fechar</button>
           </div>
         </div>
 
@@ -853,7 +895,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
                             } catch (e) { console.error(e); error('Erro ao reexecutar atualizações. Veja console.'); }
                           }} className="px-3 py-2 rounded bg-yellow-500 text-white">Repetir atualizações falhas ({failedUpdates.length})</button>
                         )}
-                        <button onClick={() => { setPendentes([]); setProcessedResult(null); }} className="px-3 py-2 rounded bg-gray-200">Cancelar</button>
+                        <button onClick={() => { setPendentes([]); setMissingProducts([]); setProcessedResult(null); }} className="px-3 py-2 rounded bg-gray-200">Cancelar</button>
                         <button onClick={() => setDebugEnableSave(d => !d)} className={`px-3 py-2 rounded ${debugEnableSave ? 'bg-yellow-400' : 'bg-gray-100'}`}>{debugEnableSave ? 'Desativar debug' : 'Habilitar Salvar (debug)'}</button>
                       </div>
                 </div>
@@ -971,6 +1013,46 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
               }} className={`px-4 py-2 rounded text-white ${!(allPendentesValid || (processedResult && processedResult.updates > 0) || debugEnableSave) ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}>Salvar no sistema</button>
               <button onClick={() => setPendentes([])} className="px-3 py-2 rounded bg-gray-200">Cancelar</button>
               <button onClick={() => setDebugEnableSave(d => !d)} className={`px-3 py-2 rounded ${debugEnableSave ? 'bg-yellow-400' : 'bg-gray-100'}`}>{debugEnableSave ? 'Desativar debug' : 'Habilitar Salvar (debug)'}</button>
+            </div>
+          </div>
+        )}
+
+        {missingProducts.length > 0 && (
+          <div className="mb-6">
+            <h3 className="font-semibold mb-2 dark:text-white">Produtos não encontrados no arquivo ({missingProducts.length})</h3>
+            <div className="text-xs text-gray-600 dark:text-gray-300 mb-2">Estes produtos existem no sistema mas não foram enviados na planilha. Marque-os para zerar o saldo (não serão excluídos).</div>
+            <div className="overflow-x-auto mb-3">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="px-2 py-1">#</th>
+                    <th className="px-2 py-1">Zerar?</th>
+                    <th className="px-2 py-1">Código</th>
+                    <th className="px-2 py-1">Nome</th>
+                    <th className="px-2 py-1">Saldo (sistema)</th>
+                    <th className="px-2 py-1">Grupo</th>
+                    <th className="px-2 py-1">Estoque Min.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {missingProducts.map((m, idx) => (
+                    <tr key={m.id || idx} className={`${idx % 2 === 0 ? '' : 'bg-gray-50 dark:bg-slate-700'}`}>
+                      <td className="px-2 py-1">{idx + 1}</td>
+                      <td className="px-2 py-1 text-center"><input type="checkbox" checked={!!m.selected} onChange={(e) => setMissingProducts(prev => prev.map((it, i) => i === idx ? ({ ...it, selected: e.target.checked }) : it))} /></td>
+                      <td className="px-2 py-1">{m.codigo}</td>
+                      <td className="px-2 py-1">{m.nome}</td>
+                      <td className="px-2 py-1 text-right">{m.sistema_saldo ?? 0}</td>
+                      <td className="px-2 py-1">{m.grupo_produto ?? '-'}</td>
+                      <td className="px-2 py-1 text-right">{m.estoque_minimo ?? '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setMissingProducts(prev => prev.map(p => ({ ...p, selected: true })))} className="px-3 py-2 rounded bg-emerald-600 text-white">Marcar todos</button>
+              <button onClick={() => setMissingProducts(prev => prev.map(p => ({ ...p, selected: false })))} className="px-3 py-2 rounded bg-gray-200">Desmarcar todos</button>
+              <div className="text-sm text-gray-600 dark:text-gray-300">Os itens marcados serão preparados para terem o saldo zerado ao clicar em "Salvar no sistema".</div>
             </div>
           </div>
         )}

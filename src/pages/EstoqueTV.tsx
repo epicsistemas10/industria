@@ -9,7 +9,7 @@ import {
   Cpu,
   RefreshCcw,
   Clock,
-  MonitorSparkle,
+  MonitorSmartphone,
   Info,
   ChevronLeft,
   ChevronRight
@@ -173,7 +173,7 @@ export default function EstoqueTV(): JSX.Element {
           <RefreshCcw className="text-black" />
         </button>
         <button onClick={() => toggleFullscreen()} title="Modo TV" className="p-2 rounded bg-white/5 hover:bg-white/10">
-          <MonitorSparkle className="text-white" />
+          <MonitorSmartphone className="text-white" />
         </button>
       </div>
     </header>

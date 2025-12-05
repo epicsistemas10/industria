@@ -1,0 +1,354 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../lib/supabase';
+import {
+  CheckCircle,
+  AlertTriangle,
+  Slash,
+  Package as PackageIcon,
+  Factory,
+  Cpu,
+  RefreshCcw,
+  Clock,
+  MonitorSparkle,
+  Info,
+  ChevronLeft,
+  ChevronRight
+} from 'lucide-react';
+
+// A premium, TV-first dashboard for "CENTRAL DE ESTOQUE & SUPRIMENTOS – IBA SANTA LUZIA"
+// Usage: navigate to /estoque-tv (or import and mount in a route). Optimized for 16:9 TVs.
+
+type PecaRow = {
+  id?: number;
+  nome?: string;
+  codigo_produto?: string | null;
+  quantidade?: number | null;
+  saldo_estoque?: number | null;
+  estoque_minimo?: number | null;
+};
+
+type SuprimentoRow = {
+  id?: number;
+  nome?: string;
+  codigo_produto?: string | null;
+  quantidade?: number | null;
+  saldo_estoque?: number | null;
+  estoque_minimo?: number | null;
+  meta?: any;
+};
+
+export default function EstoqueTV(): JSX.Element {
+  const [pecas, setPecas] = useState<PecaRow[]>([]);
+  const [suprimentos, setSuprimentos] = useState<SuprimentoRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
+  const [tvMode, setTvMode] = useState<boolean>(false);
+  const [carouselIndex, setCarouselIndex] = useState<number>(0);
+
+  // fetch data
+  const fetchAll = async () => {
+    setLoading(true);
+    try {
+      const { data: pData, error: pErr } = await supabase
+        .from('pecas')
+        .select('id,nome,codigo_produto,quantidade,saldo_estoque,estoque_minimo')
+        .range(0, 19999);
+      if (pErr) console.warn('pecas fetch error', pErr);
+      const { data: sData, error: sErr } = await supabase
+        .from('suprimentos')
+        .select('id,nome,codigo_produto,quantidade,saldo_estoque,estoque_minimo,meta')
+        .range(0, 19999);
+      if (sErr) console.warn('suprimentos fetch error', sErr);
+      setPecas(Array.isArray(pData) ? pData as PecaRow[] : []);
+      setSuprimentos(Array.isArray(sData) ? sData as SuprimentoRow[] : []);
+      setLastUpdated(new Date());
+    } catch (e) {
+      console.error('fetchAll error', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAll();
+    let iv: any = null;
+    if (autoRefresh) iv = setInterval(fetchAll, 30_000); // refresh every 30s by default
+    return () => { if (iv) clearInterval(iv); };
+  }, [autoRefresh]);
+
+  // Carousel auto-rotate when TV mode is active
+  useEffect(() => {
+    if (!tvMode) return;
+    const handle = setInterval(() => setCarouselIndex(i => (i + 1) % 3), 10_000); // rotate every 10s
+    return () => clearInterval(handle);
+  }, [tvMode]);
+
+  // metrics
+  const metrics = useMemo(() => {
+    let ok = 0, atMin = 0, below = 0;
+    const rows = pecas || [];
+    for (const r of rows) {
+      const qty = (r.saldo_estoque ?? r.quantidade ?? 0) as number;
+      const min = (r.estoque_minimo ?? 0) as number;
+      if (min > 0) {
+        if (qty > min) ok++;
+        else if (qty > 0 && qty <= min) atMin++;
+        else if (qty <= 0) below++;
+      } else {
+        // if no min defined treat as OK (but still count in total)
+        if (qty > 0) ok++; else below++;
+      }
+    }
+    const total = rows.length || 1;
+    const healthyPercent = Math.round((ok / total) * 100);
+    return { ok, atMin, below, total, healthyPercent };
+  }, [pecas]);
+
+  // computed alert list (merge pecas + suprimentos by name/code for listing alerts)
+  const alertItems = useMemo(() => {
+    const out: any[] = [];
+    const addFrom = (r: any, kind: 'peca' | 'suprimento') => {
+      const qty = (r.saldo_estoque ?? r.quantidade ?? 0) as number;
+      const min = (r.estoque_minimo ?? 0) as number;
+      const status = (min > 0) ? (qty > min ? 'ok' : (qty > 0 ? 'min' : 'critical')) : (qty > 0 ? 'ok' : 'critical');
+      if (status !== 'ok') out.push({ kind, id: r.id, nome: r.nome, codigo: r.codigo_produto, qty, min, status });
+    };
+    (pecas || []).forEach(p => addFrom(p, 'peca'));
+    (suprimentos || []).forEach(s => addFrom(s, 'suprimento'));
+    // sort by severity then by qty ascending
+    out.sort((a, b) => {
+      const sev = { 'critical': 2, 'min': 1 } as any;
+      const sa = sev[a.status] ?? 0;
+      const sb = sev[b.status] ?? 0;
+      if (sa !== sb) return sb - sa;
+      return a.qty - b.qty;
+    });
+    return out;
+  }, [pecas, suprimentos]);
+
+  // helpers
+  const fmt = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString('pt-BR'));
+
+  // TV mode helpers
+  const toggleFullscreen = async () => {
+    try {
+      if (!tvMode) {
+        const el = document.documentElement;
+        if (el.requestFullscreen) await el.requestFullscreen();
+        setTvMode(true);
+      } else {
+        if (document.fullscreenElement) await document.exitFullscreen();
+        setTvMode(false);
+      }
+    } catch (e) { console.warn('fullscreen failed', e); }
+  };
+
+  // simple keyboard shortcuts for TV mode: press T to toggle
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key.toLowerCase() === 't') toggleFullscreen(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [tvMode]);
+
+  // small components
+  const Header = () => (
+    <header className="w-full bg-gradient-to-r from-[#0f172a] to-[#1e293b] text-white px-6 py-4 flex items-center justify-between shadow-2xl">
+      <div className="flex items-center gap-4">
+        <img src="/logo.png" alt="Bom Futuro" className="h-12 w-auto object-contain filter brightness-0 invert" />
+        <div>
+          <div className="text-xs text-slate-300">CENTRAL DE ESTOQUE & SUPRIMENTOS</div>
+          <div className="text-2xl font-extrabold tracking-wider uppercase">IBA SANTA LUZIA</div>
+        </div>
+      </div>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 text-sm text-slate-300">
+          <Clock className="text-slate-200" />
+          <div>{new Date().toLocaleTimeString()}</div>
+        </div>
+        <button onClick={() => fetchAll()} title="Atualizar agora" className="p-2 rounded bg-white/5 hover:bg-white/10">
+          <RefreshCcw className="text-white" />
+        </button>
+        <button onClick={() => { setAutoRefresh(a => !a); }} title="Auto refresh" className={`p-2 rounded ${autoRefresh ? 'bg-emerald-600' : 'bg-white/5'}`}>
+          <RefreshCcw className="text-black" />
+        </button>
+        <button onClick={() => toggleFullscreen()} title="Modo TV" className="p-2 rounded bg-white/5 hover:bg-white/10">
+          <MonitorSparkle className="text-white" />
+        </button>
+      </div>
+    </header>
+  );
+
+  const SummaryCards = () => (
+    <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-3'} gap-6 w-full`}> 
+      <div className="p-6 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-4">
+        <div className="p-4 rounded-xl bg-[#0b3f1a]/80 text-[#22c55e] shadow-lg">
+          <CheckCircle size={40} />
+        </div>
+        <div>
+          <div className="text-xs text-slate-300">Produtos em Dia</div>
+          <div className="text-3xl font-extrabold">{metrics.ok}</div>
+          <div className="text-sm text-slate-200">{metrics.healthyPercent}% estoque saudável</div>
+        </div>
+      </div>
+
+      <div className="p-6 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-4">
+        <div className="p-4 rounded-xl bg-[#533f03]/80 text-[#facc15] shadow-lg">
+          <AlertTriangle size={40} />
+        </div>
+        <div>
+          <div className="text-xs text-slate-300">Produtos no Mínimo</div>
+          <div className="text-3xl font-extrabold">{metrics.atMin}</div>
+          <div className="text-sm text-slate-200">Tempo estimado antes de crítico: —</div>
+        </div>
+      </div>
+
+      <div className={`p-6 rounded-2xl border border-white/6 flex items-center gap-4 ${metrics.below > 0 ? 'animate-pulse-slow' : ''}`} style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,0,0,0.02))' }}>
+        <div className="p-4 rounded-xl bg-[#4a0b0b]/80 text-[#ef4444] shadow-lg">
+          <Slash size={40} />
+        </div>
+        <div>
+          <div className="text-xs text-slate-300">Produtos Abaixo do Mínimo</div>
+          <div className="text-3xl font-extrabold text-[#ef4444]">{metrics.below} <span className="text-sm text-red-200 font-semibold">AÇÃO URGENTE</span></div>
+          <div className="text-sm text-slate-200">Itens críticos que requerem atenção imediata</div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const AlertList = () => (
+    <div className="w-full">
+      <h2 className="text-xl font-bold mb-4">Produtos em Alerta</h2>
+      <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}> 
+        {alertItems.map((a, idx) => (
+          <div key={`${a.kind}-${a.id}-${idx}`} className={`p-4 rounded-xl shadow-xl border ${a.status === 'critical' ? 'bg-red-900/80 border-red-600 animate-pulse-strong' : (a.status === 'min' ? 'bg-yellow-900/70 border-yellow-400 animate-pulse-slow' : 'bg-white/3 border-white/6')}`}>
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-lg bg-white/5">
+                <PackageIcon size={28} />
+              </div>
+              <div className="flex-1">
+                <div className="text-sm text-slate-300">{a.nome}</div>
+                <div className="text-xs text-slate-400">{a.codigo ?? '—'}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xl font-bold">{fmt(a.qty)}</div>
+                <div className="text-xs text-slate-400">Mín: {fmt(a.min)}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const SuprimentoCard = ({ s }: { s: SuprimentoRow }) => {
+    const qty = (s.saldo_estoque ?? s.quantidade ?? 0) as number;
+    // heuristics for conversions (same as other pages)
+    const up = (s.nome || '').toUpperCase();
+    let atende = `${fmt(qty)} ${s['unidade_medida'] ?? 'un'}`;
+    let dias: number | null = null;
+    if (up.includes('ARAME')) {
+      const totalFios = qty * 5;
+      const totalFardos = totalFios / 8;
+      atende = `${Math.round(totalFardos).toLocaleString('pt-BR')} fardos`;
+      dias = totalFardos / 1000;
+    } else if (up.includes('PAPEL KRAFT') || up.includes('KRAFT')) {
+      const totalMalas = qty * 300;
+      atende = `${totalMalas.toLocaleString('pt-BR')} malas`;
+      dias = totalMalas / 40;
+    } else if ((s.codigo_produto || '').trim() === '095407' || up.includes('TENAX')) {
+      const totalFardos = qty * 150;
+      atende = `${Math.round(totalFardos).toLocaleString('pt-BR')} fardos`;
+      dias = totalFardos / 1000;
+    }
+    const autonomyDays = dias ?? (typeof s.estoque_minimo === 'number' && s.estoque_minimo > 0 ? (qty / (s.estoque_minimo || 1)) : null);
+    const progress = autonomyDays == null ? 0 : Math.min(100, Math.round((autonomyDays / 30) * 100));
+    const barColor = autonomyDays == null ? 'bg-slate-600' : (autonomyDays > 20 ? 'bg-emerald-500' : (autonomyDays >= 10 ? 'bg-amber-400' : 'bg-red-500'));
+
+    return (
+      <div className="p-6 rounded-2xl border border-white/6 bg-white/5 shadow-2xl flex flex-col gap-3">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-lg bg-white/5">
+              <Factory size={28} />
+            </div>
+            <div>
+              <div className="text-sm text-slate-300">{s.nome}</div>
+              <div className="text-xs text-slate-400">{s.codigo_produto ?? '—'}</div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-extrabold">{fmt(qty)}</div>
+            <div className="text-xs text-slate-400">est. atual</div>
+          </div>
+        </div>
+
+        <div className="text-sm text-slate-200">Atende: <span className="font-semibold">{atende}</span></div>
+        {autonomyDays != null && <div className="text-sm text-slate-200">Dias de operação: <span className="font-semibold">{Math.round(autonomyDays)}</span></div>}
+
+        <div className="w-full bg-white/6 h-3 rounded-full overflow-hidden">
+          <div className={`${barColor} h-3 rounded-full transition-all`} style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className={`min-h-screen text-white ${tvMode ? 'text-2xl' : 'text-base'} font-sans bg-[#071122]`}>
+      <Header />
+
+      <main className={`p-6 ${tvMode ? 'px-12 py-8' : ''}`}>
+        {/* Sections carousel when TV mode active */}
+        <div className="mb-6">
+          <div className={`${tvMode ? 'flex items-start gap-6' : ''}`}>
+            <SummaryCards />
+          </div>
+        </div>
+
+        <div className={`space-y-6 ${tvMode ? 'h-[58vh] overflow-hidden' : ''}`}>
+          {/* Carousel panes */}
+          <div className={`transition-transform duration-700`} style={{ transform: `translateX(-${carouselIndex * 100}%)` }}>
+            <div className="grid grid-cols-1 gap-6" style={{ width: `${3 * 100}%`, display: 'flex' }}>
+              <div style={{ width: '100%' }} className="p-4">
+                <AlertList />
+              </div>
+              <div style={{ width: '100%' }} className="p-4">
+                <div>
+                  <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
+                  <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
+                    {suprimentos.map(s => <SuprimentoCard key={`sup-${s.id}`} s={s} />)}
+                  </div>
+                </div>
+              </div>
+              <div style={{ width: '100%' }} className="p-4">
+                <div>
+                  <h2 className="text-xl font-bold mb-4">Resumo Geral</h2>
+                  <div className="p-6 rounded-2xl bg-white/5 border border-white/6"> 
+                    <div>Última atualização: {lastUpdated ? lastUpdated.toLocaleString() : '—'}</div>
+                    <div>Total itens monitorados: {metrics.total}</div>
+                    <div>Versão: 1.0.0</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer className="mt-6 p-4 rounded-lg bg-white/4 border border-white/6 flex items-center justify-between">
+          <div className="text-sm">Última atualização: <strong>{lastUpdated ? lastUpdated.toLocaleString() : '—'}</strong></div>
+          <div className="text-sm">Total monitorados: <strong>{metrics.total}</strong></div>
+          <div>
+            <button onClick={() => alert('Informações da tela: Este painel é uma visualização TV para acompanhamento de estoques.')} className="px-3 py-1 rounded bg-white/5"> <Info /> Info</button>
+          </div>
+        </footer>
+      </main>
+
+      {/* small styles for pulsing animations */}
+      <style>{`
+        .animate-pulse-slow { animation: pulse 2.6s infinite ease-in-out; }
+        .animate-pulse-strong { animation: pulse 1.6s infinite ease-in-out; }
+        @keyframes pulse { 0% { transform: translateY(0); } 50% { transform: translateY(-4px); } 100% { transform: translateY(0); } }
+      `}</style>
+    </div>
+  );
+}

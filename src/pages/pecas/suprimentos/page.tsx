@@ -17,6 +17,7 @@ export default function SuprimentosPage() {
   const [reportText, setReportText] = useState('');
 
   const filtered = (items || []).filter((i: any) => !search || (i.nome || '').toLowerCase().includes(search.toLowerCase()));
+    const getQty = (it: any) => Number(it.saldo_estoque != null ? it.saldo_estoque : (it.quantidade != null ? it.quantidade : 0)) || 0;
   const PRODUCTION_PER_DAY = 1000; // used to convert fardos -> dias
 
   // default product definitions (idempotent seed)
@@ -82,7 +83,7 @@ export default function SuprimentosPage() {
     lines.push('');
     for (const it of unique) {
       const nome = it.nome || it.produto || '-';
-      const qtd = Number(it.quantidade) || 0;
+      const qtd = getQty(it);
       const unidade = it.unidade_medida || it.unidade || 'unidades';
       // determine ALERTA using same heuristics as the card
       const upName = (nome || '').toUpperCase();
@@ -223,7 +224,9 @@ export default function SuprimentosPage() {
         const bM = (b.estoque_minimo != null) ? 1 : 0;
         if (aM !== bM) return bM - aM;
         const aq = Number(a.quantidade) || 0;
-        const bq = Number(b.quantidade) || 0;
+        const aq = getQty(a);
+        const bq = getQty(b);
+          const qtd = getQty(it);
         return bq - aq;
       });
       uniqueRows.push(list[0]);
@@ -387,7 +390,7 @@ export default function SuprimentosPage() {
           if (!peca) return null;
           const newQty = (peca.saldo_estoque != null) ? Number(peca.saldo_estoque) : (peca.quantidade != null ? Number(peca.quantidade) : null);
           if (newQty == null) return null;
-          const { error } = await supabase.from('suprimentos').update({ quantidade: newQty }).eq('id', it.id);
+          const { error } = await supabase.from('suprimentos').update({ quantidade: newQty, saldo_estoque: newQty }).eq('id', it.id);
           if (error) throw error;
           return true;
         }).catch((e) => { console.warn('refreshStock item failed', it.id, e); return null; });
@@ -491,7 +494,8 @@ export default function SuprimentosPage() {
                   const bM = (b.estoque_minimo != null) ? 1 : 0;
                   if (aM !== bM) return bM - aM;
                   const aq = Number(a.quantidade) || 0;
-                  const bq = Number(b.quantidade) || 0;
+                  const aq = getQty(a);
+                  const bq = getQty(b);
                   return bq - aq;
                 });
                 representatives.push(list[0]);

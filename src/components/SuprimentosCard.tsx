@@ -11,7 +11,7 @@ const PRODUCTION_PER_DAY = 1000; // fardos/dia
 
 export default function SuprimentosCard({ item, onUpdate, onDelete, isDuplicate }: Props) {
   const [minValue, setMinValue] = useState<number | null>(item.estoque_minimo ?? null);
-  const qtd = Number(item.quantidade) || 0;
+  const qtd = Number(item.saldo_estoque != null ? item.saldo_estoque : item.quantidade) || 0;
   const unit = (item.unidade_medida || '').toLowerCase();
   const name = (item.nome || '').toUpperCase();
 

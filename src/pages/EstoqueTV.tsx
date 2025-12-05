@@ -61,27 +61,8 @@ export default function EstoqueTV(): JSX.Element {
         .range(0, 19999);
       if (sErr) console.warn('suprimentos fetch error', sErr);
       setPecas(Array.isArray(pData) ? pData as PecaRow[] : []);
-      let finalSuprimentos: SuprimentoRow[] = Array.isArray(sData) ? sData as SuprimentoRow[] : [];
-      // If `suprimentos` table is empty, fallback to a best-effort mapping from `pecas`
-      if ((!finalSuprimentos || finalSuprimentos.length === 0) && Array.isArray(pData) && (pData as any[]).length > 0) {
-        try {
-          console.info('[EstoqueTV] suprimentos table empty — falling back to pecas for display');
-          // select some representative pecas: those with estoque_minimo or low quantity
-          const candidates = (pData as PecaRow[]).filter(r => (r.estoque_minimo != null) || ((r.saldo_estoque ?? r.quantidade ?? 0) > 0)).slice(0, 50);
-          finalSuprimentos = candidates.map(c => ({
-            id: c.id,
-            nome: c.nome,
-            codigo_produto: c.codigo_produto ?? null,
-            quantidade: c.quantidade ?? null,
-            saldo_estoque: c.saldo_estoque ?? c.quantidade ?? null,
-            estoque_minimo: c.estoque_minimo ?? null,
-            meta: {}
-          }));
-        } catch (e) {
-          console.warn('[EstoqueTV] fallback mapping from pecas failed', e);
-        }
-      }
-      setSuprimentos(finalSuprimentos);
+      // Use only rows from `suprimentos` table — do not fall back to `pecas`.
+      setSuprimentos(Array.isArray(sData) ? sData as SuprimentoRow[] : []);
       setLastUpdated(new Date());
     } catch (e) {
       console.error('fetchAll error', e);
@@ -100,7 +81,7 @@ export default function EstoqueTV(): JSX.Element {
   // Carousel auto-rotate when TV mode is active
   useEffect(() => {
     if (!tvMode) return;
-    const handle = setInterval(() => setCarouselIndex(i => (i + 1) % 3), 10_000); // rotate every 10s
+    const handle = setInterval(() => setCarouselIndex(i => (i + 1) % 2), 10_000); // rotate every 10s (2 panes)
     return () => clearInterval(handle);
   }, [tvMode]);
 
@@ -181,14 +162,11 @@ export default function EstoqueTV(): JSX.Element {
           <div className="text-2xl font-extrabold tracking-wider uppercase">IBA SANTA LUZIA</div>
         </div>
       </div>
-      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 text-sm text-slate-300">
           <Clock className="text-slate-200" />
           <div>{new Date().toLocaleTimeString()}</div>
         </div>
-        <button onClick={() => fetchAll()} title="Atualizar agora" className="p-2 rounded bg-white/5 hover:bg-white/10">
-          <RefreshCcw className="text-white" />
-        </button>
         <button onClick={() => { setAutoRefresh(a => !a); }} title="Auto refresh" className={`p-2 rounded ${autoRefresh ? 'bg-emerald-600' : 'bg-white/5'}`}>
           <RefreshCcw className="text-black" />
         </button>
@@ -328,29 +306,19 @@ export default function EstoqueTV(): JSX.Element {
         <div className={`space-y-6 ${tvMode ? 'h-[58vh] overflow-hidden' : ''}`}>
           {/* Carousel panes */}
           <div className={`transition-transform duration-700`} style={{ transform: `translateX(-${carouselIndex * 100}%)` }}>
-            <div className="grid grid-cols-1 gap-6" style={{ width: `${3 * 100}%`, display: 'flex' }}>
-              <div style={{ width: '100%' }} className="p-4">
-                <AlertList />
-              </div>
-              <div style={{ width: '100%' }} className="p-4">
-                <div>
-                  <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
-                  <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                    {suprimentos.map(s => <SuprimentoCard key={`sup-${s.id}`} s={s} />)}
+              <div className="grid grid-cols-1 gap-6" style={{ width: `${2 * 100}%`, display: 'flex' }}>
+                <div style={{ width: '100%' }} className="p-4">
+                  <AlertList />
+                </div>
+                <div style={{ width: '100%' }} className="p-4">
+                  <div>
+                    <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
+                    <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
+                      {suprimentos.map(s => <SuprimentoCard key={`sup-${s.id}`} s={s} />)}
+                    </div>
                   </div>
                 </div>
               </div>
-              <div style={{ width: '100%' }} className="p-4">
-                <div>
-                  <h2 className="text-xl font-bold mb-4">Resumo Geral</h2>
-                  <div className="p-6 rounded-2xl bg-white/5 border border-white/6"> 
-                    <div>Última atualização: {lastUpdated ? lastUpdated.toLocaleString() : '—'}</div>
-                    <div>Total itens monitorados: {metrics.total}</div>
-                    <div>Versão: 1.0.0</div>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 

@@ -32,7 +32,10 @@ const Mapa = lazy(() =>
 const Notificacoes = lazy(() => import('../pages/notificacoes/page'));
 const PrevisaoFalhas = lazy(() => import('../pages/previsao-falhas/page'));
 const EstrategicoPecas = lazy(() => import('../pages/estrategico-pecas/page'));
-const Pecas = lazy(() => import('../pages/pecas/page'));
+const Pecas = lazy(() => import('../pages/pecas/page').catch((err) => {
+  console.error('Falha ao carregar módulo /pages/pecas/page:', err);
+  return { default: () => <div className="p-6">Erro ao carregar o módulo de Peças. Veja o console do navegador para detalhes.</div> };
+}));
 const PecasSuprimentos = lazy(() => import('../pages/pecas/suprimentos/page'));
 const ComponentesReservas = lazy(() => import('../pages/componentes/reservas/page'));
 const Seguranca = lazy(() => import('../pages/seguranca/page'));

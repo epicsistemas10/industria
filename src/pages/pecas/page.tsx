@@ -9,11 +9,13 @@ import PecaModal from '../../components/modals/PecaModal';
 import { useToast } from '../../hooks/useToast';
 import ImportarPlanilhaPecas from '../../components/ImportarPlanilhaPecas';
 import ImportarEstoque from '../../components/ImportarEstoque';
+import rawGroupMapping from '../../data/group-mapping.json';
 
 export default function PecasPage() {
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [darkMode, setDarkMode] = useState(true);
   const { data: pecas, loading, fetch, create, update, remove } = usePecas();
+  const [dbTotalCount, setDbTotalCount] = useState<number | null>(null);
   const { copyFromPeca } = useSuprimentos();
   const [showPecaModal, setShowPecaModal] = useState(false);
   const [selectedPecaId, setSelectedPecaId] = useState<string | undefined>();
@@ -21,7 +23,7 @@ export default function PecasPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [colFilters, setColFilters] = useState({ nome: '', codigo: '', unidade: '', quantidadeMin: '', valorUnitMin: '' });
   const [deletingAll, setDeletingAll] = useState(false);
-  const [filterMode, setFilterMode] = useState<'all' | 'min' | 'below'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'min' | 'below' | 'zero'>('all');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const { success, error: showError } = useToast();
 
@@ -53,6 +55,22 @@ export default function PecasPage() {
     document.addEventListener('pecas-open-from-global', handler as EventListener);
     return () => document.removeEventListener('pecas-open-from-global', handler as EventListener);
   }, []);
+
+  // keep an accurate total count from the DB (PostgREST exact count)
+  useEffect(() => {
+    let mounted = true;
+    const fetchCount = async () => {
+      try {
+        const { count, error } = await supabase.from('pecas').select('id', { count: 'exact' }).range(0, 0);
+        if (!error && mounted) setDbTotalCount(count ?? null);
+      } catch (e) {
+        // ignore
+      }
+    };
+    // fetch when loading completes (after usePecas' fetch)
+    if (!loading) fetchCount();
+    return () => { mounted = false; };
+  }, [loading]);
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
@@ -93,20 +111,53 @@ export default function PecasPage() {
 
           <div className="mb-4 flex items-center justify-between gap-4">
             <div>
-              <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Total em estoque: <span className="font-semibold">{(pecas || []).reduce((s: number, p: any) => s + (Number(p.saldo_estoque) || 0), 0)}</span></div>
-              <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Valor total estimado: <span className="font-semibold">R$ {(pecas || []).reduce((s: number, p: any) => s + ((Number(p.saldo_estoque) || 0) * (Number(p.valor_unitario) || 0)), 0).toFixed(2)}</span></div>
+              {(() => {
+                const count = dbTotalCount != null ? dbTotalCount : (pecas || []).length;
+                // helper to parse numeric values returned from Supabase (handle pt-BR formatted strings)
+                const parseNumberLocale = (v: any): number => {
+                  if (v === null || v === undefined) return 0;
+                  if (typeof v === 'number') return v;
+                  let s = String(v).trim();
+                  if (s === '') return 0;
+                  // remove non-breaking spaces
+                  s = s.replace(/\u00A0/g, '');
+                  // if contains comma as decimal separator and dot as thousand, normalize
+                  if (s.indexOf(',') > -1 && s.indexOf('.') > -1) {
+                    s = s.replace(/\./g, '').replace(/,/g, '.');
+                  } else {
+                    s = s.replace(/,/g, '.');
+                  }
+                  s = s.replace(/[^0-9.-]/g, '');
+                  const n = parseFloat(s);
+                  return Number.isFinite(n) ? n : 0;
+                };
+
+                const totalValue = (pecas || []).reduce((s: number, p: any) => {
+                  const qtd = parseNumberLocale(p.saldo_estoque ?? p.quantidade ?? 0);
+                  const unit = parseNumberLocale(p.valor_unitario ?? 0);
+                  return s + (qtd * unit);
+                }, 0);
+                const formatted = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(totalValue);
+                return (
+                  <>
+                    <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Total de produtos: <span className="font-semibold">{count}</span></div>
+                    <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Valor total em estoque: <span className="font-semibold">R$ {formatted}</span></div>
+                  </>
+                );
+              })()}
             </div>
             <div className="flex items-center gap-3">
               <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar por nome, código ou grupo" className="px-3 py-2 rounded border w-72" />
               <div className="flex items-center gap-2">
                 <button onClick={() => setFilterMode(f => f === 'min' ? 'all' : 'min')} className={`px-3 py-2 text-sm rounded ${filterMode === 'min' ? 'bg-amber-600 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Mínimo</button>
                 <button onClick={() => setFilterMode(f => f === 'below' ? 'all' : 'below')} className={`px-3 py-2 text-sm rounded ${filterMode === 'below' ? 'bg-red-600 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Abaixo do Mínimo</button>
+                <button onClick={() => setFilterMode(f => f === 'zero' ? 'all' : 'zero')} className={`px-3 py-2 text-sm rounded ${filterMode === 'zero' ? 'bg-gray-700 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Zerados</button>
               </div>
               <button onClick={() => { setSearchTerm(''); setColFilters({ nome: '', codigo: '', unidade: '', quantidadeMin: '', valorUnitMin: '' }); setFilterMode('all'); }} className="px-3 py-2 bg-gray-200 text-sm rounded hover:bg-gray-300 transition">Limpar filtros</button>
               <button onClick={async () => {
                 setDeletingAll(true);
                 try {
-                  const { data: rows, error: fetchErr } = await supabase.from('pecas').select('id');
+                  const { data: rows, error: fetchErr } = await supabase.from('pecas').select('id').range(0, 19999);
                   if (fetchErr) {
                     console.error('Erro ao buscar ids das peças antes de deletar:', fetchErr);
                     showError('Erro ao buscar peças para exclusão');
@@ -210,6 +261,12 @@ export default function PecasPage() {
                   const min = p.estoque_minimo != null ? Number(p.estoque_minimo) : null;
                   return min != null && qtd < min;
                 });
+              } else if (filterMode === 'zero') {
+                modeFiltered = sortedAll.filter((p: any) => {
+                  // include items with estoque_minimo === 0 or not determined (null/undefined)
+                  const min = p.estoque_minimo != null ? Number(p.estoque_minimo) : null;
+                  return min === 0 || min == null;
+                });
               }
 
               for (const p of modeFiltered) {
@@ -260,6 +317,11 @@ export default function PecasPage() {
                     <tbody>
                       {groupKeys.map((g) => {
                         const isCollapsed = !!collapsedGroups[g];
+                        // build a map from provided JSON mapping for display
+                        const mappingArray: Array<{ codigo: string; grupo: string }> = Array.isArray(rawGroupMapping) ? rawGroupMapping : [];
+                        const map: Record<string, string> = {};
+                        mappingArray.forEach(m => { if (m && m.codigo && m.grupo) { map[String(m.codigo).trim()] = m.grupo; map[String(m.codigo).trim().replace(/^0+/, '')] = m.grupo; } });
+                        const displayGroup = (g === 'Sem Grupo') ? g : (map[g] || map[g.replace(/^0+/, '')] || g);
                         return (
                           <React.Fragment key={g}>
                             <tr
@@ -269,15 +331,26 @@ export default function PecasPage() {
                             >
                               <td colSpan={8} className="px-4 py-2">
                                 <div className="flex items-center justify-between">
-                                  <span>{g}</span>
+                                  <span>
+                                    {displayGroup}
+                                    {grouped[g] && grouped[g].length > 0 ? (
+                                      (() => {
+                                        const groupTotal = grouped[g].reduce((s: number, p: any) => s + ((Number(p.saldo_estoque) || 0) * (Number(p.valor_unitario) || 0)), 0);
+                                        const formatted = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(groupTotal);
+                                        return (<span className="text-sm ml-3 opacity-80">— R$ {formatted}</span>);
+                                      })()
+                                    ) : null}
+                                  </span>
                                   <span className="text-sm opacity-80">{isCollapsed ? '►' : '▼'}</span>
                                 </div>
                               </td>
                             </tr>
                             {!isCollapsed && grouped[g].map((p: any) => {
-                              const qtd = Number(p.saldo_estoque) || 0;
-                              const unit = Number(p.valor_unitario) || 0;
-                              const total = qtd * unit;
+                                const qtd = Number(p.saldo_estoque) || 0;
+                                const unit = Number(p.valor_unitario) || 0;
+                                const total = qtd * unit;
+                                const fmtInt = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
+                                const fmtMoney = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                               const min = p.estoque_minimo != null ? Number(p.estoque_minimo) : null;
                               const notDetermined = (p.estoque_minimo == null || Number(p.estoque_minimo) === 0) && qtd === 0;
                               const low = min != null && qtd < min;
@@ -289,9 +362,9 @@ export default function PecasPage() {
                                     </td>
                                     <td className="px-4 py-3">{p.codigo_produto || p.codigo_fabricante || '-'}</td>
                                   <td className="px-4 py-3">{p.unidade_medida || p.unidade || p.unidadeMedida || '-'}</td>
-                                  <td className="px-4 py-3 text-right">{qtd}</td>
-                                  <td className="px-4 py-3 text-right">R$ {unit.toFixed(2)}</td>
-                                  <td className="px-4 py-3 text-right">R$ {total.toFixed(2)}</td>
+                                  <td className="px-4 py-3 text-right">{fmtInt.format(qtd)}</td>
+                                  <td className="px-4 py-3 text-right">R$ {fmtMoney.format(unit)}</td>
+                                  <td className="px-4 py-3 text-right">R$ {fmtMoney.format(total)}</td>
                                   <td className="px-4 py-3 text-right">{p.estoque_minimo != null ? Number(p.estoque_minimo) : '-'}</td>
                                   <td className="px-4 py-3 text-center">
                                     {notDetermined ? (

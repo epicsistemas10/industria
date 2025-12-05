@@ -9,7 +9,8 @@ export function usePecas(componenteId?: string) {
   const fetch = useCallback(async () => {
     setLoading(true)
     try {
-      let q = supabase.from('pecas').select('*')
+      // fetch a large range to avoid PostgREST default 1000-row limit
+      let q = supabase.from('pecas').select('*').range(0, 19999)
       if (componenteId) q = q.eq('componente_id', componenteId)
       const { data: rows, error } = await q
       if (error) {

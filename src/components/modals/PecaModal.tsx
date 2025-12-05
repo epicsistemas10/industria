@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { usePecas } from '../../hooks/usePecas';
 import { storageAPI } from '../../lib/storage';
 import { useToast } from '../../hooks/useToast';
+import rawGroupMapping from '../../data/group-mapping.json';
 
 interface PecaModalProps {
   isOpen: boolean;
@@ -33,6 +34,13 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
   const [unitSuggestions, setUnitSuggestions] = useState<string[]>([]);
   const [groupSuggestions, setGroupSuggestions] = useState<string[]>([]);
   const [duplicateFound, setDuplicateFound] = useState<{ id: string; nome?: string } | null>(null);
+  const { data: pecasList = [] } = usePecas();
+  const [changedFields, setChangedFields] = useState<Record<string, boolean>>({});
+
+  // build mapping maps for quick lookup: code -> name, name -> code
+  const mappingArray: Array<{ codigo: string; grupo: string }> = Array.isArray(rawGroupMapping) ? rawGroupMapping : [];
+  const codeToName = new Map<string, string>(mappingArray.map(m => [m.codigo, m.grupo]));
+  const nameToCode = new Map<string, string>(mappingArray.map(m => [m.grupo, m.codigo]));
 
   useEffect(() => {
     if (isOpen) {
@@ -46,10 +54,31 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     // load distinct grupo_produto suggestions
     const loadGroups = async () => {
       try {
-        const { data, error } = await supabase.from('pecas').select('grupo_produto').not('grupo_produto', 'is', null);
-        if (!error && Array.isArray(data)) {
+        const { data, error } = await supabase.from('pecas').select('grupo_produto').not('grupo_produto', 'is', null).range(0, 19999);
+        if (error) console.warn('PecaModal: loadGroups supabase error', error);
+          if (!error && Array.isArray(data) && data.length > 0) {
+          // map any existing stored codes to their friendly names when possible
           const uniq = Array.from(new Set(data.map((r: any) => (r.grupo_produto || '').toString()).filter(Boolean)));
-          setGroupSuggestions(uniq);
+          const uniqNames = uniq.map(v => codeToName.get(v) ?? v);
+          const mappingNames = mappingArray.map(m => m.grupo).filter(Boolean);
+          const merged = Array.from(new Set([...uniqNames, ...mappingNames]));
+          setGroupSuggestions(merged);
+          console.info('PecaModal: loaded group suggestions count=', merged.length);
+          return;
+        }
+        // fallback: derive from client-side pecas cache if available
+        try {
+          if (Array.isArray(pecasList) && pecasList.length > 0) {
+            const uniq2 = Array.from(new Set(pecasList.map((r: any) => (r.grupo_produto || '').toString()).filter(Boolean)));
+            const uniq2Names = uniq2.map(v => codeToName.get(v) ?? v);
+            const mappingNames2 = mappingArray.map(m => m.grupo).filter(Boolean);
+            const merged2 = Array.from(new Set([...uniq2Names, ...mappingNames2]));
+            setGroupSuggestions(merged2);
+            console.info('PecaModal: fallback group suggestions from usePecas count=', merged2.length);
+            return;
+          }
+        } catch (e) {
+          console.warn('PecaModal: fallback deriving groups error', e);
         }
       } catch (e) {
         // ignore
@@ -57,7 +86,7 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     };
     const loadUnits = async () => {
       try {
-        const { data, error } = await supabase.from('pecas').select('unidade_medida').not('unidade_medida', 'is', null);
+        const { data, error } = await supabase.from('pecas').select('unidade_medida').not('unidade_medida', 'is', null).range(0, 19999);
         if (!error && Array.isArray(data)) {
           const uniq = Array.from(new Set(data.map((r: any) => (r.unidade_medida || '').toString()).filter(Boolean)));
           setUnitSuggestions(uniq);
@@ -80,19 +109,22 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       if (error) throw error;
       setFormData({
         nome: data.nome || '',
-        grupo_produto: data.grupo_produto || '',
+        // show friendly group name when we have a mapping, otherwise preserve stored value
+        grupo_produto: data.grupo_produto != null ? (codeToName.get(data.grupo_produto) ?? data.grupo_produto) : null,
         codigo_interno: data.codigo_interno || '',
         codigo_produto: data.codigo_produto || '',
         marca: data.marca || '',
         fabricante: data.fabricante || '',
         componente_id: data.componente_id || '',
-        estoque_minimo: data.estoque_minimo ?? 0,
-        quantidade: data.saldo_estoque != null ? Number(data.saldo_estoque) : (data.quantidade != null ? Number(data.quantidade) : 0),
+        estoque_minimo: data.estoque_minimo ?? null,
+        quantidade: data.saldo_estoque != null ? Number(data.saldo_estoque) : (data.quantidade != null ? Number(data.quantidade) : null),
         unidade_medida: data.unidade_medida || data.unidade || '',
         fornecedor: data.fornecedor || '',
-        preco_unitario: data.preco_unitario || 0,
+        preco_unitario: data.preco_unitario ?? data.valor_unitario ?? null,
         foto_url: data.foto_url || ''
       });
+      // reset changed fields
+      setChangedFields({});
     } catch (err) {
       console.error('Erro ao carregar peça:', err);
     } finally {
@@ -101,26 +133,72 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
   };
 
   const resetForm = () => setFormData({ nome: '', codigo_interno: '', marca: '', fabricante: '', componente_id: '', grupo_produto: '', estoque_minimo: 0, quantidade: 0, unidade_medida: '', fornecedor: '', preco_unitario: 0, foto_url: '' });
+  
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const payload: any = {
-      componente_id: formData.componente_id || null,
-      grupo_produto: formData.grupo_produto || null,
-      nome: formData.nome,
-      codigo_produto: formData.codigo_produto || null,
-      codigo_fabricante: formData.fabricante || null,
-      custo_medio: formData.preco_unitario ? Number(formData.preco_unitario) : null,
-      valor_unitario: formData.preco_unitario ? Number(formData.preco_unitario) : null,
-      saldo_estoque: formData.quantidade != null ? Number(formData.quantidade) : 0,
-      quantidade: formData.quantidade != null ? Number(formData.quantidade) : 0,
+    // Build payload differently for update vs insert.
+    const basePayload: any = { nome: formData.nome };
+    if (!pecaId) {
+      // Insert: include sensible defaults
+      // convert displayed group name back to stored code when possible
+      const normalizedGroupForInsert = formData.grupo_produto && nameToCode.has(formData.grupo_produto) ? nameToCode.get(formData.grupo_produto) : formData.grupo_produto;
+      const payload: any = {
+        componente_id: formData.componente_id || null,
+        grupo_produto: normalizedGroupForInsert || null,
+        nome: formData.nome,
+        codigo_produto: formData.codigo_produto || null,
+        codigo_fabricante: formData.fabricante || null,
+        custo_medio: formData.preco_unitario != null ? Number(formData.preco_unitario) : null,
+        valor_unitario: formData.preco_unitario != null ? Number(formData.preco_unitario) : null,
+        saldo_estoque: formData.quantidade != null ? Number(formData.quantidade) : 0,
+        quantidade: formData.quantidade != null ? Number(formData.quantidade) : 0,
         unidade_medida: formData.unidade_medida || null,
-      estoque_minimo: formData.estoque_minimo != null ? Number(formData.estoque_minimo) : null,
-      foto: formData.foto_url || null,
-      foto_url: formData.foto_url || null,
-      observacoes: formData.fornecedor || null
-    };
+        estoque_minimo: formData.estoque_minimo != null ? Number(formData.estoque_minimo) : null,
+        foto: formData.foto_url || null,
+        foto_url: formData.foto_url || null,
+        observacoes: formData.fornecedor || null
+      };
+      // proceed to insert
+      try {
+        await trySave('insert', payload);
+        success('Peça criada');
+        onSuccess();
+        onClose();
+      } catch (err: any) {
+        console.error('Erro ao salvar peça:', err);
+        if (err && (err.code === '23505' || (err.error && err.error.code === '23505'))) {
+          showError('Código do produto já existe em outra peça. Escolha outro código.');
+        } else {
+          showError('Erro ao salvar peça');
+        }
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    // Update: include only fields the user actually changed to avoid accidental overwrites
+    const payload: any = {};
+    if (changedFields['componente_id']) payload.componente_id = formData.componente_id || null;
+    if (changedFields['grupo_produto']) {
+      const normalized = formData.grupo_produto && nameToCode.has(formData.grupo_produto) ? nameToCode.get(formData.grupo_produto) : formData.grupo_produto;
+      payload.grupo_produto = normalized || null;
+    }
+    if (changedFields['codigo_produto']) payload.codigo_produto = formData.codigo_produto || null;
+    if (changedFields['codigo_fabricante']) payload.codigo_fabricante = formData.fabricante || null;
+    if (changedFields['preco_unitario']) payload.valor_unitario = formData.preco_unitario != null ? Number(formData.preco_unitario) : null;
+    if (changedFields['quantidade']) {
+      payload.saldo_estoque = formData.quantidade != null ? Number(formData.quantidade) : 0;
+      payload.quantidade = formData.quantidade != null ? Number(formData.quantidade) : 0;
+    }
+    if (changedFields['unidade_medida']) payload.unidade_medida = formData.unidade_medida || null;
+    if (changedFields['estoque_minimo']) payload.estoque_minimo = formData.estoque_minimo != null ? Number(formData.estoque_minimo) : null;
+    if (changedFields['fornecedor']) payload.observacoes = formData.fornecedor || null;
+    if (changedFields['foto_url']) {
+      payload.foto = formData.foto_url || null;
+      payload.foto_url = formData.foto_url || null;
+    }
     // prevent duplicate codigo_produto across different records
     try {
       if (payload.codigo_produto) {
@@ -177,17 +255,19 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
 
     try {
       if (pecaId) {
-        await trySave('update', payload);
-        success('Peça atualizada');
-      } else {
-        await trySave('insert', payload);
-        success('Peça criada');
+        if (Object.keys(payload).length === 0) {
+          // nothing changed
+          success('Nada a atualizar');
+          onClose();
+        } else {
+          await trySave('update', payload);
+          success('Peça atualizada');
+          onSuccess();
+          onClose();
+        }
       }
-      onSuccess();
-      onClose();
     } catch (err: any) {
       console.error('Erro ao salvar peça:', err);
-      // detect duplicate key from Postgres
       if (err && (err.code === '23505' || (err.error && err.error.code === '23505'))) {
         showError('Código do produto já existe em outra peça. Escolha outro código.');
       } else {
@@ -204,7 +284,7 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     try {
       setUploadingImage(true);
       const publicUrl = await storageAPI.uploadImage(file, 'pecas', 'fotos');
-      setFormData({ ...formData, foto_url: publicUrl });
+      setFormData(prev => ({ ...prev, foto_url: publicUrl }));
       if (pecaId) {
         // Try to persist foto_url to the existing record; ignore non-fatal errors
         await supabase.from('pecas').update({ foto: publicUrl, foto_url: publicUrl }).eq('id', pecaId);
@@ -232,12 +312,12 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Nome da Peça *</label>
-              <input required value={formData.nome} onChange={(e) => setFormData({ ...formData, nome: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input required value={formData.nome} onChange={(e) => { setFormData({ ...formData, nome: e.target.value }); setChangedFields(prev => ({ ...prev, nome: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
               <div>
                 <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Grupo do Produto</label>
-                <input list="peca-grupos" value={formData.grupo_produto || ''} onChange={(e) => setFormData({ ...formData, grupo_produto: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+                <input list="peca-grupos" value={formData.grupo_produto ?? ''} onChange={(e) => { setFormData({ ...formData, grupo_produto: e.target.value }); setChangedFields(prev => ({ ...prev, grupo_produto: true })); }} className="w-full px-4 py-2 rounded-lg border" />
                 <datalist id="peca-grupos">
                   {groupSuggestions.map(g => <option key={g} value={g} />)}
                 </datalist>
@@ -245,27 +325,27 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Código Interno</label>
-              <input value={formData.codigo_interno} onChange={(e) => setFormData({ ...formData, codigo_interno: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input value={formData.codigo_interno} onChange={(e) => { setFormData({ ...formData, codigo_interno: e.target.value }); setChangedFields(prev => ({ ...prev, codigo_interno: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Código do Produto</label>
-              <input value={formData.codigo_produto || ''} onChange={(e) => setFormData({ ...formData, codigo_produto: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input value={formData.codigo_produto || ''} onChange={(e) => { setFormData({ ...formData, codigo_produto: e.target.value }); setChangedFields(prev => ({ ...prev, codigo_produto: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Marca</label>
-              <input value={formData.marca} onChange={(e) => setFormData({ ...formData, marca: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input value={formData.marca} onChange={(e) => { setFormData({ ...formData, marca: e.target.value }); setChangedFields(prev => ({ ...prev, marca: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Fabricante</label>
-              <input value={formData.fabricante} onChange={(e) => setFormData({ ...formData, fabricante: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input value={formData.fabricante} onChange={(e) => { setFormData({ ...formData, fabricante: e.target.value }); setChangedFields(prev => ({ ...prev, fabricante: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Unidade</label>
-              <input list="peca-unidades" value={formData.unidade_medida || ''} onChange={(e) => setFormData({ ...formData, unidade_medida: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input list="peca-unidades" value={formData.unidade_medida || ''} onChange={(e) => { setFormData({ ...formData, unidade_medida: e.target.value }); setChangedFields(prev => ({ ...prev, unidade_medida: true })); }} className="w-full px-4 py-2 rounded-lg border" />
               <datalist id="peca-unidades">
                 {unitSuggestions.map(u => <option key={u} value={u} />)}
                 <option value="un" />
@@ -277,22 +357,22 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Estoque Mínimo</label>
-              <input type="number" min="0" value={formData.estoque_minimo} onChange={(e) => setFormData({ ...formData, estoque_minimo: parseInt(e.target.value) || 0 })} className="w-full px-4 py-2 rounded-lg border" />
+              <input type="number" min="0" value={formData.estoque_minimo ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value); setFormData({ ...formData, estoque_minimo: v }); setChangedFields(prev => ({ ...prev, estoque_minimo: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade em Estoque</label>
-              <input type="number" min="0" value={formData.quantidade} onChange={(e) => setFormData({ ...formData, quantidade: parseInt(e.target.value) || 0 })} className="w-full px-4 py-2 rounded-lg border" />
+              <input type="number" min="0" value={formData.quantidade ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value); setFormData({ ...formData, quantidade: v }); setChangedFields(prev => ({ ...prev, quantidade: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Valor Unit.</label>
-              <input type="number" step="0.01" min="0" value={formData.preco_unitario || 0} onChange={(e) => setFormData({ ...formData, preco_unitario: parseFloat(e.target.value) || 0 })} className="w-full px-4 py-2 rounded-lg border" />
+              <input type="number" step="0.01" min="0" value={formData.preco_unitario ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseFloat(e.target.value); setFormData({ ...formData, preco_unitario: v }); setChangedFields(prev => ({ ...prev, preco_unitario: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div className="md:col-span-2">
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Fornecedor</label>
-              <input value={formData.fornecedor} onChange={(e) => setFormData({ ...formData, fornecedor: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input value={formData.fornecedor} onChange={(e) => { setFormData({ ...formData, fornecedor: e.target.value }); setChangedFields(prev => ({ ...prev, fornecedor: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div className="md:col-span-2">

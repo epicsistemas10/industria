@@ -37,6 +37,27 @@ function stripDiacritics(s: string) {
   return s.normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
+function inferUnitFromName(name: string | null | undefined) {
+  if (!name) return null;
+  const s = String(name).toUpperCase();
+  // common units and abbreviations
+  const mappings: Array<[RegExp, string]> = [
+    [/\\bKG\\b|\\bKGS\\b|\\bKILO\\b|\\bKILOS\\b/, 'KG'],
+    [/\\bG\\b\\b|GRAMA|GRAMAS/, 'G'],
+    [/\\bMT\\b|MTS\\b|METRO|METROS/, 'M'],
+    [/\\bRL\\b|\\bROLLO\\b|ROLLO|ROLO|ROLOS|ROLOS\\b/, 'RL'],
+    [/\\bUN\\b|\\bUNIDADE\\b|\\bUNIDADES\\b/, 'UN'],
+    [/\\bFARDO\\b|\\bFARDOS\\b/, 'FARDOS'],
+    [/\\bPC\\b|\\bPÇ\\b|\\bPÇAS\\b|\\bPCS\\b/, 'UN'],
+    [/\\bKG\\.|\\bKG,/, 'KG'],
+    [/\\bL\\b|LITRO|LITROS/, 'L'],
+  ];
+  for (const [re, unit] of mappings) {
+    try { if (re.test(s)) return unit; } catch (e) { /* ignore */ }
+  }
+  return null;
+}
+
 function normalizeLookupName(s: any) {
   if (s === null || s === undefined) return '';
   try {
@@ -310,11 +331,12 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
 
         // resolve group using mapping (if sheet contains a code) so pendentes show group names
         const resolvedGrupo = resolveGroupName(grupo);
+        // try to infer unit from explicit column or from name heuristics
+        const inferredUnit = unidade ? String(unidade).trim() : (inferUnitFromName(descricao) || 'UN');
         mapped.push({
           codigo: codigo ? String(codigo).trim() : '',
           descricao: (descricao ? String(descricao).trim() : ''),
-          // default unidade to 'UN' if missing to avoid blocking saves
-          unidade: unidade ? String(unidade).trim() : 'UN',
+          unidade: inferredUnit,
           saldo: parseNumber(saldo),
           valor_total: parseNumber(valorTotal),
           // try computed value, otherwise attempt compute from total/saldo, otherwise leave null

@@ -263,7 +263,11 @@ export default function EstoqueTV(): JSX.Element {
                   <div>
                     <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
                     <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                      {suprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} />)}
+                      {suprimentos.length === 0 ? (
+                        <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
+                      ) : (
+                        suprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} />)
+                      )}
                     </div>
                   </div>
                 </div>

@@ -61,7 +61,27 @@ export default function EstoqueTV(): JSX.Element {
         .range(0, 19999);
       if (sErr) console.warn('suprimentos fetch error', sErr);
       setPecas(Array.isArray(pData) ? pData as PecaRow[] : []);
-      setSuprimentos(Array.isArray(sData) ? sData as SuprimentoRow[] : []);
+      let finalSuprimentos: SuprimentoRow[] = Array.isArray(sData) ? sData as SuprimentoRow[] : [];
+      // If `suprimentos` table is empty, fallback to a best-effort mapping from `pecas`
+      if ((!finalSuprimentos || finalSuprimentos.length === 0) && Array.isArray(pData) && (pData as any[]).length > 0) {
+        try {
+          console.info('[EstoqueTV] suprimentos table empty — falling back to pecas for display');
+          // select some representative pecas: those with estoque_minimo or low quantity
+          const candidates = (pData as PecaRow[]).filter(r => (r.estoque_minimo != null) || ((r.saldo_estoque ?? r.quantidade ?? 0) > 0)).slice(0, 50);
+          finalSuprimentos = candidates.map(c => ({
+            id: c.id,
+            nome: c.nome,
+            codigo_produto: c.codigo_produto ?? null,
+            quantidade: c.quantidade ?? null,
+            saldo_estoque: c.saldo_estoque ?? c.quantidade ?? null,
+            estoque_minimo: c.estoque_minimo ?? null,
+            meta: {}
+          }));
+        } catch (e) {
+          console.warn('[EstoqueTV] fallback mapping from pecas failed', e);
+        }
+      }
+      setSuprimentos(finalSuprimentos);
       setLastUpdated(new Date());
     } catch (e) {
       console.error('fetchAll error', e);

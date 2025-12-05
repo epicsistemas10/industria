@@ -37,6 +37,7 @@ const Pecas = lazy(() => import('../pages/pecas/page').catch((err) => {
   return { default: () => <div className="p-6">Erro ao carregar o módulo de Peças. Veja o console do navegador para detalhes.</div> };
 }));
 const PecasSuprimentos = lazy(() => import('../pages/pecas/suprimentos/page'));
+const EstoqueTV = lazy(() => import('../pages/EstoqueTV'));
 const ComponentesReservas = lazy(() => import('../pages/componentes/reservas/page'));
 const Seguranca = lazy(() => import('../pages/seguranca/page'));
 const LeitorPlacas = lazy(() => import('../pages/leitor-placas/page'));
@@ -66,6 +67,14 @@ const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <DashboardTV />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/estoque-tv',
+    element: (
+      <ProtectedRoute>
+        <EstoqueTV />
       </ProtectedRoute>
     ),
   },

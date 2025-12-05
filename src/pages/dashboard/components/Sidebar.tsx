@@ -50,6 +50,7 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
       children: [
         { id: 'componentes', label: 'Componentes', path: '/componentes' },
         { id: 'pecas', label: 'Peças', path: '/pecas' },
+        { id: 'estoque-tv', label: 'Estoque TV', path: '/estoque-tv' },
         { id: 'reservas', label: 'Componentes Reservas', path: '/componentes/reservas' }
       ]
     },

@@ -46,6 +46,7 @@ export default function EstoqueTV(): JSX.Element {
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const [tvMode, setTvMode] = useState<boolean>(false);
   const [carouselIndex, setCarouselIndex] = useState<number>(0);
+  const [showDebugGroups, setShowDebugGroups] = useState<boolean>(false);
 
   // fetch data
   const fetchAll = async () => {
@@ -200,7 +201,7 @@ export default function EstoqueTV(): JSX.Element {
     const src = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
     const groups = new Map<string, any[]>();
     for (const it of (src || [])) {
-      const key = normalizeLookupName(it.codigo_produto || it.nome || '');
+      const key = normalizeLookupName(it.nome || it.codigo_produto || '');
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(it);
     }
@@ -221,6 +222,18 @@ export default function EstoqueTV(): JSX.Element {
       reps.push(list[0]);
     }
     return reps;
+  }, [suprimentosState, suprimentosFromHook]);
+
+  // debug groups for inspection when troubleshooting duplicates
+  const tvGroupsDebug = useMemo(() => {
+    const src = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
+    const groups = new Map<string, any[]>();
+    for (const it of (src || [])) {
+      const key = normalizeLookupName(it.nome || it.codigo_produto || '');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(it);
+    }
+    return groups;
   }, [suprimentosState, suprimentosFromHook]);
 
   // TV mode helpers
@@ -355,6 +368,10 @@ export default function EstoqueTV(): JSX.Element {
                 <div style={{ width: '100%' }} className="p-4">
                   <div>
                     <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
+                    <div className="mb-3 flex items-center gap-3">
+                      <button onClick={() => setShowDebugGroups(s => !s)} className="px-3 py-1 bg-gray-700 text-white rounded text-sm">{showDebugGroups ? 'Ocultar debug' : 'Mostrar debug'}</button>
+                      <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
+                    </div>
                     <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
                       {tvSuprimentos && tvSuprimentos.length ? (
                         tvSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} />)
@@ -362,6 +379,20 @@ export default function EstoqueTV(): JSX.Element {
                         <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
                       )}
                     </div>
+
+                    {showDebugGroups && (
+                      <div className="mt-4 p-3 bg-black/30 rounded text-sm text-slate-200">
+                        <h3 className="font-bold mb-2">Debug — grupos normalizados</h3>
+                        {[...tvGroupsDebug.entries()].map(([k, list]) => (
+                          <div key={k} className="mb-2">
+                            <div className="text-xs text-slate-400">Key: <code className="text-white">{k || '(vazio)'}</code> — count: {list.length}</div>
+                            <ul className="list-disc ml-5 text-sm">
+                              {list.map((it: any) => <li key={it.id || (it.nome + Math.random())}>{it.nome || it.codigo_produto || JSON.stringify(it)}</li>)}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

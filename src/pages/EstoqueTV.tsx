@@ -359,6 +359,20 @@ export default function EstoqueTV(): JSX.Element {
     return rows;
   }, [mergedRowsFromGroups, pecas, suprimentosState, suprimentosFromHook]);
 
+  // Debug: log counts and presence of specific normalized keys (temporary)
+  useEffect(() => {
+    try {
+      const pecaKeys = new Set<string>();
+      for (const p of (pecas || [])) pecaKeys.add(normalizeLookupName(p.nome || p.codigo_produto || ''));
+      const suprKeys = new Set<string>();
+      for (const s of ((suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []))) suprKeys.add(normalizeLookupName(s.nome || s.codigo_produto || ''));
+      const mergedCount = (mergedRowsFromGroups || []).length;
+      const tvCount = (tvRenderRows || []).length;
+      console.info('[EstoqueTV debug] counts', { pecaCount: (pecas || []).length, suprCount: ((suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length), mergedCount, tvCount });
+      console.info('[EstoqueTV debug] keys present', { hasLonaPreta: pecaKeys.has('LONA PLASTICA PRETA') || suprKeys.has('LONA PLASTICA PRETA'), hasCorrea: pecaKeys.has(normalizeLookupName('CORREIA')) || suprKeys.has(normalizeLookupName('CORREIA')) });
+    } catch (e) { /* ignore */ }
+  }, [pecas, suprimentosState, suprimentosFromHook, mergedRowsFromGroups, tvRenderRows]);
+
   // TV mode helpers
   const toggleFullscreen = async () => {
     try {
@@ -494,13 +508,15 @@ export default function EstoqueTV(): JSX.Element {
                     <div className="mb-3 flex items-center gap-3">
                       <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
                     </div>
-                    <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                      {tvRenderRows && tvRenderRows.length ? (
-                        tvRenderRows.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={tvMode} />)
-                      ) : (
-                        <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
-                      )}
-                    </div>
+                    <div className={`h-full ${tvMode ? 'overflow-auto' : ''}`}>
+                                      <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
+                                        {tvRenderRows && tvRenderRows.length ? (
+                                          tvRenderRows.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={tvMode} />)
+                                        ) : (
+                                          <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
+                                        )}
+                                      </div>
+                                    </div>
 
                     
                   </div>

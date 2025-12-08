@@ -181,7 +181,7 @@ export default function SuprimentosCard({ item, onUpdate, onDelete, isDuplicate,
         )}
       </div>
 
-      {isExpanded && (
+      {isExpanded && (onUpdate || onDelete) && (
         <div className="mt-3 border-t border-gray-800 pt-3 flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <input

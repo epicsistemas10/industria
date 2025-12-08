@@ -132,23 +132,44 @@ export default function EstoqueTV(): JSX.Element {
 
   // computed alert list (merge pecas + suprimentos by name/code for listing alerts)
   const alertItems = useMemo(() => {
+    // Merge pecas + suprimentos, dedupe by normalized key, then produce alert list
+    const allRows = [...(pecas || []), ...((suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []))];
+    const groups = new Map<string, any[]>();
+    for (const it of allRows) {
+      const key = normalizeLookupName(it.nome || it.codigo_produto || '');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(it);
+    }
+    const reps: any[] = [];
+    for (const [key, list] of groups) {
+      if (!list || list.length === 0) continue;
+      list.sort((a: any, b: any) => {
+        const aP = a.peca_id ? 1 : 0;
+        const bP = b.peca_id ? 1 : 0;
+        if (aP !== bP) return bP - aP;
+        const aM = (a.estoque_minimo != null) ? 1 : 0;
+        const bM = (b.estoque_minimo != null) ? 1 : 0;
+        if (aM !== bM) return bM - aM;
+        const aq = Number(a.saldo_estoque ?? a.quantidade ?? 0);
+        const bq = Number(b.saldo_estoque ?? b.quantidade ?? 0);
+        return bq - aq;
+      });
+      reps.push(list[0]);
+    }
     const out: any[] = [];
-    const addFrom = (r: any, kind: 'peca' | 'suprimento') => {
+    for (const r of reps) {
       const qty = Number(r.saldo_estoque ?? r.quantidade ?? 0) as number;
       const min = Number(r.estoque_minimo ?? 0) as number;
       let status: 'ok' | 'min' | 'critical' = 'ok';
       if (min > 0) {
         if (qty > min) status = 'ok';
         else if (qty === min) status = 'min';
-        else status = 'critical'; // qty < min (including zero)
+        else status = 'critical';
       } else {
         status = qty > 0 ? 'ok' : 'critical';
       }
-      if (status !== 'ok') out.push({ kind, id: r.id, nome: r.nome, codigo: r.codigo_produto, qty, min, status });
-    };
-    (pecas || []).forEach(p => addFrom(p, 'peca'));
-    (suprimentosState || suprimentosFromHook || []).forEach(s => addFrom(s, 'suprimento'));
-    // sort by severity then by qty ascending
+      if (status !== 'ok') out.push({ kind: 'merged', id: r.id, nome: r.nome, codigo: r.codigo_produto, qty, min, status });
+    }
     out.sort((a, b) => {
       const sev = { 'critical': 2, 'min': 1 } as any;
       const sa = sev[a.status] ?? 0;
@@ -169,7 +190,8 @@ export default function EstoqueTV(): JSX.Element {
   function normalizeLookupName(s: any) {
     if (s === null || s === undefined) return '';
     try {
-      let t = String(s).trim();
+      const raw = String(s).trim();
+      let t = raw;
       if (!t) return '';
       t = stripDiacritics(t);
       t = t.replace(/\u00A0/g, ' ');
@@ -191,6 +213,12 @@ export default function EstoqueTV(): JSX.Element {
       if (t.includes('POLYCINTA') || t.includes('POLY')) return 'POLYCINTA';
 
       if (/\bRUI?DO(?: DE FREIO)?\b/i.test(t)) return '';
+
+      // fallback: if normalization removed most content, use a safer key from the original raw name
+      if (!t || t.length < 3) {
+        const fb = stripDiacritics(raw).replace(/[^\p{L} ]+/gu, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+        return fb;
+      }
 
       return t;
     } catch (e) { return String(s).trim().toUpperCase(); }

@@ -351,9 +351,12 @@ export default function EstoqueTV(): JSX.Element {
     for (const r of mergedRowsFromGroups) {
       const key = normalizeLookupName(r.nome || r.codigo_produto || '');
       if (!key) continue;
-      if (!pecaKeys.has(key)) continue;
-      if (!suprKeys.has(key)) continue;
-      if (/\b(FLUIDO|FREIO|DOT)\b/i.test((r.nome || '').toString())) continue; // extra safety
+      // include items present in pecas OR suprimentos (union) so pecas-only updates (e.g., estoque_minimo) appear on TV
+      if (!pecaKeys.has(key) && !suprKeys.has(key)) continue;
+      // exclude non-suprimentos families like brake fluids and specific correia Poly-V matches
+      const rn = (r.nome || '').toString().toUpperCase();
+      if (/\b(FLUIDO|FREIO|DOT)\b/i.test(rn)) continue; // brake fluids
+      if (rn.includes('CORREIA') || rn.includes('POLY V') || rn.includes('POLY-V') || rn.includes('POLYV')) continue; // exclude Poly-V correias
       rows.push(r);
     }
     return rows;

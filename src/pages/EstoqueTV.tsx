@@ -165,73 +165,15 @@ export default function EstoqueTV(): JSX.Element {
   }, [pecas, suprimentosState, suprimentosFromHook]);
 
   const metrics = useMemo(() => {
-    let ok = 0, atMin = 0, below = 0;
-    const rows = mergedRows;
-    for (const r of rows) {
-      const qty = Number(r.saldo_estoque ?? r.quantidade ?? 0) as number;
-      const min = Number(r.estoque_minimo ?? 0) as number;
-      if (min > 0) {
-        if (qty > min) ok++;
-        else if (qty === min) atMin++;
-        else /* qty < min */ below++;
-      } else {
-        if (qty > 0) ok++; else below++;
-      }
-    }
-    const total = rows.length || 1;
-    const healthyPercent = Math.round((ok / total) * 100);
-    return { ok, atMin, below, total, healthyPercent };
+    // Use suprimentos representatives for metrics so TV matches Suprimentos page
+    return metricsFromSuprimentos;
   }, [mergedRows]);
 
   // computed alert list (merge pecas + suprimentos by name/code for listing alerts)
   const alertItems = useMemo(() => {
-    // Merge pecas + suprimentos, dedupe by normalized key, then produce alert list
-    const allRows = [...(pecas || []), ...((suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []))];
-    const groups = new Map<string, any[]>();
-    for (const it of allRows) {
-      const key = normalizeLookupName(it.nome || it.codigo_produto || '');
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(it);
-    }
-    const reps: any[] = [];
-    for (const [key, list] of groups) {
-      if (!list || list.length === 0) continue;
-      list.sort((a: any, b: any) => {
-        const aP = a.peca_id ? 1 : 0;
-        const bP = b.peca_id ? 1 : 0;
-        if (aP !== bP) return bP - aP;
-        const aM = (a.estoque_minimo != null) ? 1 : 0;
-        const bM = (b.estoque_minimo != null) ? 1 : 0;
-        if (aM !== bM) return bM - aM;
-        const aq = Number(a.saldo_estoque ?? a.quantidade ?? 0);
-        const bq = Number(b.saldo_estoque ?? b.quantidade ?? 0);
-        return bq - aq;
-      });
-      reps.push(list[0]);
-    }
-    const out: any[] = [];
-    for (const r of reps) {
-      const qty = Number(r.saldo_estoque ?? r.quantidade ?? 0) as number;
-      const min = Number(r.estoque_minimo ?? 0) as number;
-      let status: 'ok' | 'min' | 'critical' = 'ok';
-      if (min > 0) {
-        if (qty > min) status = 'ok';
-        else if (qty === min) status = 'min';
-        else status = 'critical';
-      } else {
-        status = qty > 0 ? 'ok' : 'critical';
-      }
-      if (status !== 'ok') out.push({ kind: 'merged', id: r.id, nome: r.nome, codigo: r.codigo_produto, qty, min, status });
-    }
-    out.sort((a, b) => {
-      const sev = { 'critical': 2, 'min': 1 } as any;
-      const sa = sev[a.status] ?? 0;
-      const sb = sev[b.status] ?? 0;
-      if (sa !== sb) return sb - sa;
-      return a.qty - b.qty;
-    });
-    return out;
-  }, [pecas, suprimentosState, suprimentosFromHook]);
+    // Use alerts computed from suprimentos representatives so TV matches Suprimentos page
+    return alertItemsFromSuprimentos;
+  }, [alertItemsFromSuprimentos]);
 
   // helpers
   const fmt = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString('pt-BR'));
@@ -376,6 +318,84 @@ export default function EstoqueTV(): JSX.Element {
     } catch (e) { /* ignore */ }
   }, [pecas, suprimentosState, suprimentosFromHook, mergedRowsFromGroups, tvRenderRows]);
 
+  // Build suprimentos representatives exactly like the Suprimentos page (group by normalized key and pick representative)
+  const suprimentosRepresentatives = useMemo(() => {
+    const items = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
+    const groups = new Map<string, any[]>();
+    for (const it of (items || [])) {
+      const key = normalizeLookupName(it.codigo_produto || it.nome || '');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(it);
+    }
+    const representatives: any[] = [];
+    for (const [key, list] of groups) {
+      if (!list || list.length === 0) continue;
+      list.sort((a: any, b: any) => {
+        const aP = a.peca_id ? 1 : 0;
+        const bP = b.peca_id ? 1 : 0;
+        if (aP !== bP) return bP - aP;
+        const aM = (a.estoque_minimo != null) ? 1 : 0;
+        const bM = (b.estoque_minimo != null) ? 1 : 0;
+        if (aM !== bM) return bM - aM;
+        const aq = Number(a.saldo_estoque ?? a.quantidade ?? 0);
+        const bq = Number(b.saldo_estoque ?? b.quantidade ?? 0);
+        return bq - aq;
+      });
+      representatives.push(list[0]);
+    }
+    return representatives;
+  }, [suprimentosState, suprimentosFromHook]);
+
+  // Use suprimentos representatives as the TV render rows so TV matches the Suprimentos page exactly
+  const tvRenderRowsFromSuprimentos = useMemo(() => {
+    return suprimentosRepresentatives || [];
+  }, [suprimentosRepresentatives]);
+
+  // Recompute metrics and alertItems using suprimentos representatives (so TV metrics match Suprimentos page)
+  const metricsFromSuprimentos = useMemo(() => {
+    let ok = 0, atMin = 0, below = 0;
+    const rows = tvRenderRowsFromSuprimentos;
+    for (const r of rows) {
+      const qty = Number(r.saldo_estoque ?? r.quantidade ?? 0) as number;
+      const min = Number(r.estoque_minimo ?? 0) as number;
+      if (min > 0) {
+        if (qty > min) ok++;
+        else if (qty === min) atMin++;
+        else below++;
+      } else {
+        if (qty > 0) ok++; else below++;
+      }
+    }
+    const total = rows.length || 1;
+    const healthyPercent = Math.round((ok / total) * 100);
+    return { ok, atMin, below, total, healthyPercent };
+  }, [tvRenderRowsFromSuprimentos]);
+
+  const alertItemsFromSuprimentos = useMemo(() => {
+    const out: any[] = [];
+    for (const r of tvRenderRowsFromSuprimentos) {
+      const qty = Number(r.saldo_estoque ?? r.quantidade ?? 0) as number;
+      const min = Number(r.estoque_minimo ?? 0) as number;
+      let status: 'ok' | 'min' | 'critical' = 'ok';
+      if (min > 0) {
+        if (qty > min) status = 'ok';
+        else if (qty === min) status = 'min';
+        else status = 'critical';
+      } else {
+        status = qty > 0 ? 'ok' : 'critical';
+      }
+      if (status !== 'ok') out.push({ kind: 'merged', id: r.id, nome: r.nome, codigo: r.codigo_produto, qty, min, status });
+    }
+    out.sort((a, b) => {
+      const sev = { 'critical': 2, 'min': 1 } as any;
+      const sa = sev[a.status] ?? 0;
+      const sb = sev[b.status] ?? 0;
+      if (sa !== sb) return sb - sa;
+      return a.qty - b.qty;
+    });
+    return out;
+  }, [tvRenderRowsFromSuprimentos]);
+
   // TV mode helpers
   const toggleFullscreen = async () => {
     try {
@@ -513,11 +533,11 @@ export default function EstoqueTV(): JSX.Element {
                     </div>
                     <div className={`h-full ${tvMode ? 'overflow-auto' : ''}`}>
                                       <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                                        {tvRenderRows && tvRenderRows.length ? (
-                                          tvRenderRows.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={tvMode} />)
-                                        ) : (
-                                          <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
-                                        )}
+                                        {tvRenderRowsFromSuprimentos && tvRenderRowsFromSuprimentos.length ? (
+                                            tvRenderRowsFromSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={tvMode} />)
+                                          ) : (
+                                            <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
+                                          )}
                                       </div>
                                     </div>
 

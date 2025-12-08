@@ -60,9 +60,34 @@ export default function SuprimentosPage() {
       let t = String(s).trim();
       if (!t) return '';
       t = stripDiacritics(t);
-      t = t.replace(/[\u00A0\s]+/g, ' ');
-      t = t.replace(/[^\p{L}\p{N} ]+/gu, ' ');
+      t = t.replace(/\u00A0/g, ' ');
+      t = t.replace(/[()\[\]{}<>]/g, ' ');
+      // remove common separators and punctuation
+      t = t.replace(/[^\p{L}\p{N}% ]+/gu, ' ');
       t = t.replace(/\s+/g, ' ').trim().toUpperCase();
+
+      // remove size tokens like 6x100, 8x105MT, 60 micras, 24KG, 50KG etc.
+      t = t.replace(/\b\d+(?:[x×]\d+)(?:[A-Z]*)?\b/gu, '');
+      t = t.replace(/\b\d+[.,]?\d*\s*(?:KG|G|GR|GRAM|M|MT|MM|MICRAS|MICRA|LT|L)\b/gu, '');
+      t = t.replace(/\b\d+\s*(?:KG|G|GR|MT|M|MM|MICRAS)\b/gu, '');
+      t = t.replace(/\b\d+[.,]?\d*\b/gu, '');
+
+      // common noise tokens
+      t = t.replace(/\bMICRAS\b/gu, '');
+      t = t.replace(/\bM2\b/gu, '');
+
+      // collapse extra spaces again
+      t = t.replace(/\s+/g, ' ').trim();
+
+      // canonicalize some product families to avoid duplicates
+      if (t.includes('LONA') && t.includes('PRETA')) return 'LONA PLASTICA PRETA';
+      if (t.includes('LONA') && (t.includes('TRANSPARENTE') || t.includes('TRANSP'))) return 'LONA PLASTICA TRANSPARENTE';
+      if (t.includes('POLYCINTA') || t.includes('POLY')) return 'POLYCINTA';
+
+      // ignore noisy items like 'ruido de freio'
+      if (/RUIDO|RU?IDO|RU
+?DO DE FREIO/i.test(t)) return '';
+
       return t;
     } catch (e) { return String(s).trim().toUpperCase(); }
   }

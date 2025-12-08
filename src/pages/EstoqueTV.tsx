@@ -44,9 +44,9 @@ export default function EstoqueTV(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
-  const [tvMode, setTvMode] = useState<boolean>(false);
+  const [tvMode, setTvMode] = useState<boolean>(true);
   const [carouselIndex, setCarouselIndex] = useState<number>(0);
-  const [showDebugGroups, setShowDebugGroups] = useState<boolean>(false);
+  
 
   // fetch data
   const fetchAll = async () => {
@@ -277,18 +277,54 @@ export default function EstoqueTV(): JSX.Element {
     } catch (e) { return String(s).trim().toUpperCase(); }
   }
 
-  // dedup suprimentos for TV view
-  const tvSuprimentos = useMemo(() => {
-    const src = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
+  // build merged groups from pecas + suprimentos (used for rendering and metrics)
+  const mergedGroups = useMemo(() => {
+    const allRows = [...(pecas || []), ...((suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []))];
     const groups = new Map<string, any[]>();
-    for (const it of (src || [])) {
+    for (const it of allRows) {
       const key = normalizeLookupName(it.nome || it.codigo_produto || '');
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(it);
     }
+
+    // If there's an empty key group, try to reassign LONA-like items to canonical keys and drop fluids
+    if (groups.has('')) {
+      const emptyList = groups.get('') || [];
+      const toKeep: any[] = [];
+      for (const it of emptyList) {
+        const up = (it.nome || '').toString().toUpperCase();
+        if (/\b(FLUIDO|FLUIDO DE FREIO|FREIO|DOT)\b/i.test(up)) {
+          // drop brake fluids from suprimentos TV view/metrics
+          continue;
+        }
+        if (up.includes('LONA') && up.includes('PRETA')) {
+          if (!groups.has('LONA PLASTICA PRETA')) groups.set('LONA PLASTICA PRETA', []);
+          groups.get('LONA PLASTICA PRETA')!.push(it);
+          continue;
+        }
+        if (up.includes('LONA') && (up.includes('TRANSPARENTE') || up.includes('TRANSP'))) {
+          if (!groups.has('LONA PLASTICA TRANSPARENTE')) groups.set('LONA PLASTICA TRANSPARENTE', []);
+          groups.get('LONA PLASTICA TRANSPARENTE')!.push(it);
+          continue;
+        }
+        toKeep.push(it);
+      }
+      if (toKeep.length > 0) groups.set('', toKeep); else groups.delete('');
+    }
+
+    return groups;
+  }, [pecas, suprimentosState, suprimentosFromHook]);
+
+  const mergedRows = useMemo(() => {
     const reps: any[] = [];
-    for (const [key, list] of groups) {
+    for (const [key, list] of mergedGroups) {
       if (!list || list.length === 0) continue;
+      // prefer a row from `pecas` if available
+      const pecaMatch = (pecas || []).find(p => normalizeLookupName(p.nome || p.codigo_produto || '') === key);
+      if (pecaMatch) {
+        reps.push(pecaMatch);
+        continue;
+      }
       list.sort((a: any, b: any) => {
         const aP = a.peca_id ? 1 : 0;
         const bP = b.peca_id ? 1 : 0;
@@ -303,36 +339,25 @@ export default function EstoqueTV(): JSX.Element {
       reps.push(list[0]);
     }
     return reps;
-  }, [suprimentosState, suprimentosFromHook]);
+  }, [mergedGroups, pecas]);
 
-  // filter tvSuprimentos to only those that have a matching peca (avoid showing standalone items like 'FLUIDO DE FREIO' if not in pecas)
-  const tvSuprimentosFiltered = useMemo(() => {
-    try {
-      const pecaKeys = new Set<string>();
-      for (const p of (pecas || [])) {
-        const k = normalizeLookupName(p.nome || p.codigo_produto || '');
-        if (k) pecaKeys.add(k);
-      }
-      // If no pecas, fallback to original tvSuprimentos
-      if (pecaKeys.size === 0) return tvSuprimentos;
-      return tvSuprimentos.filter((s: any) => {
-        const k = normalizeLookupName(s.nome || s.codigo_produto || '');
-        return pecaKeys.has(k);
-      });
-    } catch (e) { return tvSuprimentos; }
-  }, [tvSuprimentos, pecas]);
-
-  // debug groups for inspection when troubleshooting duplicates
-  const tvGroupsDebug = useMemo(() => {
-    const src = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
-    const groups = new Map<string, any[]>();
-    for (const it of (src || [])) {
-      const key = normalizeLookupName(it.nome || it.codigo_produto || '');
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(it);
+  // tvRenderRows: only products that exist both in suprimentos and pecas
+  const tvRenderRows = useMemo(() => {
+    const pecaKeys = new Set<string>();
+    for (const p of (pecas || [])) pecaKeys.add(normalizeLookupName(p.nome || p.codigo_produto || ''));
+    const suprKeys = new Set<string>();
+    for (const s of ((suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []))) suprKeys.add(normalizeLookupName(s.nome || s.codigo_produto || ''));
+    const rows: any[] = [];
+    for (const r of mergedRows) {
+      const key = normalizeLookupName(r.nome || r.codigo_produto || '');
+      if (!key) continue;
+      if (!pecaKeys.has(key)) continue;
+      if (!suprKeys.has(key)) continue;
+      if (/\b(FLUIDO|FREIO|DOT)\b/i.test((r.nome || '').toString())) continue; // extra safety
+      rows.push(r);
     }
-    return groups;
-  }, [suprimentosState, suprimentosFromHook]);
+    return rows;
+  }, [mergedRows, pecas, suprimentosState, suprimentosFromHook]);
 
   // TV mode helpers
   const toggleFullscreen = async () => {
@@ -467,12 +492,11 @@ export default function EstoqueTV(): JSX.Element {
                   <div>
                     <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
                     <div className="mb-3 flex items-center gap-3">
-                      <button onClick={() => setShowDebugGroups(s => !s)} className="px-3 py-1 bg-gray-700 text-white rounded text-sm">{showDebugGroups ? 'Ocultar debug' : 'Mostrar debug'}</button>
                       <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
                     </div>
                     <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                      {tvSuprimentosFiltered && tvSuprimentosFiltered.length ? (
-                        tvSuprimentosFiltered.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={tvMode} />)
+                      {tvRenderRows && tvRenderRows.length ? (
+                        tvRenderRows.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={tvMode} />)
                       ) : (
                         <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
                       )}

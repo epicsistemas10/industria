@@ -164,16 +164,7 @@ export default function EstoqueTV(): JSX.Element {
     return reps;
   }, [pecas, suprimentosState, suprimentosFromHook]);
 
-  const metrics = useMemo(() => {
-    // Use suprimentos representatives for metrics so TV matches Suprimentos page
-    return metricsFromSuprimentos;
-  }, [mergedRows]);
-
-  // computed alert list (merge pecas + suprimentos by name/code for listing alerts)
-  const alertItems = useMemo(() => {
-    // Use alerts computed from suprimentos representatives so TV matches Suprimentos page
-    return alertItemsFromSuprimentos;
-  }, [alertItemsFromSuprimentos]);
+  // metrics and alerts will be computed from suprimentos representatives below
 
   // helpers
   const fmt = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString('pt-BR'));
@@ -395,6 +386,10 @@ export default function EstoqueTV(): JSX.Element {
     });
     return out;
   }, [tvRenderRowsFromSuprimentos]);
+
+  // Alias metrics and alert items to the values computed from suprimentos representatives
+  const metrics = metricsFromSuprimentos;
+  const alertItems = alertItemsFromSuprimentos;
 
   // TV mode helpers
   const toggleFullscreen = async () => {

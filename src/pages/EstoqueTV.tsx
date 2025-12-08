@@ -502,19 +502,7 @@ export default function EstoqueTV(): JSX.Element {
                       )}
                     </div>
 
-                    {showDebugGroups && (
-                      <div className="mt-4 p-3 bg-black/30 rounded text-sm text-slate-200">
-                        <h3 className="font-bold mb-2">Debug — grupos normalizados</h3>
-                        {[...tvGroupsDebug.entries()].map(([k, list]) => (
-                          <div key={k} className="mb-2">
-                            <div className="text-xs text-slate-400">Key: <code className="text-white">{k || '(vazio)'}</code> — count: {list.length}</div>
-                            <ul className="list-disc ml-5 text-sm">
-                              {list.map((it: any) => <li key={it.id || (it.nome + Math.random())}>{it.nome || it.codigo_produto || JSON.stringify(it)}</li>)}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    
                   </div>
                 </div>
               </div>

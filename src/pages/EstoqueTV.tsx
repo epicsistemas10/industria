@@ -315,7 +315,7 @@ export default function EstoqueTV(): JSX.Element {
     return groups;
   }, [pecas, suprimentosState, suprimentosFromHook]);
 
-  const mergedRows = useMemo(() => {
+  const mergedRowsFromGroups = useMemo(() => {
     const reps: any[] = [];
     for (const [key, list] of mergedGroups) {
       if (!list || list.length === 0) continue;
@@ -348,7 +348,7 @@ export default function EstoqueTV(): JSX.Element {
     const suprKeys = new Set<string>();
     for (const s of ((suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []))) suprKeys.add(normalizeLookupName(s.nome || s.codigo_produto || ''));
     const rows: any[] = [];
-    for (const r of mergedRows) {
+    for (const r of mergedRowsFromGroups) {
       const key = normalizeLookupName(r.nome || r.codigo_produto || '');
       if (!key) continue;
       if (!pecaKeys.has(key)) continue;
@@ -357,7 +357,7 @@ export default function EstoqueTV(): JSX.Element {
       rows.push(r);
     }
     return rows;
-  }, [mergedRows, pecas, suprimentosState, suprimentosFromHook]);
+  }, [mergedRowsFromGroups, pecas, suprimentosState, suprimentosFromHook]);
 
   // TV mode helpers
   const toggleFullscreen = async () => {

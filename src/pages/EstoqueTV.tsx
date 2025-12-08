@@ -252,6 +252,23 @@ export default function EstoqueTV(): JSX.Element {
     return reps;
   }, [suprimentosState, suprimentosFromHook]);
 
+  // filter tvSuprimentos to only those that have a matching peca (avoid showing standalone items like 'FLUIDO DE FREIO' if not in pecas)
+  const tvSuprimentosFiltered = useMemo(() => {
+    try {
+      const pecaKeys = new Set<string>();
+      for (const p of (pecas || [])) {
+        const k = normalizeLookupName(p.nome || p.codigo_produto || '');
+        if (k) pecaKeys.add(k);
+      }
+      // If no pecas, fallback to original tvSuprimentos
+      if (pecaKeys.size === 0) return tvSuprimentos;
+      return tvSuprimentos.filter((s: any) => {
+        const k = normalizeLookupName(s.nome || s.codigo_produto || '');
+        return pecaKeys.has(k);
+      });
+    } catch (e) { return tvSuprimentos; }
+  }, [tvSuprimentos, pecas]);
+
   // debug groups for inspection when troubleshooting duplicates
   const tvGroupsDebug = useMemo(() => {
     const src = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
@@ -401,8 +418,8 @@ export default function EstoqueTV(): JSX.Element {
                       <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
                     </div>
                     <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                      {tvSuprimentos && tvSuprimentos.length ? (
-                        tvSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} />)
+                      {tvSuprimentosFiltered && tvSuprimentosFiltered.length ? (
+                        tvSuprimentosFiltered.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={tvMode} />)
                       ) : (
                         <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
                       )}

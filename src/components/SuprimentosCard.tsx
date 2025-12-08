@@ -6,12 +6,13 @@ interface Props {
   onDelete?: (id: string) => Promise<void>;
   isDuplicate?: boolean;
   as?: 'card' | 'row';
+  initialExpanded?: boolean;
 }
 
 const PRODUCTION_PER_DAY = 1000; // fardos/dia
 
-export default function SuprimentosCard({ item, onUpdate, onDelete, isDuplicate, as = 'card' }: Props) {
-  const [isExpanded, setIsExpanded] = useState(false);
+export default function SuprimentosCard({ item, onUpdate, onDelete, isDuplicate, as = 'card', initialExpanded }: Props) {
+  const [isExpanded, setIsExpanded] = useState<boolean>(() => Boolean(initialExpanded));
   const [minValue, setMinValue] = useState<number | null>(item?.estoque_minimo ?? null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -143,7 +144,7 @@ export default function SuprimentosCard({ item, onUpdate, onDelete, isDuplicate,
   const cardClass = 'bg-neutral-800 text-white border border-gray-700';
 
   const CardInner = ({ clone }: { clone?: boolean }) => (
-    <div className={`${cardClass} p-3 rounded-md shadow-sm break-words relative ${clone ? 'opacity-90 border-2 border-dashed' : ''} ${isExpanded ? 'h-auto' : 'h-48'} flex flex-col overflow-hidden text-sm`}>
+    <div className={`${cardClass} p-3 rounded-md shadow-sm break-words relative ${clone ? 'opacity-90 border-2 border-dashed' : ''} ${isExpanded ? 'h-auto' : 'h-48'} flex flex-col ${isExpanded ? '' : 'overflow-hidden'} text-sm`}>
       {clone && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="text-4xl font-black text-yellow-200/90 uppercase tracking-wide">DUPLICADO</div>

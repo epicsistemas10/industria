@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { formatEquipamentoName } from '../../utils/format';
 import EquipamentoName from '../../components/base/EquipamentoName';
-import EquipmentDropdown from '../../components/base/EquipmentDropdown';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
@@ -43,6 +42,7 @@ export default function PlanejamentoPage() {
   const [loading, setLoading] = useState(true);
   const [atividades, setAtividades] = useState<AtividadePlanejada[]>([]);
   const [equipamentos, setEquipamentos] = useState<Equipamento[]>([]);
+  const [equipLineFilter, setEquipLineFilter] = useState<'all' | 'linha1' | 'linha2' | 'iba'>('all');
   const [equipes, setEquipes] = useState<Equipe[]>([]);
   const [semanaAtual, setSemanaAtual] = useState(0);
   const [showModal, setShowModal] = useState(false);
@@ -53,7 +53,6 @@ export default function PlanejamentoPage() {
     equipe_id: '',
     observacoes: ''
   });
-  const [equipLineFilter, setEquipLineFilter] = useState<'all' | 'linha1' | 'linha2' | 'iba'>('all');
 
   const diasSemana = [
     { numero: 1, nome: 'Segunda-feira', abrev: 'SEG' },
@@ -91,9 +90,12 @@ export default function PlanejamentoPage() {
         .select(`
           id,
           nome,
-          codigo_interno,
-          numero,
+          ind,
           linha_setor,
+          linha,
+          linha1,
+          linha2,
+          iba,
           equipamento_servicos (
             id,
             nome,
@@ -103,29 +105,65 @@ export default function PlanejamentoPage() {
         `)
         .order('nome');
 
+      console.log('loadEquipamentos response - error:', error, 'data length:', data?.length ?? 0);
+
       if (!error && data) {
-        setEquipamentos(data.map((eq: any) => {
-          // map database fields to the keys used by the dropdown/format
-          const linhaRaw = eq.linha_setor || '';
-          const linhaParts = linhaRaw ? linhaRaw.split(/[\/\-\|,]+/).map((p: string) => p.trim()).filter(Boolean) : [];
-          return {
-            id: eq.id,
-            nome: eq.nome,
-            numero: eq.numero ?? eq.numero_equipamento ?? eq.numero_eq,
-            ind: eq.codigo_interno ?? eq.ind ?? eq.codigo_interno,
-            linha1: linhaParts[0] || undefined,
-            linha2: linhaParts[1] || undefined,
-            iba: eq.iba,
-            rawLinha: eq.linha_setor || eq.linha || '',
-            servicos: (eq.equipamento_servicos || [])
-              .sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0))
-              .map((s: any) => ({
-                id: s.id,
-                nome: s.nome,
-                percentual_revisao: s.percentual_revisao
-              }))
-          };
+        const mapped = data.map((eq: any) => ({
+          id: eq.id,
+          nome: eq.nome,
+          ind: eq.ind || eq.codigo_interno || eq.codigoInterno,
+          codigo_interno: eq.codigo_interno || eq.codigoInterno,
+          linha_setor: eq.linha_setor || eq.linha || eq.linha1 || '',
+          linha1: eq.linha1,
+          linha2: eq.linha2,
+          iba: eq.iba,
+          servicos: (eq.equipamento_servicos || [])
+            .slice()
+            .sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0))
+            .map((s: any) => ({ id: s.id, nome: s.nome, percentual_revisao: s.percentual_revisao }))
         }));
+
+        console.log('mapped equipamentos:', mapped.length, mapped.slice(0, 5));
+        console.log('mapped equipamentos sample JSON:', JSON.stringify(mapped.slice(0,5), null, 2));
+        setEquipamentos(mapped);
+      } else {
+        console.error('Supabase error loading equipamentos:', error);
+
+        // Fallback: try a more permissive select in case some columns do not exist
+        try {
+          const fallback = await supabase
+            .from('equipamentos')
+            .select('*, equipamento_servicos(*)')
+            .order('nome');
+
+          console.log('loadEquipamentos fallback - error:', fallback.error, 'data length:', fallback.data?.length ?? 0);
+
+          if (!fallback.error && fallback.data) {
+            const mappedFb = fallback.data.map((eq: any) => ({
+              id: eq.id,
+              nome: eq.nome,
+              ind: eq.ind,
+              codigo_interno: eq.codigo_interno || eq.codigoInterno,
+              linha_setor: eq.linha_setor || eq.linha || eq.linha1 || '',
+              linha1: eq.linha1,
+              linha2: eq.linha2,
+              iba: eq.iba,
+              servicos: (eq.equipamento_servicos || [])
+                .slice()
+                .sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0))
+                .map((s: any) => ({ id: s.id, nome: s.nome, percentual_revisao: s.percentual_revisao }))
+            }));
+
+            console.log('mapped equipamentos (fallback):', mappedFb.length, mappedFb.slice(0, 5));
+            console.log('mapped equipamentos (fallback) sample fields:', mappedFb.slice(0,5).map((e:any)=>({ id: e.id, nome: e.nome, ind: e.ind, codigo_interno: e.codigo_interno || e.codigoInterno })));
+            console.log('mapped equipamentos (fallback) JSON:', JSON.stringify(mappedFb.slice(0,5), null, 2));
+            setEquipamentos(mappedFb);
+          } else {
+            console.error('Fallback also failed loading equipamentos:', fallback.error);
+          }
+        } catch (fbErr) {
+          console.error('Erro no fallback loadEquipamentos:', fbErr);
+        }
       }
     } catch (error) {
       console.error('Erro ao carregar equipamentos:', error);
@@ -184,42 +222,17 @@ export default function PlanejamentoPage() {
 
   const handleDiaClick = (dia: number) => {
     setDiaSelecionado(dia);
-    // DEBUG: log equipments and current filter to help diagnose missing IND/linhas
-    try {
-      const rawList = equipamentos || [];
-      const sample = rawList.slice(0, 10).map((eq: any) => ({ id: eq.id, nome: eq.nome, ind: eq.ind, linha1: eq.linha1, linha2: eq.linha2, iba: eq.iba, rawLinha: eq.rawLinha }));
-      console.log('[Planejamento] opening modal — equipamentos sample:', sample);
-      const rawFiltered = rawList.filter((eq: any) => {
-        const filter = equipLineFilter;
-        if (filter === 'all') return true;
-        const raw = (eq.rawLinha || '').toString().toLowerCase();
-        if (filter === 'linha1') return Boolean(eq.linha1) || raw.includes('1') || raw.includes('linha 1') || raw.includes('l1');
-        if (filter === 'linha2') return Boolean(eq.linha2) || raw.includes('2') || raw.includes('linha 2') || raw.includes('l2');
-        if (filter === 'iba') return Boolean(eq.iba) || raw.includes('iba');
-        return true;
-      }).slice(0, 20).map((eq: any) => ({ id: eq.id, nome: eq.nome, rawLinha: eq.rawLinha, linha1: eq.linha1, linha2: eq.linha2, iba: eq.iba }));
-      console.log('[Planejamento] filteredEquipamentos sample for filter', equipLineFilter, ':', rawFiltered);
-    } catch (e) {
-      console.warn('Error logging equipments debug info', e);
-    }
-
     setShowModal(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      // Se o usuário escolheu aplicar a todos os serviços, criamos uma
-      // entrada por serviço do equipamento.
-      if (formData.servico_id === '__ALL_SERVICOS__') {
-        if (!equipamentoSelecionado || !equipamentoSelecionado.servicos || equipamentoSelecionado.servicos.length === 0) {
-          alert('Este equipamento não possui serviços para aplicar.');
-          return;
-        }
-
-        const inserts = equipamentoSelecionado.servicos.map(s => ({
+      const { error } = await supabase
+        .from('planejamento_semana')
+        .insert([{
           equipamento_id: formData.equipamento_id,
-          servico_id: s.id,
+          servico_id: formData.servico_id,
           equipe_id: formData.equipe_id,
           dia_semana: diaSelecionado,
           semana: semanaAtual,
@@ -227,30 +240,9 @@ export default function PlanejamentoPage() {
           concluido: false,
           observacoes: formData.observacoes,
           created_at: new Date().toISOString()
-        }));
+        }]);
 
-        const { error } = await supabase
-          .from('planejamento_semana')
-          .insert(inserts);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('planejamento_semana')
-          .insert([{
-            equipamento_id: formData.equipamento_id,
-            servico_id: formData.servico_id,
-            equipe_id: formData.equipe_id,
-            dia_semana: diaSelecionado,
-            semana: semanaAtual,
-            status: 'planejado',
-            concluido: false,
-            observacoes: formData.observacoes,
-            created_at: new Date().toISOString()
-          }]);
-
-        if (error) throw error;
-      }
+      if (error) throw error;
 
       setShowModal(false);
       setFormData({
@@ -304,18 +296,12 @@ export default function PlanejamentoPage() {
   };
 
   const equipamentoSelecionado = equipamentos.find(eq => eq.id === formData.equipamento_id);
-  const filteredEquipamentos = equipamentos.filter(eq => {
+  const filteredEquipamentos = equipamentos.filter((eq: any) => {
     if (equipLineFilter === 'all') return true;
-    const raw = (eq.rawLinha || '').toString().toLowerCase();
-    if (equipLineFilter === 'linha1') {
-      return Boolean(eq.linha1) || raw.includes('1') || raw.includes('linha 1') || raw.includes('l1');
-    }
-    if (equipLineFilter === 'linha2') {
-      return Boolean(eq.linha2) || raw.includes('2') || raw.includes('linha 2') || raw.includes('l2');
-    }
-    if (equipLineFilter === 'iba') {
-      return Boolean(eq.iba) || raw.includes('iba');
-    }
+    const raw = ((eq.linha_setor || eq.linha || eq.linha1 || eq.linha2 || eq.iba) || '').toString().toLowerCase();
+    if (equipLineFilter === 'iba') return raw.includes('iba');
+    if (equipLineFilter === 'linha1') return raw.includes('linha 1') || raw.includes('linha1') || raw.includes('1');
+    if (equipLineFilter === 'linha2') return raw.includes('linha 2') || raw.includes('linha2') || raw.includes('2');
     return true;
   });
 
@@ -538,13 +524,19 @@ export default function PlanejamentoPage() {
                     IBA
                   </button>
                 </div>
-                <EquipmentDropdown
-                  equipamentos={filteredEquipamentos}
+                <select
                   value={formData.equipamento_id}
-                  onChange={(id) => setFormData({ ...formData, equipamento_id: id, servico_id: '' })}
-                  placeholder="Selecione um equipamento"
-                  darkMode={darkMode}
-                />
+                  onChange={(e) => setFormData({ ...formData, equipamento_id: e.target.value, servico_id: '' })}
+                  className={`w-full px-4 py-3 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-blue-500 outline-none pr-8`}
+                  required
+                >
+                  <option value="">Selecione um equipamento</option>
+                  {filteredEquipamentos.map((eq: any) => (
+                    <option key={eq.id} value={eq.id}>
+                      {eq.ind || eq.codigo_interno || eq.codigoInterno ? `[${eq.ind || eq.codigo_interno || eq.codigoInterno}] ${eq.nome}` : formatEquipamentoName(eq)}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {equipamentoSelecionado && equipamentoSelecionado.servicos && equipamentoSelecionado.servicos.length > 0 && (
@@ -559,9 +551,6 @@ export default function PlanejamentoPage() {
                     required
                   >
                     <option value="">Selecione um serviço</option>
-                    {equipamentoSelecionado.servicos.length > 1 && (
-                      <option value="__ALL_SERVICOS__">-- Todos os serviços deste equipamento --</option>
-                    )}
                     {equipamentoSelecionado.servicos.map(servico => (
                       <option key={servico.id} value={servico.id}>
                         {servico.nome} ({servico.percentual_revisao}% da revisão)

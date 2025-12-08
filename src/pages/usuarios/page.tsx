@@ -125,6 +125,11 @@ export default function UsuariosPage() {
     e.preventDefault();
 
     try {
+      // Validate required fields client-side: when creating a new user, senha is required
+      if (!editingUser && !formData.senha) {
+        alert('Senha é obrigatória ao criar um novo usuário.');
+        return;
+      }
       // Helper that attempts an insert/update and, on PGRST204 complaining about a missing
       // column (e.g. "Could not find the 'departamento' column ..."), removes that key
       // from the payload and retries — up to a few attempts. This avoids failing when the
@@ -160,6 +165,10 @@ export default function UsuariosPage() {
                 continue;
               }
             }
+            // If DB complains about NOT NULL constraint on senha_hash, surface a helpful error
+            if (err?.code === '23502' && msg.includes('senha_hash')) {
+              throw new Error('A coluna senha_hash é obrigatória no banco. Crie o usuário via sistema de autenticação (signUp) ou forneça uma senha antes de inserir o perfil.');
+            }
             // other errors: rethrow
             throw err;
           }
@@ -190,28 +199,48 @@ export default function UsuariosPage() {
         };
 
         if (formData.senha) {
+          // If a password was provided, call server-side admin endpoint that creates
+          // the auth user (using service_role) and inserts the profile atomically.
           try {
-            const { data: signData, error: signError } = await supabase.auth.signUp({
-              email: formData.email,
-              password: formData.senha
+            const resp = await fetch('/api/create-user', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                nome: formData.nome,
+                email: formData.email,
+                password: formData.senha,
+                cargo: formData.cargo,
+                telefone: formData.telefone,
+                departamento: formData.departamento,
+                perfil: 'tecnico',
+                ativo: formData.ativo
+              })
             });
-            if (signError) {
-              // If signUp fails, surface the error to the caller
-              throw signError;
+
+            // Be defensive when parsing response: the server may return empty body (204) or
+            // an error body that is not valid JSON. Read text and try to parse JSON.
+            const text = await resp.text();
+            let j: any = null;
+            try {
+              j = text ? JSON.parse(text) : null;
+            } catch (parseErr) {
+              j = { error: text || 'Invalid JSON response from admin API' };
             }
-            // If the auth user was created and an id is available, prefer to set it
-            // on the profile to keep records linked (if the `usuarios` table uses
-            // the auth UID as PK). If not, insertion by email will still work.
-            const authId = (signData as any)?.user?.id;
-            if (authId) payload.id = authId;
+
+            if (!resp.ok) {
+              console.error('Erro admin-create-user:', j);
+              throw new Error(j?.error || 'Erro ao criar usuário via admin API');
+            }
+
+            // Profile already created server-side; nothing else to do here.
           } catch (authErr) {
-            console.error('Erro ao criar usuário de autenticação:', authErr);
+            console.error('Erro ao criar usuário de autenticação via admin API:', authErr);
             throw authErr;
           }
+        } else {
+          // Insert profile without senha field
+          await tryWrite({ type: 'insert', payload });
         }
-
-        // Insert profile without senha field
-        await tryWrite({ type: 'insert', payload });
       }
 
       setShowModal(false);

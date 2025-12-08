@@ -60,7 +60,6 @@ create table if not exists mapa_hotspots (
   descricao text,
   created_at timestamptz default now()
 );
-
 -- Ordens de manutencao
 create table if not exists manutencoes (
   id uuid default gen_random_uuid() primary key,

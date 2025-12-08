@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { usePecas } from '../../hooks/usePecas';
 import { storageAPI } from '../../lib/storage';
 import { useToast } from '../../hooks/useToast';
+import rawGroupMapping from '../../data/group-mapping.json';
 
 interface PecaModalProps {
   isOpen: boolean;
@@ -15,24 +16,88 @@ interface PecaModalProps {
 export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode = true }: PecaModalProps) {
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<any>({
     nome: '',
     codigo_interno: '',
     marca: '',
     fabricante: '',
     componente_id: '',
     estoque_minimo: 0,
+    quantidade: 0,
+    grupo_produto: '',
+    codigo_produto: '',
+    unidade_medida: '',
     fornecedor: '',
     preco_unitario: 0,
     foto_url: ''
   });
+  const [unitSuggestions, setUnitSuggestions] = useState<string[]>([]);
+  const [groupSuggestions, setGroupSuggestions] = useState<string[]>([]);
+  const [duplicateFound, setDuplicateFound] = useState<{ id: string; nome?: string } | null>(null);
+  const { data: pecasList = [] } = usePecas();
+  const [changedFields, setChangedFields] = useState<Record<string, boolean>>({});
+
+  // build mapping maps for quick lookup: code -> name, name -> code
+  const mappingArray: Array<{ codigo: string; grupo: string }> = Array.isArray(rawGroupMapping) ? rawGroupMapping : [];
+  const codeToName = new Map<string, string>(mappingArray.map(m => [m.codigo, m.grupo]));
+  const nameToCode = new Map<string, string>(mappingArray.map(m => [m.grupo, m.codigo]));
 
   useEffect(() => {
     if (isOpen) {
       if (pecaId) loadPeca();
       else resetForm();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, pecaId]);
+
+  useEffect(() => {
+    // load distinct grupo_produto suggestions
+    const loadGroups = async () => {
+      try {
+        const { data, error } = await supabase.from('pecas').select('grupo_produto').not('grupo_produto', 'is', null).range(0, 19999);
+        if (error) console.warn('PecaModal: loadGroups supabase error', error);
+          if (!error && Array.isArray(data) && data.length > 0) {
+          // map any existing stored codes to their friendly names when possible
+          const uniq = Array.from(new Set(data.map((r: any) => (r.grupo_produto || '').toString()).filter(Boolean)));
+          const uniqNames = uniq.map(v => codeToName.get(v) ?? v);
+          const mappingNames = mappingArray.map(m => m.grupo).filter(Boolean);
+          const merged = Array.from(new Set([...uniqNames, ...mappingNames]));
+          setGroupSuggestions(merged);
+          console.info('PecaModal: loaded group suggestions count=', merged.length);
+          return;
+        }
+        // fallback: derive from client-side pecas cache if available
+        try {
+          if (Array.isArray(pecasList) && pecasList.length > 0) {
+            const uniq2 = Array.from(new Set(pecasList.map((r: any) => (r.grupo_produto || '').toString()).filter(Boolean)));
+            const uniq2Names = uniq2.map(v => codeToName.get(v) ?? v);
+            const mappingNames2 = mappingArray.map(m => m.grupo).filter(Boolean);
+            const merged2 = Array.from(new Set([...uniq2Names, ...mappingNames2]));
+            setGroupSuggestions(merged2);
+            console.info('PecaModal: fallback group suggestions from usePecas count=', merged2.length);
+            return;
+          }
+        } catch (e) {
+          console.warn('PecaModal: fallback deriving groups error', e);
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+    const loadUnits = async () => {
+      try {
+        const { data, error } = await supabase.from('pecas').select('unidade_medida').not('unidade_medida', 'is', null).range(0, 19999);
+        if (!error && Array.isArray(data)) {
+          const uniq = Array.from(new Set(data.map((r: any) => (r.unidade_medida || '').toString()).filter(Boolean)));
+          setUnitSuggestions(uniq);
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+    if (isOpen) loadGroups();
+    if (isOpen) loadUnits();
+  }, [isOpen]);
 
   const { success, error: showError } = useToast();
 
@@ -44,15 +109,22 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
       if (error) throw error;
       setFormData({
         nome: data.nome || '',
+        // show friendly group name when we have a mapping, otherwise preserve stored value
+        grupo_produto: data.grupo_produto != null ? (codeToName.get(data.grupo_produto) ?? data.grupo_produto) : null,
         codigo_interno: data.codigo_interno || '',
+        codigo_produto: data.codigo_produto || '',
         marca: data.marca || '',
         fabricante: data.fabricante || '',
         componente_id: data.componente_id || '',
-        estoque_minimo: data.estoque_minimo ?? 0,
+        estoque_minimo: data.estoque_minimo ?? null,
+        quantidade: data.saldo_estoque != null ? Number(data.saldo_estoque) : (data.quantidade != null ? Number(data.quantidade) : null),
+        unidade_medida: data.unidade_medida || data.unidade || '',
         fornecedor: data.fornecedor || '',
-        preco_unitario: data.preco_unitario || 0,
+        preco_unitario: data.preco_unitario ?? data.valor_unitario ?? null,
         foto_url: data.foto_url || ''
       });
+      // reset changed fields
+      setChangedFields({});
     } catch (err) {
       console.error('Erro ao carregar peça:', err);
     } finally {
@@ -60,44 +132,183 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     }
   };
 
-  const resetForm = () => setFormData({ nome: '', codigo_interno: '', marca: '', fabricante: '', componente_id: '', estoque_minimo: 0, fornecedor: '', preco_unitario: 0, foto_url: '' });
+  const resetForm = () => setFormData({ nome: '', codigo_interno: '', marca: '', fabricante: '', componente_id: '', grupo_produto: '', estoque_minimo: 0, quantidade: 0, unidade_medida: '', fornecedor: '', preco_unitario: 0, foto_url: '' });
+  
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      setLoading(true);
-      // Build payload mapping to actual DB columns in `pecas` table to avoid PostgREST 400 errors
+    setLoading(true);
+    // Build payload differently for update vs insert.
+    const basePayload: any = { nome: formData.nome };
+    const trySave = async (operation: 'update' | 'insert', initialPayload: any) => {
+      const maxRetries = 6;
+      let attempt = 0;
+      let currentPayload = { ...initialPayload };
+      while (attempt < maxRetries) {
+        attempt++;
+        try {
+          if (operation === 'update') {
+            const { error } = await supabase.from('pecas').update(currentPayload).eq('id', pecaId);
+            if (error) throw error;
+            return;
+          } else {
+            const { data, error } = await supabase.from('pecas').insert(currentPayload).select().single();
+            if (error) throw error;
+            return;
+          }
+        } catch (err: any) {
+          // try to detect PostgREST missing-column errors in different formats
+          const msg = (err && (err.message || '')).toString();
+          // pattern: Could not find the 'X' column
+          let m = msg.match(/Could not find the '(.+?)' column/);
+          // pattern: column pecas.X does not exist
+          if (!m) m = msg.match(/column\s+(?:[\w\"]+\.)?\"?([\w_]+)\"?\s+does not exist/i);
+          // also check for error.code === '42703' and try to extract from message
+          const col = m ? m[1] : (err && err.code === '42703' ? (msg.match(/\"?([\w_]+)\"?/) || [])[1] : null);
+          if (col && Object.prototype.hasOwnProperty.call(currentPayload, col)) {
+            delete currentPayload[col];
+            continue;
+          }
+          throw err;
+        }
+      }
+      throw new Error('Máximo de tentativas excedido ao tentar salvar peça');
+    };
+    if (!pecaId) {
+      // Insert: include sensible defaults
+      // convert displayed group name back to stored code when possible
+      const normalizedGroupForInsert = formData.grupo_produto && nameToCode.has(formData.grupo_produto) ? nameToCode.get(formData.grupo_produto) : formData.grupo_produto;
       const payload: any = {
         componente_id: formData.componente_id || null,
+        grupo_produto: normalizedGroupForInsert || null,
         nome: formData.nome,
-        // map 'fabricante' -> 'codigo_fabricante' (DB column)
+        codigo_produto: formData.codigo_produto || null,
         codigo_fabricante: formData.fabricante || null,
-        // map 'preco_unitario' -> 'custo_medio'
-        custo_medio: formData.preco_unitario ? Number(formData.preco_unitario) : null,
-        valor_unitario: formData.preco_unitario ? Number(formData.preco_unitario) : null,
-        saldo_estoque: 0,
+        custo_medio: formData.preco_unitario != null ? Number(formData.preco_unitario) : null,
+        valor_unitario: formData.preco_unitario != null ? Number(formData.preco_unitario) : null,
+        saldo_estoque: formData.quantidade != null ? Number(formData.quantidade) : 0,
+        quantidade: formData.quantidade != null ? Number(formData.quantidade) : 0,
+        unidade_medida: formData.unidade_medida || null,
         estoque_minimo: formData.estoque_minimo != null ? Number(formData.estoque_minimo) : null,
-        // map 'foto_url' -> 'foto'
         foto: formData.foto_url || null,
-        // map 'fornecedor' -> 'observacoes' (best-fit)
+        foto_url: formData.foto_url || null,
         observacoes: formData.fornecedor || null
       };
-
-      if (pecaId) {
-        const { error } = await supabase.from('pecas').update(payload).eq('id', pecaId).select();
-        if (error) throw error;
-        success('Peça atualizada');
-      } else {
-        const { data, error } = await supabase.from('pecas').insert(payload).select().single();
-        if (error) throw error;
-        // ensure we have the created row
+      // proceed to insert
+      try {
+        // Pre-insert duplicate check by codigo_produto to give immediate feedback
+        if (payload.codigo_produto) {
+          try {
+            const { data: existing, error: dupErr } = await supabase.from('pecas').select('id,nome').eq('codigo_produto', payload.codigo_produto).limit(1);
+            if (!dupErr && Array.isArray(existing) && existing.length > 0) {
+              const ex = existing[0];
+              setDuplicateFound({ id: ex.id, nome: ex.nome });
+              try { document.dispatchEvent(new CustomEvent('pecas-focus', { detail: { id: ex.id, codigo: payload.codigo_produto || payload.codigo_interno || payload.nome } })); } catch (e) { /* ignore */ }
+              showError('Código do produto já existe em outra peça. Você pode abrir o registro existente.');
+              setLoading(false);
+              return;
+            }
+          } catch (e) {
+            // ignore lookup failures and continue to attempt insert
+          }
+        }
+        await trySave('insert', payload);
         success('Peça criada');
+        // notify pages/components to refresh peças list in case parent handler didn't propagate
+        try { document.dispatchEvent(new CustomEvent('pecas-refresh')); } catch (e) { /* ignore */ }
+        try { if (onSuccess) await onSuccess(); } catch (e) { /* ignore */ }
+        onClose();
+      } catch (err: any) {
+        console.error('Erro ao salvar peça:', err);
+        if (err && (err.code === '23505' || (err.error && err.error.code === '23505'))) {
+          // duplicate key: try to fetch the existing record to help the user
+          try {
+            if (payload && payload.codigo_produto) {
+              const { data: existing2, error: e2 } = await supabase.from('pecas').select('id,nome').eq('codigo_produto', payload.codigo_produto).limit(1);
+              if (!e2 && Array.isArray(existing2) && existing2.length > 0) {
+                const ex2 = existing2[0];
+                setDuplicateFound({ id: ex2.id, nome: ex2.nome });
+                try { document.dispatchEvent(new CustomEvent('pecas-focus', { detail: { id: ex2.id, codigo: payload.codigo_produto || payload.codigo_interno || payload.nome } })); } catch (e) { /* ignore */ }
+                showError('Código do produto já existe em outra peça. Você pode abrir o registro existente.');
+                setLoading(false);
+                return;
+              }
+            }
+          } catch (e) {
+            // ignore
+          }
+          showError('Código do produto já existe em outra peça. Escolha outro código.');
+        } else {
+          showError('Erro ao salvar peça');
+        }
+      } finally {
+        setLoading(false);
       }
-      onSuccess();
-      onClose();
-    } catch (err) {
+      return;
+    }
+    // Update: include only fields the user actually changed to avoid accidental overwrites
+    const payload: any = {};
+    if (changedFields['componente_id']) payload.componente_id = formData.componente_id || null;
+    if (changedFields['grupo_produto']) {
+      const normalized = formData.grupo_produto && nameToCode.has(formData.grupo_produto) ? nameToCode.get(formData.grupo_produto) : formData.grupo_produto;
+      payload.grupo_produto = normalized || null;
+    }
+    if (changedFields['codigo_produto']) payload.codigo_produto = formData.codigo_produto || null;
+    if (changedFields['codigo_fabricante']) payload.codigo_fabricante = formData.fabricante || null;
+    if (changedFields['preco_unitario']) payload.valor_unitario = formData.preco_unitario != null ? Number(formData.preco_unitario) : null;
+    if (changedFields['quantidade']) {
+      payload.saldo_estoque = formData.quantidade != null ? Number(formData.quantidade) : 0;
+      payload.quantidade = formData.quantidade != null ? Number(formData.quantidade) : 0;
+    }
+    if (changedFields['unidade_medida']) payload.unidade_medida = formData.unidade_medida || null;
+    if (changedFields['estoque_minimo']) payload.estoque_minimo = formData.estoque_minimo != null ? Number(formData.estoque_minimo) : null;
+    if (changedFields['fornecedor']) payload.observacoes = formData.fornecedor || null;
+    if (changedFields['foto_url']) {
+      payload.foto = formData.foto_url || null;
+      payload.foto_url = formData.foto_url || null;
+    }
+    // prevent duplicate codigo_produto across different records
+    try {
+      if (payload.codigo_produto) {
+        const q = supabase.from('pecas').select('id,nome').eq('codigo_produto', payload.codigo_produto);
+        if (pecaId) q.neq('id', pecaId);
+        const { data: existing, error: dupErr } = await q.limit(1);
+        if (dupErr) console.warn('Erro ao checar duplicatas de codigo_produto:', dupErr);
+        if (Array.isArray(existing) && existing.length > 0) {
+          const ex = existing[0];
+          setDuplicateFound({ id: ex.id, nome: ex.nome });
+          showError('Código do produto já existe em outra peça. Você pode abrir o registro existente.');
+          setLoading(false);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao verificar duplicatas:', e);
+    }
+
+    
+
+    try {
+      if (pecaId) {
+        if (Object.keys(payload).length === 0) {
+          // nothing changed
+          success('Nada a atualizar');
+          onClose();
+        } else {
+          await trySave('update', payload);
+          success('Peça atualizada');
+          try { document.dispatchEvent(new CustomEvent('pecas-refresh')); } catch (e) { /* ignore */ }
+          try { if (onSuccess) await onSuccess(); } catch (e) { /* ignore */ }
+          onClose();
+        }
+      }
+    } catch (err: any) {
       console.error('Erro ao salvar peça:', err);
-      showError('Erro ao salvar peça');
+      if (err && (err.code === '23505' || (err.error && err.error.code === '23505'))) {
+        showError('Código do produto já existe em outra peça. Escolha outro código.');
+      } else {
+        showError('Erro ao salvar peça');
+      }
     } finally {
       setLoading(false);
     }
@@ -109,7 +320,12 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     try {
       setUploadingImage(true);
       const publicUrl = await storageAPI.uploadImage(file, 'pecas', 'fotos');
-      setFormData({ ...formData, foto_url: publicUrl });
+      setFormData(prev => ({ ...prev, foto_url: publicUrl }));
+      if (pecaId) {
+        // Try to persist foto_url to the existing record; ignore non-fatal errors
+        await supabase.from('pecas').update({ foto: publicUrl, foto_url: publicUrl }).eq('id', pecaId);
+        success('Foto enviada');
+      }
     } catch (err) {
       console.error('Erro ao enviar imagem:', err);
       showError('Erro ao enviar imagem');
@@ -132,32 +348,67 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Nome da Peça *</label>
-              <input required value={formData.nome} onChange={(e) => setFormData({ ...formData, nome: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input required value={formData.nome} onChange={(e) => { setFormData({ ...formData, nome: e.target.value }); setChangedFields(prev => ({ ...prev, nome: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Grupo do Produto</label>
+                <input list="peca-grupos" value={formData.grupo_produto ?? ''} onChange={(e) => { setFormData({ ...formData, grupo_produto: e.target.value }); setChangedFields(prev => ({ ...prev, grupo_produto: true })); }} className="w-full px-4 py-2 rounded-lg border" />
+                <datalist id="peca-grupos">
+                  {groupSuggestions.map(g => <option key={g} value={g} />)}
+                </datalist>
+              </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Código Interno</label>
-              <input value={formData.codigo_interno} onChange={(e) => setFormData({ ...formData, codigo_interno: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input value={formData.codigo_interno} onChange={(e) => { setFormData({ ...formData, codigo_interno: e.target.value }); setChangedFields(prev => ({ ...prev, codigo_interno: true })); }} className="w-full px-4 py-2 rounded-lg border" />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Código do Produto</label>
+              <input value={formData.codigo_produto || ''} onChange={(e) => { setFormData({ ...formData, codigo_produto: e.target.value }); setChangedFields(prev => ({ ...prev, codigo_produto: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Marca</label>
-              <input value={formData.marca} onChange={(e) => setFormData({ ...formData, marca: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input value={formData.marca} onChange={(e) => { setFormData({ ...formData, marca: e.target.value }); setChangedFields(prev => ({ ...prev, marca: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Fabricante</label>
-              <input value={formData.fabricante} onChange={(e) => setFormData({ ...formData, fabricante: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input value={formData.fabricante} onChange={(e) => { setFormData({ ...formData, fabricante: e.target.value }); setChangedFields(prev => ({ ...prev, fabricante: true })); }} className="w-full px-4 py-2 rounded-lg border" />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Unidade</label>
+              <input list="peca-unidades" value={formData.unidade_medida || ''} onChange={(e) => { setFormData({ ...formData, unidade_medida: e.target.value }); setChangedFields(prev => ({ ...prev, unidade_medida: true })); }} className="w-full px-4 py-2 rounded-lg border" />
+              <datalist id="peca-unidades">
+                {unitSuggestions.map(u => <option key={u} value={u} />)}
+                <option value="un" />
+                <option value="kg" />
+                <option value="m" />
+                <option value="l" />
+              </datalist>
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Estoque Mínimo</label>
-              <input type="number" min="0" value={formData.estoque_minimo} onChange={(e) => setFormData({ ...formData, estoque_minimo: parseInt(e.target.value) || 0 })} className="w-full px-4 py-2 rounded-lg border" />
+              <input type="number" min="0" value={formData.estoque_minimo ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value); setFormData({ ...formData, estoque_minimo: v }); setChangedFields(prev => ({ ...prev, estoque_minimo: true })); }} className="w-full px-4 py-2 rounded-lg border" />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade em Estoque</label>
+              <input type="number" min="0" value={formData.quantidade ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value); setFormData({ ...formData, quantidade: v }); setChangedFields(prev => ({ ...prev, quantidade: true })); }} className="w-full px-4 py-2 rounded-lg border" />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Valor Unit.</label>
+              <input type="number" step="0.01" min="0" value={formData.preco_unitario ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseFloat(e.target.value); setFormData({ ...formData, preco_unitario: v }); setChangedFields(prev => ({ ...prev, preco_unitario: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div className="md:col-span-2">
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Fornecedor</label>
-              <input value={formData.fornecedor} onChange={(e) => setFormData({ ...formData, fornecedor: e.target.value })} className="w-full px-4 py-2 rounded-lg border" />
+              <input value={formData.fornecedor} onChange={(e) => { setFormData({ ...formData, fornecedor: e.target.value }); setChangedFields(prev => ({ ...prev, fornecedor: true })); }} className="w-full px-4 py-2 rounded-lg border" />
             </div>
 
             <div className="md:col-span-2">
@@ -172,6 +423,22 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
             </div>
           </div>
 
+          {duplicateFound && (
+            <div className="p-3 rounded bg-yellow-600 text-white flex items-center justify-between">
+              <div>
+                <div className="font-semibold">Peça existente: {duplicateFound.nome || duplicateFound.id}</div>
+                <div className="text-sm">Este código já pertence a outra peça.</div>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => {
+                  // dispatch event so parent page can open the existing piece
+                  window.dispatchEvent(new CustomEvent('open-peca', { detail: { id: duplicateFound.id } }));
+                }} className="px-4 py-2 bg-white text-black rounded">Abrir peça existente</button>
+                <button type="button" onClick={() => setDuplicateFound(null)} className="px-4 py-2 bg-gray-200 text-black rounded">Ignorar</button>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} disabled={loading} className="flex-1 px-6 py-3 rounded-lg bg-gray-200">Cancelar</button>
             <button type="submit" disabled={loading} className="flex-1 px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-lg">{loading ? 'Salvando...' : pecaId ? 'Atualizar' : 'Criar'}</button>
@@ -181,3 +448,4 @@ export default function PecaModal({ isOpen, onClose, onSuccess, pecaId, darkMode
     </div>
   );
 }
+

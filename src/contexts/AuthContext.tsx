@@ -23,37 +23,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     console.log('🔵 AuthProvider: Verificando sessão...');
-    
+    // Defensive checks: if Supabase isn't configured (e.g. missing VITE_ envs)
+    // the exported `supabase` may be a proxy that does not implement the
+    // expected auth methods. Guarding prevents runtime TypeErrors in prod.
+    const authObj: any = (supabase as any)?.auth;
+    if (!authObj || typeof authObj.getSession !== 'function') {
+      console.error('❌ Supabase auth não disponível. Verifique as variáveis de ambiente VITE_PUBLIC_SUPABASE_*');
+      setLoading(false);
+      return undefined;
+    }
+
     // Verificar sessão atual
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    authObj.getSession().then(({ data: { session } }: any) => {
       console.log('📊 Sessão obtida:', session ? 'Autenticado' : 'Não autenticado');
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
-    }).catch((error) => {
+    }).catch((error: any) => {
       console.error('❌ Erro ao obter sessão:', error);
       setLoading(false);
     });
 
-    // Escutar mudanças de autenticação
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log('🔄 Auth state changed:', _event, session ? 'Autenticado' : 'Não autenticado');
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    // Escutar mudanças de autenticação se disponível
+    let unsubscribe: (() => void) | undefined;
+    if (typeof authObj.onAuthStateChange === 'function') {
+      const { data }: any = authObj.onAuthStateChange((_event: any, session: any) => {
+        console.log('🔄 Auth state changed:', _event, session ? 'Autenticado' : 'Não autenticado');
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+      });
+      unsubscribe = data?.subscription?.unsubscribe?.bind(data.subscription);
+    }
 
     return () => {
       console.log('🔴 AuthProvider: Limpando subscription');
-      subscription.unsubscribe();
+      if (unsubscribe) unsubscribe();
     };
   }, []);
 
   const signIn = async (email: string, password: string) => {
     console.log('🔑 Tentando fazer login...');
-    const { error } = await supabase.auth.signInWithPassword({
+    const auth: any = (supabase as any)?.auth;
+    if (!auth || typeof auth.signInWithPassword !== 'function') {
+      const msg = 'Supabase auth não disponível. Verifique VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.';
+      console.error('❌', msg);
+      throw new Error(msg);
+    }
+    const { error } = await auth.signInWithPassword({
       email,
       password,
     });
@@ -66,7 +83,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, userData: any) => {
     console.log('📝 Tentando criar conta...');
-    const { error } = await supabase.auth.signUp({
+    const auth: any = (supabase as any)?.auth;
+    if (!auth || typeof auth.signUp !== 'function') {
+      const msg = 'Supabase auth não disponível. Verifique VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.';
+      console.error('❌', msg);
+      throw new Error(msg);
+    }
+    const { error } = await auth.signUp({
       email,
       password,
       options: {
@@ -82,7 +105,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     console.log('🚪 Fazendo logout...');
-    const { error } = await supabase.auth.signOut();
+    const auth: any = (supabase as any)?.auth;
+    if (!auth || typeof auth.signOut !== 'function') {
+      const msg = 'Supabase auth não disponível. Verifique VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.';
+      console.error('❌', msg);
+      throw new Error(msg);
+    }
+    const { error } = await auth.signOut();
     if (error) {
       console.error('❌ Erro no logout:', error);
       throw error;
@@ -92,7 +121,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateProfile = async (data: any) => {
     console.log('👤 Atualizando perfil...');
-    const { error } = await supabase.auth.updateUser({
+    const auth: any = (supabase as any)?.auth;
+    if (!auth || typeof auth.updateUser !== 'function') {
+      const msg = 'Supabase auth não disponível. Verifique VITE_PUBLIC_SUPABASE_URL e VITE_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.';
+      console.error('❌', msg);
+      throw new Error(msg);
+    }
+    const { error } = await auth.updateUser({
       data,
     });
     if (error) {

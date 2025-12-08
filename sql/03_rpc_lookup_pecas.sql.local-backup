@@ -1,0 +1,27 @@
+[plugin:vite:react-swc] × `let` cannot be used as an identifier in strict mode
+    ╭─[C:/Users/dione.walker/dyad-apps/industria-main/src/pages/pecas/suprimentos/page.tsx:79:1]
+ 76 │     { nome: '095407 - FITA TENAX 2225CJ C 2040M - RL', codigo_produto: '095407', unidade_medida: 'UN', quantidade: 212, meta: { kind: 'fita' } },
+ 77 │     { nome: 'LONA PLÁSTICA PRETA 6x100 40 micras 24KG', unidade_medida: 'UN', quantidade: 198, meta: { kind: 'lona_preta' } },
+ 78 │       // Fetch all pecas once and use local matching logic for robustness (names/code variations)
+ 79 │       let allPecas: any[] = [];
+    ·       ───
+ 80 │       try {
+ 81 │         const { data: ap, error: apErr } = await supabase.from('pecas').select('id,nome,codigo_produto,codigo_fabricante,saldo_estoque,quantidade').range(0, 19999);
+ 82 │         if (!apErr && Array.isArray(ap)) allPecas = ap;
+    ╰────
+  × Expected ',', got 'allPecas'
+    ╭─[C:/Users/dione.walker/dyad-apps/industria-main/src/pages/pecas/suprimentos/page.tsx:79:1]
+ 76 │     { nome: '095407 - FITA TENAX 2225CJ C 2040M - RL', codigo_produto: '095407', unidade_medida: 'UN', quantidade: 212, meta: { kind: 'fita' } },
+ 77 │     { nome: 'LONA PLÁSTICA PRETA 6x100 40 micras 24KG', unidade_medida: 'UN', quantidade: 198, meta: { kind: 'lona_preta' } },
+ 78 │       // Fetch all pecas once and use local matching logic for robustness (names/code variations)
+ 79 │       let allPecas: any[] = [];
+    ·           ────────
+ 80 │       try {
+ 81 │         const { data: ap, error: apErr } = await supabase.from('pecas').select('id,nome,codigo_produto,codigo_fabricante,saldo_estoque,quantidade').range(0, 19999);
+ 82 │         if (!apErr && Array.isArray(ap)) allPecas = ap;
+    ╰────
+
+
+Caused by:
+    Syntax Error
+C:/Users/dione.walker/dyad-apps/industria-main/src/pages/pecas/suprimentos/page.tsx

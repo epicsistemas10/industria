@@ -85,8 +85,7 @@ export default function SuprimentosPage() {
       if (t.includes('POLYCINTA') || t.includes('POLY')) return 'POLYCINTA';
 
       // ignore noisy items like 'ruido de freio'
-      if (/RUIDO|RU?IDO|RU
-?DO DE FREIO/i.test(t)) return '';
+      if (/\bRUI?DO(?: DE FREIO)?\b/i.test(t)) return '';
 
       return t;
     } catch (e) { return String(s).trim().toUpperCase(); }

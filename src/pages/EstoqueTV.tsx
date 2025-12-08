@@ -388,7 +388,32 @@ export default function EstoqueTV(): JSX.Element {
   }, [tvRenderRowsFromSuprimentos]);
 
   // Alias metrics and alert items to the values computed from suprimentos representatives
-  const metrics = metricsFromSuprimentos;
+  // Compute metrics over `pecas` (authoritative total count) using suprimentos values when available
+  const metricsFromPecas = useMemo(() => {
+    let ok = 0, atMin = 0, below = 0;
+    const reps = suprimentosRepresentatives || [];
+    const repMap = new Map<string, any>();
+    for (const r of reps) repMap.set(normalizeLookupName(r.nome || r.codigo_produto || ''), r);
+    const rows = pecas || [];
+    for (const p of rows) {
+      const key = normalizeLookupName(p.nome || p.codigo_produto || '');
+      const sup = repMap.get(key);
+      const qty = Number(sup?.saldo_estoque ?? sup?.quantidade ?? p.saldo_estoque ?? p.quantidade ?? 0) as number;
+      const min = Number(sup?.estoque_minimo ?? p.estoque_minimo ?? 0) as number;
+      if (min > 0) {
+        if (qty > min) ok++;
+        else if (qty === min) atMin++;
+        else below++;
+      } else {
+        if (qty > 0) ok++; else below++;
+      }
+    }
+    const total = (rows || []).length || 1;
+    const healthyPercent = Math.round((ok / total) * 100);
+    return { ok, atMin, below, total, healthyPercent };
+  }, [pecas, suprimentosRepresentatives]);
+
+  const metrics = metricsFromPecas;
   const alertItems = alertItemsFromSuprimentos;
 
   // TV mode helpers
@@ -438,66 +463,92 @@ export default function EstoqueTV(): JSX.Element {
   );
 
   const SummaryCards = () => (
-    <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-3'} gap-6 w-full`}> 
-      <div className="p-6 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-4">
-        <div className="p-4 rounded-xl bg-[#0b3f1a]/80 text-[#22c55e] shadow-lg">
-          <CheckCircle size={40} />
+    <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-3'} gap-4 w-full`}> 
+      <div className="p-3 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-3">
+        <div className="p-3 rounded-lg bg-[#0b3f1a]/80 text-[#22c55e] shadow">
+          <CheckCircle size={28} />
         </div>
         <div>
           <div className="text-xs text-slate-300">Produtos em Dia</div>
-          <div className="text-3xl font-extrabold">{metrics.ok}</div>
-          <div className="text-sm text-slate-200">{metrics.healthyPercent}% estoque saudável</div>
+          <div className="text-2xl font-extrabold">{metrics.ok}</div>
+          <div className="text-xs text-slate-200">{metrics.healthyPercent}% estoque saudável</div>
         </div>
       </div>
 
-      <div className="p-6 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-4">
-        <div className="p-4 rounded-xl bg-[#533f03]/80 text-[#facc15] shadow-lg">
-          <AlertTriangle size={40} />
+      <div className="p-3 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-3">
+        <div className="p-3 rounded-lg bg-[#533f03]/80 text-[#facc15] shadow">
+          <AlertTriangle size={28} />
         </div>
         <div>
           <div className="text-xs text-slate-300">Produtos no Mínimo</div>
-          <div className="text-3xl font-extrabold">{metrics.atMin}</div>
-          <div className="text-sm text-slate-200">Tempo estimado antes de crítico: —</div>
+          <div className="text-2xl font-extrabold">{metrics.atMin}</div>
+          <div className="text-xs text-slate-200">Tempo estimado antes de crítico: —</div>
         </div>
       </div>
 
-      <div className={`p-6 rounded-2xl border border-white/6 flex items-center gap-4 ${metrics.below > 0 ? 'animate-pulse-slow' : ''}`} style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,0,0,0.02))' }}>
-        <div className="p-4 rounded-xl bg-[#4a0b0b]/80 text-[#ef4444] shadow-lg">
-          <Slash size={40} />
+      <div className={`p-3 rounded-2xl border border-white/6 flex items-center gap-3 ${metrics.below > 0 ? 'animate-pulse-slow' : ''}`} style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,0,0,0.02))' }}>
+        <div className="p-3 rounded-lg bg-[#4a0b0b]/80 text-[#ef4444] shadow">
+          <Slash size={28} />
         </div>
         <div>
           <div className="text-xs text-slate-300">Produtos Abaixo do Mínimo</div>
-          <div className="text-3xl font-extrabold text-[#ef4444]">{metrics.below} <span className="text-sm text-red-200 font-semibold">AÇÃO URGENTE</span></div>
-          <div className="text-sm text-slate-200">Itens críticos que requerem atenção imediata</div>
+          <div className="text-2xl font-extrabold text-[#ef4444]">{metrics.below} <span className="text-xs text-red-200 font-semibold">AÇÃO URGENTE</span></div>
+          <div className="text-xs text-slate-200">Itens críticos que requerem atenção imediata</div>
         </div>
       </div>
     </div>
   );
 
-  const AlertList = () => (
-    <div className="w-full">
-      <h2 className="text-xl font-bold mb-4">Produtos em Alerta</h2>
-      <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}> 
-        {alertItems.map((a, idx) => (
-          <div key={`${a.kind}-${a.id}-${idx}`} className={`p-4 rounded-xl shadow-xl border ${a.status === 'critical' ? 'bg-red-900/80 border-red-600 animate-pulse-strong' : (a.status === 'min' ? 'bg-yellow-900/70 border-yellow-400 animate-pulse-slow' : 'bg-white/3 border-white/6')}`}>
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-lg bg-white/5">
-                <PackageIcon size={28} />
-              </div>
-              <div className="flex-1">
-                <div className="text-sm text-slate-300">{a.nome}</div>
-                <div className="text-xs text-slate-400">{a.codigo ?? '—'}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xl font-bold">{fmt(a.qty)}</div>
-                <div className="text-xs text-slate-400">Mín: {fmt(a.min)}</div>
-              </div>
+  const AlertList = () => {
+    // Group alert items by family (simple heuristics)
+    const groups = new Map<string, any[]>();
+    for (const it of alertItems) {
+      const up = (it.nome || '').toString().toUpperCase();
+      let g = 'OUTROS';
+      if (up.includes('LONA')) g = 'LONA';
+      else if (up.includes('ARAME')) g = 'ARAME';
+      else if (up.includes('POLYCINTA') || up.includes('POLY')) g = 'POLYCINTA';
+      else if (up.includes('FITA') || up.includes('TENAX')) g = 'FITA';
+      else if (up.includes('CORREIA')) g = 'CORREIA';
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(it);
+    }
+
+    return (
+      <div className="w-full">
+        <h2 className="text-xl font-bold mb-4">Produtos em Alerta</h2>
+        {[...groups.entries()].map(([group, list]) => (
+          <div key={group} className="mb-6">
+            <div className="text-sm text-slate-300 font-semibold mb-2">Grupo: {group} ({list.length})</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="text-xs text-slate-400 border-b border-white/6">
+                    <th className="px-3 py-2">Produto</th>
+                    <th className="px-3 py-2">Código</th>
+                    <th className="px-3 py-2 text-right">Qtd</th>
+                    <th className="px-3 py-2 text-right">Mín</th>
+                    <th className="px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map((a, idx) => (
+                    <tr key={`${a.id}-${idx}`} className={`border-b border-white/6 ${a.status === 'critical' ? 'bg-red-900/5' : (a.status === 'min' ? 'bg-yellow-900/5' : '')}`}>
+                      <td className="px-3 py-2">{a.nome}</td>
+                      <td className="px-3 py-2">{a.codigo ?? '—'}</td>
+                      <td className="px-3 py-2 text-right">{fmt(a.qty)}</td>
+                      <td className="px-3 py-2 text-right">{fmt(a.min)}</td>
+                      <td className="px-3 py-2">{a.status === 'critical' ? 'Crítico' : (a.status === 'min' ? 'No Mínimo' : 'OK')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         ))}
       </div>
-    </div>
-  );
+    );
+  };
 
   // Use the shared `SuprimentosCard` component for consistency with the Suprimentos page
 

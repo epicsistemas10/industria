@@ -109,10 +109,64 @@ export default function EstoqueTV(): JSX.Element {
   }, [tvMode]);
 
   // metrics
+  // Build a merged, deduplicated row set for metrics and alerts
+  const mergedRows = useMemo(() => {
+    const allRows = [...(pecas || []), ...((suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []))];
+    const groups = new Map<string, any[]>();
+    for (const it of allRows) {
+      const key = normalizeLookupName(it.nome || it.codigo_produto || '');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(it);
+    }
+
+    // If there's an empty key group, try to reassign LONA-like items to canonical keys and drop fluidos
+    if (groups.has('')) {
+      const emptyList = groups.get('') || [];
+      const toKeep: any[] = [];
+      for (const it of emptyList) {
+        const up = (it.nome || '').toString().toUpperCase();
+        if (/FLUIDO|FLUIDO DE FREIO|FREIO/.test(up)) {
+          // drop brake fluids from suprimentos TV view/metrics
+          continue;
+        }
+        if (up.includes('LONA') && up.includes('PRETA')) {
+          if (!groups.has('LONA PLASTICA PRETA')) groups.set('LONA PLASTICA PRETA', []);
+          groups.get('LONA PLASTICA PRETA')!.push(it);
+          continue;
+        }
+        if (up.includes('LONA') && (up.includes('TRANSPARENTE') || up.includes('TRANSP'))) {
+          if (!groups.has('LONA PLASTICA TRANSPARENTE')) groups.set('LONA PLASTICA TRANSPARENTE', []);
+          groups.get('LONA PLASTICA TRANSPARENTE')!.push(it);
+          continue;
+        }
+        // otherwise keep in empty group
+        toKeep.push(it);
+      }
+      if (toKeep.length > 0) groups.set('', toKeep); else groups.delete('');
+    }
+
+    const reps: any[] = [];
+    for (const [key, list] of groups) {
+      if (!list || list.length === 0) continue;
+      list.sort((a: any, b: any) => {
+        const aP = a.peca_id ? 1 : 0;
+        const bP = b.peca_id ? 1 : 0;
+        if (aP !== bP) return bP - aP;
+        const aM = (a.estoque_minimo != null) ? 1 : 0;
+        const bM = (b.estoque_minimo != null) ? 1 : 0;
+        if (aM !== bM) return bM - aM;
+        const aq = Number(a.saldo_estoque ?? a.quantidade ?? 0);
+        const bq = Number(b.saldo_estoque ?? b.quantidade ?? 0);
+        return bq - aq;
+      });
+      reps.push(list[0]);
+    }
+    return reps;
+  }, [pecas, suprimentosState, suprimentosFromHook]);
+
   const metrics = useMemo(() => {
     let ok = 0, atMin = 0, below = 0;
-    // include both pecas and suprimentos in the metrics so TV reflects all inventory sources
-    const rows = [...(pecas || []), ...((suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []))];
+    const rows = mergedRows;
     for (const r of rows) {
       const qty = Number(r.saldo_estoque ?? r.quantidade ?? 0) as number;
       const min = Number(r.estoque_minimo ?? 0) as number;
@@ -121,14 +175,13 @@ export default function EstoqueTV(): JSX.Element {
         else if (qty === min) atMin++;
         else /* qty < min */ below++;
       } else {
-        // if no min defined treat as OK when positive, otherwise mark as below
         if (qty > 0) ok++; else below++;
       }
     }
     const total = rows.length || 1;
     const healthyPercent = Math.round((ok / total) * 100);
     return { ok, atMin, below, total, healthyPercent };
-  }, [pecas, suprimentosState, suprimentosFromHook]);
+  }, [mergedRows]);
 
   // computed alert list (merge pecas + suprimentos by name/code for listing alerts)
   const alertItems = useMemo(() => {

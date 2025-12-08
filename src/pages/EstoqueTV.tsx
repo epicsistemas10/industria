@@ -161,6 +161,68 @@ export default function EstoqueTV(): JSX.Element {
   // helpers
   const fmt = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString('pt-BR'));
 
+  // name normalization (same heuristics used on Suprimentos page to dedupe LONA etc.)
+  function stripDiacritics(s: string) {
+    try { return s.normalize('NFD').replace(/\p{Diacritic}/gu, ''); } catch (e) { return s; }
+  }
+  function normalizeLookupName(s: any) {
+    if (s === null || s === undefined) return '';
+    try {
+      let t = String(s).trim();
+      if (!t) return '';
+      t = stripDiacritics(t);
+      t = t.replace(/\u00A0/g, ' ');
+      t = t.replace(/[()\[\]{}<>]/g, ' ');
+      t = t.replace(/[^\p{L}\p{N}% ]+/gu, ' ');
+      t = t.replace(/\s+/g, ' ').trim().toUpperCase();
+
+      t = t.replace(/\b\d+(?:[x×]\d+)(?:[A-Z]*)?\b/gu, '');
+      t = t.replace(/\b\d+[.,]?\d*\s*(?:KG|G|GR|GRAM|M|MT|MM|MICRAS|MICRA|LT|L)\b/gu, '');
+      t = t.replace(/\b\d+\s*(?:KG|G|GR|MT|M|MM|MICRAS)\b/gu, '');
+      t = t.replace(/\b\d+[.,]?\d*\b/gu, '');
+
+      t = t.replace(/\bMICRAS\b/gu, '');
+      t = t.replace(/\bM2\b/gu, '');
+      t = t.replace(/\s+/g, ' ').trim();
+
+      if (t.includes('LONA') && t.includes('PRETA')) return 'LONA PLASTICA PRETA';
+      if (t.includes('LONA') && (t.includes('TRANSPARENTE') || t.includes('TRANSP'))) return 'LONA PLASTICA TRANSPARENTE';
+      if (t.includes('POLYCINTA') || t.includes('POLY')) return 'POLYCINTA';
+
+      if (/\bRUI?DO(?: DE FREIO)?\b/i.test(t)) return '';
+
+      return t;
+    } catch (e) { return String(s).trim().toUpperCase(); }
+  }
+
+  // dedup suprimentos for TV view
+  const tvSuprimentos = useMemo(() => {
+    const src = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
+    const groups = new Map<string, any[]>();
+    for (const it of (src || [])) {
+      const key = normalizeLookupName(it.codigo_produto || it.nome || '');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(it);
+    }
+    const reps: any[] = [];
+    for (const [key, list] of groups) {
+      if (!list || list.length === 0) continue;
+      list.sort((a: any, b: any) => {
+        const aP = a.peca_id ? 1 : 0;
+        const bP = b.peca_id ? 1 : 0;
+        if (aP !== bP) return bP - aP;
+        const aM = (a.estoque_minimo != null) ? 1 : 0;
+        const bM = (b.estoque_minimo != null) ? 1 : 0;
+        if (aM !== bM) return bM - aM;
+        const aq = Number(a.saldo_estoque ?? a.quantidade ?? 0);
+        const bq = Number(b.saldo_estoque ?? b.quantidade ?? 0);
+        return bq - aq;
+      });
+      reps.push(list[0]);
+    }
+    return reps;
+  }, [suprimentosState, suprimentosFromHook]);
+
   // TV mode helpers
   const toggleFullscreen = async () => {
     try {
@@ -294,8 +356,8 @@ export default function EstoqueTV(): JSX.Element {
                   <div>
                     <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
                     <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                      {( (suprimentosState && suprimentosState.length) || (suprimentosFromHook && suprimentosFromHook.length) ) ? (
-                        (suprimentosState || suprimentosFromHook || []).map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} />)
+                      {tvSuprimentos && tvSuprimentos.length ? (
+                        tvSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} />)
                       ) : (
                         <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
                       )}

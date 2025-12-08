@@ -124,7 +124,7 @@ export default function SuprimentosPage() {
     const allRows = items || [];
     const groups = new Map<string, any[]>();
     for (const it of allRows) {
-      const key = ((it.codigo_produto || it.nome) || '').toString().trim().toLowerCase();
+      const key = normalizeLookupName(it.codigo_produto || it.nome || '');
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(it);
     }
@@ -260,7 +260,7 @@ export default function SuprimentosPage() {
       const allRows = items || [];
       const groups = new Map<string, any[]>();
       for (const it of allRows) {
-        const key = ((it.codigo_produto || it.nome) || '').toString().trim().toLowerCase();
+        const key = normalizeLookupName(it.codigo_produto || it.nome || '');
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key)!.push(it);
       }
@@ -488,20 +488,7 @@ export default function SuprimentosPage() {
     );
   }
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const form = e.target as any;
-    const nome = form.nome.value?.trim();
-    if (!nome) return showError('Nome obrigatório');
-    try {
-      await create({ nome, unidade_medida: form.unidade.value || null, quantidade: Number(form.quantidade.value) || 0, estoque_minimo: form.estoque_minimo.value ? Number(form.estoque_minimo.value) : null });
-      success('Suprimento criado');
-      form.reset();
-    } catch (err) {
-      console.error(err);
-      showError('Erro ao criar suprimento');
-    }
-  };
+  // creation form removed per UI simplification (we keep programmatic sync/create via hooks)
 
   return (
     <div className="min-h-screen bg-slate-900">
@@ -514,41 +501,35 @@ export default function SuprimentosPage() {
               <h1 className="text-3xl font-bold text-white">Suprimentos</h1>
               <p className="text-gray-400">Gerencie o estoque de suprimentos e métricas de produção</p>
             </div>
-            <div>
-              <form onSubmit={handleCreate} className="flex items-center gap-2">
-                <input name="nome" placeholder="Nome do item" className="px-3 py-2 rounded" />
-                <input name="unidade" placeholder="Unidade" className="px-3 py-2 rounded w-28" />
-                <input name="quantidade" type="number" placeholder="Qtd" className="px-3 py-2 rounded w-20" />
-                <input name="estoque_minimo" type="number" placeholder="Mínimo" className="px-3 py-2 rounded w-24" />
-                <button type="submit" className="px-4 py-2 h-10 bg-green-600 text-white rounded-lg text-sm">Adicionar</button>
-              </form>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2">
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar" className="px-3 py-2 rounded w-72" />
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => refreshStock()} className="px-4 py-2 h-10 bg-blue-600 text-white rounded-lg text-sm whitespace-nowrap">Atualizar</button>
+                <button onClick={async () => {
+                  try {
+                    const res = await copyAllFromPecas();
+                    if (res && res.inserted) {
+                      success(`Suprimentos sincronizados: ${res.inserted}`);
+                    } else {
+                      success('Nada novo para sincronizar.');
+                    }
+                  } catch (e) {
+                    console.error('sync failed', e);
+                    showError('Falha ao sincronizar suprimentos. Veja console.');
+                  }
+                }} className="px-4 py-2 h-10 bg-emerald-600 text-white rounded-lg text-sm whitespace-nowrap">Sincronizar de Peças</button>
+                <button onClick={() => { buildReport(); }} className="px-4 py-2 h-10 bg-amber-600 text-white rounded-lg text-sm whitespace-nowrap">Relatório</button>
+              </div>
             </div>
-          </div>
-
-          <div className="mb-4 flex items-center gap-2">
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar" className="px-3 py-2 rounded w-96" />
-            <button onClick={() => refreshStock()} className="px-4 py-2 h-10 bg-blue-600 text-white rounded-lg text-sm whitespace-nowrap">Atualizar</button>
-            <button onClick={async () => {
-              try {
-                const res = await copyAllFromPecas();
-                if (res && res.inserted) {
-                  success(`Suprimentos sincronizados: ${res.inserted}`);
-                } else {
-                  success('Nada novo para sincronizar.');
-                }
-              } catch (e) {
-                console.error('sync failed', e);
-                showError('Falha ao sincronizar suprimentos. Veja console.');
-              }
-            }} className="px-4 py-2 h-10 bg-emerald-600 text-white rounded-lg text-sm whitespace-nowrap">Sincronizar de Peças</button>
-            <button onClick={() => { buildReport(); }} className="px-4 py-2 h-10 bg-amber-600 text-white rounded-lg text-sm whitespace-nowrap">Relatório</button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 items-stretch">
             {(() => {
               const groups = new Map<string, any[]>();
               for (const it of filtered) {
-                const key = ((it.codigo_produto || it.nome) || '').toString().trim().toLowerCase();
+                const key = normalizeLookupName(it.codigo_produto || it.nome || '');
                 if (!groups.has(key)) groups.set(key, []);
                 groups.get(key)!.push(it);
               }

@@ -537,9 +537,9 @@ export default function EstoqueTV(): JSX.Element {
             <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="text-xs text-slate-400 border-b border-white/6">
+                    <tr className="text-xs text-slate-400 border-b border-white/6">
                     <th className="px-3 py-2 w-1/3">Produto</th>
-                    <th className="px-3 py-2 w-1/4">Grupo</th>
+                    <th className="px-3 py-2 w-1/4 hidden sm:table-cell">Grupo</th>
                     <th className="px-3 py-2 text-right w-20">Qtd</th>
                     <th className="px-3 py-2 text-right w-20">Mín</th>
                     <th className="px-3 py-2 w-24">Status</th>
@@ -549,10 +549,12 @@ export default function EstoqueTV(): JSX.Element {
                   {list.map((a, idx) => (
                     <tr key={`${a.id}-${idx}`} className={`border-b border-white/6 ${a.status === 'critical' ? 'bg-red-900/5 animate-pulse-strong' : (a.status === 'min' ? 'bg-yellow-900/5 animate-pulse-slow' : '')}`}>
                       <td className="px-3 py-2 align-top">
-                        <div className="font-medium">{a.nome}</div>
-                        <div className="text-xs text-slate-400 mt-1">{a.codigo ?? '—'}</div>
+                        <div className="flex items-center gap-3">
+                          <div className="font-medium truncate">{a.nome}</div>
+                          <div className="text-xs text-slate-400">{a.codigo ?? '—'}</div>
+                        </div>
                       </td>
-                      <td className="px-3 py-2 align-top">{a.grupo ?? 'Sem Grupo'}</td>
+                      <td className="px-3 py-2 align-top hidden sm:table-cell">{a.grupo ?? 'Sem Grupo'}</td>
                       <td className="px-3 py-2 text-right align-top">{fmt(a.qty)}</td>
                       <td className="px-3 py-2 text-right align-top">{fmt(a.min)}</td>
                       <td className="px-3 py-2 align-top">{a.status === 'critical' ? 'Crítico' : (a.status === 'min' ? 'No Mínimo' : 'OK')}</td>
@@ -584,8 +586,8 @@ export default function EstoqueTV(): JSX.Element {
         <div className={`space-y-6 ${tvMode ? 'h-[58vh]' : ''}`}>
           {/* Carousel panes */}
           <div className="relative w-full overflow-hidden">
-            <div className="flex w-[200%] transition-transform duration-700 will-change-transform" style={{ transform: `translateX(-${carouselIndex * 50}%)` }}>
-              <div className="w-1/2 p-4">
+            <div className="flex w-[200%] transition-transform duration-700 will-change-transform" style={{ transform: `translate3d(-${carouselIndex * 50}%,0,0)` }}>
+              <div className="flex-none w-1/2 p-4 bg-transparent min-h-[44vh]">
                   <div>
                     <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
                     <div className="mb-3 flex items-center gap-3">
@@ -603,7 +605,7 @@ export default function EstoqueTV(): JSX.Element {
                   </div>
                 </div>
 
-                <div className="w-1/2 p-4">
+                <div className="flex-none w-1/2 p-4 bg-transparent min-h-[44vh]">
                   <AlertList />
                 </div>
               </div>

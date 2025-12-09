@@ -83,7 +83,7 @@ export default function SuprimentosCard({
 
   // Card rendering
   const Card = ({ clone }: { clone?: boolean }) => (
-    <div className={`p-3 rounded-md shadow-sm bg-neutral-800 text-white ${tvMode ? 'h-48 text-sm' : 'h-auto text-base'}`}>
+    <div className={`p-2 rounded-md shadow-sm bg-neutral-800 text-white ${tvMode ? 'h-44 text-xs' : 'h-auto text-base'}`}>
       {clone && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="text-4xl font-black text-yellow-200/90 uppercase tracking-wide">DUPLICADO</div>
@@ -92,13 +92,12 @@ export default function SuprimentosCard({
 
       <div className="flex items-start justify-between">
         <div>
-          <div className={`${tvMode ? 'font-semibold text-lg' : 'font-semibold'}`}>{nome}</div>
-          <div className={`${tvMode ? 'text-xs text-gray-300' : 'text-xs text-gray-300'}`}>{item?.codigo_produto ?? '-'}</div>
+          <div className={`${tvMode ? 'font-semibold text-sm' : 'font-semibold'}`}>{nome} {item?.codigo_produto ? (<span className="text-xs text-gray-300 ml-2">{item.codigo_produto}</span>) : null}</div>
           {/* show programmed minimum on card (useful for TV mode) */}
           <div className="text-xs text-slate-200 mt-1">Mínimo programado: <span className="font-medium">{estoqueMinimo != null ? String(estoqueMinimo) : '—'}</span></div>
         </div>
         <div className="text-right">
-          <div className={`${tvMode ? 'font-medium bg-green-700 px-2 py-0.5 rounded text-base' : 'font-medium bg-green-700 px-2 py-0.5 rounded'}`}>{fmt(saldo)} {unidade}</div>
+          <div className={`${tvMode ? 'font-medium bg-green-700 px-2 py-0.5 rounded text-sm' : 'font-medium bg-green-700 px-2 py-0.5 rounded'}`}>{fmt(saldo)} {unidade}</div>
           {isLow && <div className="text-xs text-red-300 mt-1">Abaixo do mínimo</div>}
         </div>
       </div>

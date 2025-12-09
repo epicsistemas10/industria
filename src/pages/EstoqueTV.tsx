@@ -362,20 +362,29 @@ export default function EstoqueTV(): JSX.Element {
     return { ok, atMin, below, total, healthyPercent };
   }, [tvRenderRowsFromSuprimentos]);
 
+  // Build alert list from `pecas` (authoritative). Use suprimentos representatives to obtain current qty when present.
   const alertItemsFromSuprimentos = useMemo(() => {
     const out: any[] = [];
-    for (const r of tvRenderRowsFromSuprimentos) {
-      const qty = Number(r.saldo_estoque ?? r.quantidade ?? 0) as number;
-      const min = Number(r.estoque_minimo ?? 0) as number;
+    const reps = suprimentosRepresentatives || [];
+    const repMap = new Map<string, any>();
+    for (const r of reps) repMap.set(normalizeLookupName(r.nome || r.codigo_produto || ''), r);
+    for (const p of (pecas || [])) {
+      const minRaw = p.estoque_minimo;
+      // skip pecas without configured minimum
+      if (minRaw == null || Number(minRaw) <= 0) continue;
+      const key = normalizeLookupName(p.nome || p.codigo_produto || '');
+      const sup = repMap.get(key);
+      const qty = Number(sup?.saldo_estoque ?? sup?.quantidade ?? p.saldo_estoque ?? p.quantidade ?? 0) as number;
+      const min = Number(p.estoque_minimo ?? 0) as number;
       let status: 'ok' | 'min' | 'critical' = 'ok';
       if (min > 0) {
         if (qty > min) status = 'ok';
         else if (qty === min) status = 'min';
         else status = 'critical';
-      } else {
-        status = qty > 0 ? 'ok' : 'critical';
       }
-      if (status !== 'ok') out.push({ kind: 'merged', id: r.id, nome: r.nome, codigo: r.codigo_produto, qty, min, status });
+      if (status !== 'ok') {
+        out.push({ kind: 'peca', id: p.id, nome: p.nome, codigo: p.codigo_produto, qty, min, status, grupo: (p.grupo_produto || sup?.grupo_produto || 'Sem Grupo') });
+      }
     }
     out.sort((a, b) => {
       const sev = { 'critical': 2, 'min': 1 } as any;
@@ -385,7 +394,7 @@ export default function EstoqueTV(): JSX.Element {
       return a.qty - b.qty;
     });
     return out;
-  }, [tvRenderRowsFromSuprimentos]);
+  }, [pecas, suprimentosRepresentatives]);
 
   // Alias metrics and alert items to the values computed from suprimentos representatives
   // Compute metrics over `pecas` (authoritative total count) using suprimentos values when available
@@ -395,22 +404,26 @@ export default function EstoqueTV(): JSX.Element {
     const repMap = new Map<string, any>();
     for (const r of reps) repMap.set(normalizeLookupName(r.nome || r.codigo_produto || ''), r);
     const rows = pecas || [];
+    // Only consider pecas that have an explicit estoque_minimo configured (> 0)
+    let totalWithMin = 0;
     for (const p of rows) {
+      const minRaw = p.estoque_minimo;
+      if (minRaw == null || Number(minRaw) <= 0) continue;
+      totalWithMin += 1;
       const key = normalizeLookupName(p.nome || p.codigo_produto || '');
       const sup = repMap.get(key);
       const qty = Number(sup?.saldo_estoque ?? sup?.quantidade ?? p.saldo_estoque ?? p.quantidade ?? 0) as number;
-      const min = Number(sup?.estoque_minimo ?? p.estoque_minimo ?? 0) as number;
+      const min = Number(p.estoque_minimo ?? 0) as number;
       if (min > 0) {
         if (qty > min) ok++;
         else if (qty === min) atMin++;
         else below++;
-      } else {
-        if (qty > 0) ok++; else below++;
       }
     }
-    const total = (rows || []).length || 1;
+    const total = totalWithMin || 1;
     const healthyPercent = Math.round((ok / total) * 100);
-    return { ok, atMin, below, total, healthyPercent };
+    // return counts computed from `pecas` (authoritative). Expose totalWithMin and totalPecas.
+    return { ok, atMin, below, totalWithMin, totalPecas: (rows || []).length, healthyPercent };
   }, [pecas, suprimentosRepresentatives]);
 
   const metrics = metricsFromPecas;
@@ -469,9 +482,9 @@ export default function EstoqueTV(): JSX.Element {
           <CheckCircle size={28} />
         </div>
         <div>
-          <div className="text-xs text-slate-300">Produtos em Dia</div>
-          <div className="text-2xl font-extrabold">{metrics.ok}</div>
-          <div className="text-xs text-slate-200">{metrics.healthyPercent}% estoque saudável</div>
+          <div className="text-xs text-slate-300">Produtos (Peças)</div>
+          <div className="text-2xl font-extrabold">{metrics.totalPecas ?? (pecas || []).length}</div>
+          <div className="text-xs text-slate-200">{metrics.totalWithMin ?? 0} com mínimo configurado • {metrics.healthyPercent}% estoque saudável</div>
         </div>
       </div>
 
@@ -500,18 +513,13 @@ export default function EstoqueTV(): JSX.Element {
   );
 
   const AlertList = () => {
-    // Group alert items by family (simple heuristics)
+    // Group alert items by registered product group (`grupo_produto`) when available
     const groups = new Map<string, any[]>();
     for (const it of alertItems) {
-      const up = (it.nome || '').toString().toUpperCase();
-      let g = 'OUTROS';
-      if (up.includes('LONA')) g = 'LONA';
-      else if (up.includes('ARAME')) g = 'ARAME';
-      else if (up.includes('POLYCINTA') || up.includes('POLY')) g = 'POLYCINTA';
-      else if (up.includes('FITA') || up.includes('TENAX')) g = 'FITA';
-      else if (up.includes('CORREIA')) g = 'CORREIA';
-      if (!groups.has(g)) groups.set(g, []);
-      groups.get(g)!.push(it);
+      const g = (it.grupo || it.grupo_produto || it.grupoProduto || it.group || 'OUTROS') as string;
+      const key = (g || 'OUTROS').toString().toUpperCase();
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(it);
     }
 
     return (
@@ -564,7 +572,7 @@ export default function EstoqueTV(): JSX.Element {
           </div>
         </div>
 
-        <div className={`space-y-6 ${tvMode ? 'h-[58vh] overflow-hidden' : ''}`}>
+        <div className={`space-y-6 ${tvMode ? 'h-[58vh]' : ''}`}>
           {/* Carousel panes */}
           <div className={`transition-transform duration-700`} style={{ transform: `translateX(-${carouselIndex * 100}%)` }}>
               <div className="grid grid-cols-1 gap-6" style={{ width: `${2 * 100}%`, display: 'flex' }}>
@@ -577,15 +585,15 @@ export default function EstoqueTV(): JSX.Element {
                     <div className="mb-3 flex items-center gap-3">
                       <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
                     </div>
-                    <div className={`h-full ${tvMode ? 'overflow-auto' : ''}`}>
-                                      <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                                        {tvRenderRowsFromSuprimentos && tvRenderRowsFromSuprimentos.length ? (
-                                            tvRenderRowsFromSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={tvMode} />)
-                                          ) : (
-                                            <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
-                                          )}
-                                      </div>
-                                    </div>
+                    <div className={`${tvMode ? 'h-[44vh] overflow-auto' : 'h-full'}`}>
+                      <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
+                        {tvRenderRowsFromSuprimentos && tvRenderRowsFromSuprimentos.length ? (
+                          tvRenderRowsFromSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={false} tvMode={tvMode} />)
+                        ) : (
+                          <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
+                        )}
+                      </div>
+                    </div>
 
                     
                   </div>

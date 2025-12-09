@@ -538,10 +538,9 @@ export default function EstoqueTV(): JSX.Element {
                 <table className="w-full text-left text-sm border-collapse">
                 <thead>
                     <tr className="text-xs text-slate-400 border-b border-white/6">
-                    <th className="px-3 py-2 w-1/3">Produto</th>
-                    <th className="px-3 py-2 w-1/4 hidden sm:table-cell">Grupo</th>
-                    <th className="px-3 py-2 text-right w-20">Qtd</th>
-                    <th className="px-3 py-2 text-right w-20">Mín</th>
+                    <th className="px-3 py-2 w-2/5">Produto</th>
+                    <th className="px-3 py-2 text-right w-24">Qtd</th>
+                    <th className="px-3 py-2 text-right w-24">Mín</th>
                     <th className="px-3 py-2 w-24">Status</th>
                   </tr>
                 </thead>
@@ -554,7 +553,6 @@ export default function EstoqueTV(): JSX.Element {
                           <div className="text-xs text-slate-400">{a.codigo ?? '—'}</div>
                         </div>
                       </td>
-                      <td className="px-3 py-2 align-top hidden sm:table-cell">{a.grupo ?? 'Sem Grupo'}</td>
                       <td className="px-3 py-2 text-right align-top">{fmt(a.qty)}</td>
                       <td className="px-3 py-2 text-right align-top">{fmt(a.min)}</td>
                       <td className="px-3 py-2 align-top">{a.status === 'critical' ? 'Crítico' : (a.status === 'min' ? 'No Mínimo' : 'OK')}</td>

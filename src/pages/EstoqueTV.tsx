@@ -76,7 +76,7 @@ export default function EstoqueTV(): JSX.Element {
         return out;
       };
 
-      const pData = await fetchAllRows('pecas', 'id,nome,codigo_produto,quantidade,saldo_estoque,estoque_minimo');
+      const pData = await fetchAllRows('pecas', 'id,nome,codigo_produto,quantidade,saldo_estoque,estoque_minimo,grupo_produto');
       setPecas(Array.isArray(pData) ? pData as PecaRow[] : []);
       // populate suprimentos from the shared hook (ensure hook data is fresh)
       try {
@@ -575,29 +575,29 @@ export default function EstoqueTV(): JSX.Element {
         <div className={`space-y-6 ${tvMode ? 'h-[58vh]' : ''}`}>
           {/* Carousel panes */}
           <div className="relative w-full overflow-hidden">
-            <div className="flex w-[200%] transition-transform duration-700" style={{ transform: `translateX(-${carouselIndex * 100}%)` }}>
-              <div className="w-full p-4">
-                <AlertList />
-              </div>
-
-              <div className="w-full p-4">
-                <div>
-                  <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
-                  <div className="mb-3 flex items-center gap-3">
-                    <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
-                  </div>
-                  <div className={`${tvMode ? 'h-[44vh]' : 'h-full'}`}>
-                    <div className={`${tvMode ? 'grid grid-cols-3' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4 ${tvMode ? 'overflow-auto' : ''}`}>
-                      {tvRenderRowsFromSuprimentos && tvRenderRowsFromSuprimentos.length ? (
-                        tvRenderRowsFromSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={false} tvMode={tvMode} />)
-                      ) : (
-                        <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
-                      )}
+            <div className="flex w-[200%] transition-transform duration-700 will-change-transform" style={{ transform: `translateX(-${carouselIndex * 50}%)` }}>
+              <div className="w-1/2 p-4">
+                  <div>
+                    <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
+                    <div className="mb-3 flex items-center gap-3">
+                      <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
+                    </div>
+                    <div className={`${tvMode ? 'h-[44vh]' : 'h-full'}`}>
+                      <div className={`${tvMode ? 'grid grid-cols-3' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4 ${tvMode ? 'overflow-auto' : ''}`}>
+                        {tvRenderRowsFromSuprimentos && tvRenderRowsFromSuprimentos.length ? (
+                          tvRenderRowsFromSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={false} tvMode={tvMode} />)
+                        ) : (
+                          <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
+
+                <div className="w-1/2 p-4">
+                  <AlertList />
+                </div>
               </div>
-            </div>
           </div>
         </div>
 

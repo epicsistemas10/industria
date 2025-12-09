@@ -14,6 +14,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import SuprimentosCard from '../components/SuprimentosCard';
+import rawGroupMapping from '../data/group-mapping.json';
 
 // A premium, TV-first dashboard for "CENTRAL DE ESTOQUE & SUPRIMENTOS – IBA SANTA LUZIA"
 // Usage: navigate to /estoque-tv (or import and mount in a route). Optimized for 16:9 TVs.
@@ -365,6 +366,9 @@ export default function EstoqueTV(): JSX.Element {
   // Build alert list from `pecas` (authoritative). Use suprimentos representatives to obtain current qty when present.
   const alertItemsFromSuprimentos = useMemo(() => {
     const out: any[] = [];
+    // build mapping code -> friendly name from static mapping file (fallback for stored codes)
+    const mappingArray: Array<{ codigo: string; grupo: string }> = Array.isArray(rawGroupMapping) ? rawGroupMapping : [];
+    const codeToName = new Map<string, string>(mappingArray.map(m => [m.codigo, m.grupo]));
     const reps = suprimentosRepresentatives || [];
     const repMap = new Map<string, any>();
     for (const r of reps) repMap.set(normalizeLookupName(r.nome || r.codigo_produto || ''), r);
@@ -383,7 +387,9 @@ export default function EstoqueTV(): JSX.Element {
         else status = 'critical';
       }
       if (status !== 'ok') {
-        out.push({ kind: 'peca', id: p.id, nome: p.nome, codigo: p.codigo_produto, qty, min, status, grupo: (p.grupo_produto || sup?.grupo_produto || 'Sem Grupo') });
+        const rawGroup = (p.grupo_produto || sup?.grupo_produto) ?? null;
+        const groupName = rawGroup ? (codeToName.get(String(rawGroup)) ?? String(rawGroup)) : 'Sem Grupo';
+        out.push({ kind: 'peca', id: p.id, nome: p.nome, codigo: p.codigo_produto, qty, min, status, grupo: groupName });
       }
     }
     out.sort((a, b) => {

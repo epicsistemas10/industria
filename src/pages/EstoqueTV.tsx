@@ -574,31 +574,30 @@ export default function EstoqueTV(): JSX.Element {
 
         <div className={`space-y-6 ${tvMode ? 'h-[58vh]' : ''}`}>
           {/* Carousel panes */}
-          <div className={`transition-transform duration-700`} style={{ transform: `translateX(-${carouselIndex * 100}%)` }}>
-              <div className="grid grid-cols-1 gap-6" style={{ width: `${2 * 100}%`, display: 'flex' }}>
-                <div style={{ width: '100%' }} className="p-4">
-                  <AlertList />
-                </div>
-                <div style={{ width: '100%' }} className="p-4">
-                  <div>
-                    <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
-                    <div className="mb-3 flex items-center gap-3">
-                      <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
-                    </div>
-                    <div className={`${tvMode ? 'h-[44vh] overflow-auto' : 'h-full'}`}>
-                      <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-                        {tvRenderRowsFromSuprimentos && tvRenderRowsFromSuprimentos.length ? (
-                          tvRenderRowsFromSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={false} tvMode={tvMode} />)
-                        ) : (
-                          <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
-                        )}
-                      </div>
-                    </div>
+          <div className="relative w-full overflow-hidden">
+            <div className="flex w-[200%] transition-transform duration-700" style={{ transform: `translateX(-${carouselIndex * 100}%)` }}>
+              <div className="w-full p-4">
+                <AlertList />
+              </div>
 
-                    
+              <div className="w-full p-4">
+                <div>
+                  <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
+                  <div className="mb-3 flex items-center gap-3">
+                    <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
+                  </div>
+                  <div className={`${tvMode ? 'h-[44vh]' : 'h-full'}`}>
+                    <div className={`${tvMode ? 'grid grid-cols-3' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4 ${tvMode ? 'overflow-auto' : ''}`}>
+                      {tvRenderRowsFromSuprimentos && tvRenderRowsFromSuprimentos.length ? (
+                        tvRenderRowsFromSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={false} tvMode={tvMode} />)
+                      ) : (
+                        <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
           </div>
         </div>
 

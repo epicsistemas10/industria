@@ -535,24 +535,27 @@ export default function EstoqueTV(): JSX.Element {
           <div key={group} className="mb-6">
             <div className="text-sm text-slate-300 font-semibold mb-2">Grupo: {group} ({list.length})</div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
+                <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                    <tr className="text-xs text-slate-400 border-b border-white/6">
-                    <th className="px-3 py-2">Produto</th>
-                    <th className="px-3 py-2">Grupo</th>
-                    <th className="px-3 py-2 text-right">Qtd</th>
-                    <th className="px-3 py-2 text-right">Mín</th>
-                    <th className="px-3 py-2">Status</th>
+                  <tr className="text-xs text-slate-400 border-b border-white/6">
+                    <th className="px-3 py-2 w-1/3">Produto</th>
+                    <th className="px-3 py-2 w-1/4">Grupo</th>
+                    <th className="px-3 py-2 text-right w-20">Qtd</th>
+                    <th className="px-3 py-2 text-right w-20">Mín</th>
+                    <th className="px-3 py-2 w-24">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {list.map((a, idx) => (
-                    <tr key={`${a.id}-${idx}`} className={`border-b border-white/6 ${a.status === 'critical' ? 'bg-red-900/5' : (a.status === 'min' ? 'bg-yellow-900/5' : '')}`}>
-                      <td className="px-3 py-2">{a.nome}</td>
-                      <td className="px-3 py-2">{a.grupo ?? 'Sem Grupo'}</td>
-                      <td className="px-3 py-2 text-right">{fmt(a.qty)}</td>
-                      <td className="px-3 py-2 text-right">{fmt(a.min)}</td>
-                      <td className="px-3 py-2">{a.status === 'critical' ? 'Crítico' : (a.status === 'min' ? 'No Mínimo' : 'OK')}</td>
+                    <tr key={`${a.id}-${idx}`} className={`border-b border-white/6 ${a.status === 'critical' ? 'bg-red-900/5 animate-pulse-strong' : (a.status === 'min' ? 'bg-yellow-900/5 animate-pulse-slow' : '')}`}>
+                      <td className="px-3 py-2 align-top">
+                        <div className="font-medium">{a.nome}</div>
+                        <div className="text-xs text-slate-400 mt-1">{a.codigo ?? '—'}</div>
+                      </td>
+                      <td className="px-3 py-2 align-top">{a.grupo ?? 'Sem Grupo'}</td>
+                      <td className="px-3 py-2 text-right align-top">{fmt(a.qty)}</td>
+                      <td className="px-3 py-2 text-right align-top">{fmt(a.min)}</td>
+                      <td className="px-3 py-2 align-top">{a.status === 'critical' ? 'Crítico' : (a.status === 'min' ? 'No Mínimo' : 'OK')}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -586,7 +589,7 @@ export default function EstoqueTV(): JSX.Element {
                   <div>
                     <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
                     <div className="mb-3 flex items-center gap-3">
-                      <div className="text-sm text-slate-300">Itens: <strong>{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
+                      <div className="text-sm text-slate-300">Itens: <strong className="text-base">{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
                     </div>
                     <div className={`${tvMode ? 'h-[44vh]' : 'h-full'}`}>
                       <div className={`${tvMode ? 'grid grid-cols-3' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4 ${tvMode ? 'overflow-auto' : ''}`}>

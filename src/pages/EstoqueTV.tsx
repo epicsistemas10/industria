@@ -531,9 +531,9 @@ export default function EstoqueTV(): JSX.Element {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="text-xs text-slate-400 border-b border-white/6">
+                    <tr className="text-xs text-slate-400 border-b border-white/6">
                     <th className="px-3 py-2">Produto</th>
-                    <th className="px-3 py-2">Código</th>
+                    <th className="px-3 py-2">Grupo</th>
                     <th className="px-3 py-2 text-right">Qtd</th>
                     <th className="px-3 py-2 text-right">Mín</th>
                     <th className="px-3 py-2">Status</th>
@@ -543,7 +543,7 @@ export default function EstoqueTV(): JSX.Element {
                   {list.map((a, idx) => (
                     <tr key={`${a.id}-${idx}`} className={`border-b border-white/6 ${a.status === 'critical' ? 'bg-red-900/5' : (a.status === 'min' ? 'bg-yellow-900/5' : '')}`}>
                       <td className="px-3 py-2">{a.nome}</td>
-                      <td className="px-3 py-2">{a.codigo ?? '—'}</td>
+                      <td className="px-3 py-2">{a.grupo ?? 'Sem Grupo'}</td>
                       <td className="px-3 py-2 text-right">{fmt(a.qty)}</td>
                       <td className="px-3 py-2 text-right">{fmt(a.min)}</td>
                       <td className="px-3 py-2">{a.status === 'critical' ? 'Crítico' : (a.status === 'min' ? 'No Mínimo' : 'OK')}</td>

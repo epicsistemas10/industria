@@ -33,6 +33,9 @@ export default function PecasPage() {
   };
 
   const handleDelete = async (id: string) => {
+    // require password confirmation before deleting a piece (TV/kiosk safety)
+    const pass = prompt('Informe a senha para confirmar exclusão da peça:');
+    if (pass !== '123456') { alert('Senha incorreta. Exclusão cancelada.'); return; }
     if (!confirm('Remover peça?')) return;
     try {
       await remove(id);
@@ -222,6 +225,9 @@ export default function PecasPage() {
               <button onClick={() => { setSearchTerm(''); setColFilters({ nome: '', codigo: '', unidade: '', quantidadeMin: '', valorUnitMin: '' }); setFilterMode('all'); }} className="px-4 py-2 h-10 bg-gray-200 text-sm rounded hover:bg-gray-300 transition">Limpar filtros</button>
               <button onClick={async () => {
                 setDeletingAll(true);
+                // require password confirmation for bulk delete
+                const pass = prompt('Informe a senha para confirmar exclusão de todas as peças:');
+                if (pass !== '123456') { alert('Senha incorreta. Exclusão cancelada.'); setDeletingAll(false); return; }
                 try {
                   const { data: rows, error: fetchErr } = await supabase.from('pecas').select('id').range(0, 19999);
                   if (fetchErr) {

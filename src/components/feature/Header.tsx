@@ -62,67 +62,10 @@ function Header() {
             </button>
           </nav>
 
-          {/* Mobile Menu Button */}
-          <button 
-            className="md:hidden text-white/80 hover:text-white transition-colors"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-          >
-            <i className={`text-xl ${isMenuOpen ? 'ri-close-line' : 'ri-menu-line'}`}></i>
-          </button>
+          {/* Mobile menu button removed — use sidebar existing control instead */}
         </div>
 
-        {/* Mobile Menu */}
-        {isMenuOpen && (
-          <div className="absolute top-full left-0 right-0 bg-black/95 backdrop-blur-md border-t border-white/10 md:hidden">
-            <div className="px-6 py-4 space-y-4">
-              <button 
-                onClick={() => {
-                  scrollToSection('products');
-                  setIsMenuOpen(false);
-                }}
-                className="block w-full text-left text-white/80 hover:text-white transition-colors text-sm font-light cursor-pointer"
-              >
-                Products
-              </button>
-              <button 
-                onClick={() => {
-                  scrollToSection('about');
-                  setIsMenuOpen(false);
-                }}
-                className="block w-full text-left text-white/80 hover:text-white transition-colors text-sm font-light cursor-pointer"
-              >
-                About
-              </button>
-              <button 
-                onClick={() => {
-                  scrollToSection('projects');
-                  setIsMenuOpen(false);
-                }}
-                className="block w-full text-left text-white/80 hover:text-white transition-colors text-sm font-light cursor-pointer"
-              >
-                Projects
-              </button>
-              <button 
-                onClick={() => {
-                  scrollToSection('contact');
-                  setIsMenuOpen(false);
-                }}
-                className="block w-full text-left text-white/80 hover:text-white transition-colors text-sm font-light cursor-pointer"
-              >
-                Contact
-              </button>
-              <button
-                onClick={() => {
-                  navigate('/setores');
-                  setIsMenuOpen(false);
-                }}
-                className="block w-full text-left text-white/80 hover:text-white transition-colors text-sm font-light cursor-pointer"
-              >
-                Setores
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Mobile menu removed — sidebar contains navigation controls */}
       </div>
     </header>
   );

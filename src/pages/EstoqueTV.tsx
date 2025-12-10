@@ -47,6 +47,7 @@ export default function EstoqueTV(): JSX.Element {
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const [tvMode, setTvMode] = useState<boolean>(true);
   const [carouselIndex, setCarouselIndex] = useState<number>(0);
+  const [companyLogo, setCompanyLogo] = useState<string>('');
   
 
   // fetch data
@@ -96,6 +97,28 @@ export default function EstoqueTV(): JSX.Element {
   };
 
   useEffect(() => {
+    // Resolve company logo: prefer env, then localStorage, then Supabase public file 'company_logo.png'
+    (async () => {
+      try {
+        const envLogo = (import.meta as any).env?.VITE_COMPANY_LOGO_URL || null;
+        if (envLogo) { setCompanyLogo(envLogo); return; }
+        try {
+          const saved = typeof window !== 'undefined' ? localStorage.getItem('company_logo') : null;
+          if (saved) { setCompanyLogo(saved); return; }
+        } catch (e) {}
+        try {
+          const mod = await import('../lib/supabase');
+          const supabase = (mod as any).supabase;
+          if (supabase) {
+            const { data } = supabase.storage.from('mapas').getPublicUrl('company_logo.png');
+            const publicUrl = data?.publicUrl || null;
+            if (publicUrl) { setCompanyLogo(publicUrl); return; }
+          }
+        } catch (e) {}
+        setCompanyLogo('/favicon.svg');
+      } catch (e) { setCompanyLogo('/favicon.svg'); }
+    })();
+
     fetchAll();
     let iv: any = null;
     if (autoRefresh) iv = setInterval(fetchAll, 30_000); // refresh every 30s by default
@@ -460,7 +483,7 @@ export default function EstoqueTV(): JSX.Element {
   const Header = () => (
     <header className="w-full bg-gradient-to-r from-[#0f172a] to-[#1e293b] text-white px-6 py-4 flex items-center justify-between shadow-2xl">
       <div className="flex items-center gap-4">
-        <img src="/logo.png" alt="Bom Futuro" className="h-12 w-auto object-contain filter brightness-0 invert" />
+      <img src={companyLogo || '/logo.png'} alt="Empresa" className="h-12 w-auto object-contain filter brightness-0 invert" onError={(e) => { try { (e.target as HTMLImageElement).src = '/favicon.svg'; } catch (err) {} }} />
         <div>
           <div className="text-xs text-slate-300">CENTRAL DE ESTOQUE & SUPRIMENTOS</div>
           <div className="text-2xl font-extrabold tracking-wider uppercase">IBA SANTA LUZIA</div>

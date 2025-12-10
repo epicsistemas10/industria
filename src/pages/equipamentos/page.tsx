@@ -380,18 +380,18 @@ export default function EquipamentosPage() {
                             </td>
 
                             <td className="px-4 py-3">
-                              <div className="font-medium text-white"><EquipamentoName equipamento={equipamento} className="" numberClassName="text-amber-300" /></div>
+                              <div className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}><EquipamentoName equipamento={equipamento} className="" numberClassName="text-amber-300" /></div>
                               <div className={`text-sm ${getCriticidadeColor(equipamento.criticidade)}`}>{equipamento.criticidade || ''}</div>
                             </td>
 
-                            <td className="px-4 py-3 text-sm text-gray-400">{equipamento.setores?.nome || equipamento.setor || 'Sem setor'}</td>
-                            <td className="px-4 py-3 text-sm text-gray-400">{equipamento.linha_setor || '-'}</td>
+                            <td className={`px-4 py-3 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-900'}`}>{equipamento.setores?.nome || equipamento.setor || 'Sem setor'}</td>
+                            <td className={`px-4 py-3 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-900'}`}>{equipamento.linha_setor || '-'}</td>
                             <td className="px-4 py-3 w-56">
                               <div className="flex items-center gap-3">
                                 <div className="w-full rounded-full h-2 bg-slate-700">
                                   <div className={`h-2 rounded-full ${getStatusColor(equipamento.status_revisao || 0)}`} style={{ width: `${equipamento.status_revisao || 0}%` }}></div>
                                 </div>
-                                <div className="text-sm font-medium text-white" style={{ minWidth: 36 }}>{equipamento.status_revisao || 0}%</div>
+                                <div className={`text-sm font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`} style={{ minWidth: 36 }}>{equipamento.status_revisao || 0}%</div>
                               </div>
                             </td>
                             <td className="px-4 py-3 text-right">

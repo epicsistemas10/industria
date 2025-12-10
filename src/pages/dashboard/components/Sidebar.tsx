@@ -69,13 +69,13 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
   ];
 
   return (
-    <aside className={`fixed left-0 top-0 h-screen ${isOpen ? 'w-64' : 'w-20'} bg-gray-900 border-r border-gray-800 transition-all duration-300 flex flex-col z-40`}>
+    <aside className={`fixed left-0 top-0 h-screen ${isOpen ? 'w-64' : 'w-20'} ${_darkMode ? 'bg-gray-900 border-r border-gray-800' : 'bg-gradient-to-br from-emerald-600 to-emerald-500'} transition-all duration-300 flex flex-col z-40`}>
       {/* Logo e Toggle */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-gray-800">
+      <div className={`h-16 flex items-center justify-between px-4 ${_darkMode ? 'border-b border-gray-800' : ''}`}>
         {isOpen ? (
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setShowSettings(!showSettings)}>
             {companyLogo ? (
-              <img src={companyLogo} alt="Logo" className="w-10 h-10 rounded-lg object-contain flex-shrink-0" />
+              <img src={companyLogo} alt="Logo" className={`w-10 h-10 rounded-lg object-contain flex-shrink-0 ${!_darkMode ? 'filter brightness-0 invert' : ''}`} />
             ) : (
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
                 <i className="ri-plant-line text-white text-xl"></i>
@@ -86,7 +86,7 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
         ) : (
           <div className="cursor-pointer" onClick={() => setShowSettings(!showSettings)}>
             {companyLogo ? (
-              <img src={companyLogo} alt="Logo" className="w-10 h-10 rounded-lg object-contain" />
+              <img src={companyLogo} alt="Logo" className={`w-10 h-10 rounded-lg object-contain ${!_darkMode ? 'filter brightness-0 invert' : ''}`} />
             ) : (
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
                 <i className="ri-plant-line text-white text-xl"></i>
@@ -97,9 +97,9 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
 
         <button
           onClick={onToggle}
-          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition-colors cursor-pointer"
+          className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${_darkMode ? 'hover:bg-gray-800' : 'hover:bg-emerald-700/90'}`}
         >
-          <i className={`${isOpen ? 'ri-menu-fold-line' : 'ri-menu-unfold-line'} text-gray-400 text-xl`}></i>
+          <i className={`${isOpen ? 'ri-menu-fold-line' : 'ri-menu-unfold-line'} ${_darkMode ? 'text-gray-400' : 'text-white'} text-xl`}></i>
         </button>
       </div>
 
@@ -190,8 +190,8 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
                       : 'text-gray-400 hover:bg-gray-800 hover:text-white'
                   }`}
                 >
-                  <i className={`${item.icon} text-xl w-6 h-6 flex items-center justify-center`}></i>
-                  {isOpen && <span className="font-medium whitespace-nowrap flex-1 text-left">{item.label}</span>}
+                  <i className={`${item.icon} text-xl w-6 h-6 flex items-center justify-center ${_darkMode ? 'text-gray-300' : item.id === 'componentes_group' ? 'text-white' : 'text-white/90'}`}></i>
+                  {isOpen && <span className={`font-medium whitespace-nowrap flex-1 text-left ${!_darkMode && item.id === 'componentes_group' ? 'text-white' : ''}`}>{item.label}</span>}
                   {isOpen && <i className={`${open ? 'ri-arrow-down-s-line' : 'ri-arrow-right-s-line'} text-lg`} />}
                 </button>
 
@@ -204,10 +204,10 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
                           key={child.id}
                           to={child.path}
                           className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all cursor-pointer mb-1 ${
-                            childActive ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                            childActive ? (_darkMode ? 'bg-gray-700 text-white' : 'bg-emerald-800/80 text-white') : (_darkMode ? 'text-gray-300 hover:bg-gray-800 hover:text-white' : 'text-white/90 hover:bg-emerald-700/60')
                           }`}
                         >
-                          <span className="text-sm">{child.label}</span>
+                          <span className={`text-sm ${!_darkMode && item.id === 'componentes_group' ? 'text-white' : ''}`}>{child.label}</span>
                         </Link>
                       );
                     })}
@@ -222,13 +222,13 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
               key={item.id}
               to={item.path}
               className={`flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-all cursor-pointer mb-1 ${
-                isActive
-                  ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`}
+                  isActive
+                    ? (_darkMode ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white' : 'bg-emerald-700/90 text-white')
+                    : (_darkMode ? 'text-gray-400 hover:bg-gray-800 hover:text-white' : 'text-white/90 hover:bg-emerald-700/60')
+                }`}
             >
               <i className={`${item.icon} text-xl w-6 h-6 flex items-center justify-center`}></i>
-              {isOpen && <span className="font-medium whitespace-nowrap">{item.label}</span>}
+              {isOpen && <span className={`font-medium whitespace-nowrap ${!_darkMode && item.id === 'componentes_group' ? 'text-white' : ''}`}>{item.label}</span>}
             </Link>
           );
         })}

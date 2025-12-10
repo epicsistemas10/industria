@@ -34,7 +34,7 @@ export default function SetoresPage() {
 
         <main className="p-6">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold text-white">Setores</h1>
+            <h1 className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Setores</h1>
             <div className="flex gap-2">
               <button onClick={() => { setEditId(undefined); setShowModal(true); }} className="px-4 py-2 bg-purple-600 text-white rounded">Novo Setor</button>
               <button onClick={() => load()} className="px-4 py-2 bg-gray-200 rounded">Atualizar</button>
@@ -47,8 +47,8 @@ export default function SetoresPage() {
             ) : (
               <ul className="space-y-2">
                 {setores.map((s) => (
-                  <li key={s.id} className="flex items-center justify-between p-3 rounded hover:bg-white/5">
-                    <div className="text-white">{s.nome}</div>
+                  <li key={s.id} className={`flex items-center justify-between p-3 rounded ${darkMode ? 'hover:bg-white/5' : 'hover:bg-gray-100'}`}>
+                    <div className={`${darkMode ? 'text-white' : 'text-gray-900'}`}>{s.nome}</div>
                     <div className="flex gap-2">
                       <button onClick={() => { setEditId(s.id); setShowModal(true); }} className="px-3 py-1 bg-blue-600 text-white rounded">Editar</button>
                       <button onClick={() => handleDelete(s.id)} className="px-3 py-1 bg-red-600 text-white rounded">Excluir</button>

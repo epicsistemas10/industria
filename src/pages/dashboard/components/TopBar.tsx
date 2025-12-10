@@ -2,6 +2,7 @@
 import { useAuth } from '../../../contexts/AuthContext';
 import NotificationCenter from '../../../components/base/NotificationCenter';
 import useSidebar from '../../../hooks/useSidebar';
+import { useEffect } from 'react';
 
 interface TopBarProps {
   darkMode: boolean;
@@ -12,16 +13,23 @@ export default function TopBar({ darkMode, setDarkMode }: TopBarProps) {
   const { signOut } = useAuth();
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
 
+  // On mount, read persisted theme from localStorage and sync with parent state
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('theme');
+      if (stored) {
+        const isDark = stored === 'dark';
+        if (isDark !== darkMode) setDarkMode(isDark);
+      }
+    } catch (e) {
+      // ignore storage access errors (e.g., SSR or privacy settings)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className={`h-16 border-b ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'} flex items-center justify-between px-6`}>
       <div className="flex items-center gap-4">
-        <button
-          onClick={toggleSidebar}
-          className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-gray-800 transition-colors text-gray-300"
-          title={sidebarOpen ? 'Fechar menu' : 'Abrir menu'}
-        >
-          <i className={`text-xl ${sidebarOpen ? 'ri-menu-fold-line' : 'ri-menu-line'}`}></i>
-        </button>
         <h2 className={`text-xl font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
           Sistema de Manutenção Industrial
         </h2>
@@ -33,7 +41,18 @@ export default function TopBar({ darkMode, setDarkMode }: TopBarProps) {
 
         {/* Dark Mode Toggle */}
         <button
-          onClick={() => setDarkMode(!darkMode)}
+          onClick={() => {
+            const newMode = !darkMode;
+            try {
+              localStorage.setItem('theme', newMode ? 'dark' : 'light');
+            } catch (e) {
+              // ignore
+            }
+            // apply class immediately for visual feedback
+            if (newMode) document.documentElement.classList.add('dark');
+            else document.documentElement.classList.remove('dark');
+            setDarkMode(newMode);
+          }}
           className={`w-10 h-10 rounded-lg flex items-center justify-center cursor-pointer transition-colors ${
             darkMode ? 'hover:bg-slate-700' : 'hover:bg-gray-100'
           }`}

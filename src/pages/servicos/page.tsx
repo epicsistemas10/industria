@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { formatEquipamentoName } from '../../utils/format';
 import EquipamentoName from '../../components/base/EquipamentoName';
 import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
+import { useNavigate } from 'react-router-dom';
 import useSidebar from '../../hooks/useSidebar';
 import { servicosAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import { equipamentosAPI } from '../../lib/api';
+import { CheckCircle, AlertTriangle, Percent, Settings, Factory } from 'lucide-react';
+
 
 export default function ServicosPage() {
+  const navigate = useNavigate();
   const [darkMode, setDarkMode] = useState(true);
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebar();
   const [servicos, setServicos] = useState<any[]>([]);
@@ -24,6 +28,19 @@ export default function ServicosPage() {
   const [showVincularModal, setShowVincularModal] = useState(false);
   const [selectedServId, setSelectedServId] = useState<string | null>(null);
   const [selectedEquipIds, setSelectedEquipIds] = useState<string[]>([]);
+  const [showLinkedModal, setShowLinkedModal] = useState(false);
+  const [linkedEquipamentos, setLinkedEquipamentos] = useState<any[]>([]);
+  const [loadingLinked, setLoadingLinked] = useState(false);
+  // % Serviço x Equipamento feature
+  const [showPercentModal, setShowPercentModal] = useState(false);
+  const [percentSelectedEquip, setPercentSelectedEquip] = useState<string | null>(null);
+  const [showEquipDropdown, setShowEquipDropdown] = useState(false);
+  const equipDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [percentMap, setPercentMap] = useState<Record<string, number>>({});
+  const [totalPercent, setTotalPercent] = useState<number>(0);
+  const [percentError, setPercentError] = useState<string | null>(null);
+  const [percentServices, setPercentServices] = useState<any[]>([]); // services shown in percent modal
+  const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     loadAll();
@@ -36,10 +53,40 @@ export default function ServicosPage() {
       setServicos(s || []);
       const eq = await equipamentosAPI.getAll();
       setEquipamentos(eq || []);
+      // load counts of linked equipamentos per service name
+      await loadServiceCounts();
+      // initialize percentMap for % modal
+      const initial: Record<string, number> = {};
+      (s || []).forEach((sv: any) => { initial[sv.id] = 0; });
+      setPercentMap(initial);
     } catch (err) {
       console.error('Erro ao carregar serviços/equipamentos:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadServiceCounts = async () => {
+    try {
+      const { data, error } = await supabase.from('equipamento_servicos').select('nome, equipamento_id');
+      if (error) {
+        console.warn('Could not load equipamento_servicos counts', error);
+        setServiceCounts({});
+        return;
+      }
+      const map: Record<string, Set<string>> = {};
+      (data || []).forEach((row: any) => {
+        const nome = row.nome || '';
+        const eid = row.equipamento_id;
+        if (!map[nome]) map[nome] = new Set();
+        if (eid) map[nome].add(eid);
+      });
+      const counts: Record<string, number> = {};
+      Object.keys(map).forEach(k => { counts[k] = map[k].size; });
+      setServiceCounts(counts);
+    } catch (err) {
+      console.error('Erro ao carregar contagens de vinculos:', err);
+      setServiceCounts({});
     }
   };
 
@@ -110,6 +157,41 @@ export default function ServicosPage() {
     setSelectedServId(servId);
     setSelectedEquipIds([]);
     setShowVincularModal(true);
+  };
+
+  const openLinked = async (s: any) => {
+    try {
+      setLoadingLinked(true);
+      setLinkedEquipamentos([]);
+      const svcName = (s.nome || '').toString();
+      // First try exact match
+      let res = await supabase
+        .from('equipamento_servicos')
+        .select('equipamento_id, equipamentos(id, nome, codigo_interno)')
+        .eq('nome', svcName);
+
+      // If exact match fails (400) or returns error, try ilike fallback
+      if (res.error || !res.data) {
+        console.warn('Exact match for linked serviços failed, trying ilike fallback', res.error);
+        res = await supabase
+          .from('equipamento_servicos')
+          .select('equipamento_id, equipamentos(id, nome, codigo_interno)')
+          .ilike('nome', `%${svcName}%`);
+      }
+
+      if (res.error) throw res.error;
+      const mapped = (res.data || []).map((row: any) => ({
+        equipamento_id: row.equipamento_id,
+        equipamento: row.equipamentos || null
+      }));
+      setLinkedEquipamentos(mapped);
+      setShowLinkedModal(true);
+    } catch (err) {
+      console.error('Erro ao carregar vinculados:', err);
+      alert('Erro ao carregar equipamentos vinculados');
+    } finally {
+      setLoadingLinked(false);
+    }
   };
 
   const [equipSearch, setEquipSearch] = useState('');
@@ -218,10 +300,155 @@ export default function ServicosPage() {
       const { error } = await supabase.from('equipamento_servicos').insert(rows, { returning: 'minimal' });
       if (error) throw error;
       alert('Serviço vinculado aos equipamentos');
+      // refresh counts
+      await loadServiceCounts();
       setShowVincularModal(false);
+        // also refresh percent counts if modal open
+        if (showPercentModal) await loadServiceCounts();
     } catch (err) {
       console.error('Erro ao vincular serviço:', err);
       alert('Erro ao vincular serviço');
+    }
+  };
+
+  // % Serviço x Equipamento handlers
+  useEffect(() => {
+    // compute totalPercent when percentMap changes
+    const sum = Object.values(percentMap || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+    setTotalPercent(Number(sum.toFixed(2)));
+    if (sum > 100) setPercentError('Os percentuais não podem ultrapassar 100%');
+    else setPercentError(null);
+  }, [percentMap]);
+
+  const handlePercentChange = (serviceId: string, nextValue: number) => {
+    const current = percentMap[serviceId] || 0;
+    const candidate = Object.values(percentMap).reduce((a, b) => a + (Number(b) || 0), 0) - current + nextValue;
+    if (candidate > 100) {
+      setPercentError('Os percentuais não podem ultrapassar 100%');
+      return;
+    }
+    setPercentMap(prev => ({ ...prev, [serviceId]: Number(nextValue) }));
+  };
+
+  const openPercentModal = () => {
+    // reset selection
+    setPercentSelectedEquip(null);
+    // reset percentMap and services list — will load when user selects an equipment
+    setPercentMap({});
+    setPercentServices([]);
+    setShowPercentModal(true);
+  };
+
+  // when equipment selected in percent modal, load existing config or linked services
+  useEffect(() => {
+    const loadForEquip = async (equipId: string) => {
+      try {
+        // try to load existing percentage config
+        const { data: existing, error: err1 } = await supabase
+          .from('servicos_equipamentos')
+          .select('servico_id, percentual')
+          .eq('equipamento_id', equipId);
+
+        if (!err1 && existing && existing.length) {
+          const map: Record<string, number> = {};
+          const svcIds: string[] = [];
+          existing.forEach((r: any) => { map[r.servico_id] = Number(r.percentual || 0); svcIds.push(r.servico_id); });
+          // build services array from servicos state
+          const svs = svcIds.map(id => servicos.find((s: any) => s.id === id)).filter(Boolean);
+          setPercentServices(svs);
+          setPercentMap(map);
+          return;
+        }
+
+        // no existing config: fall back to equipamento_servicos which list services linked by name
+        const { data: links, error: err2 } = await supabase
+          .from('equipamento_servicos')
+          .select('nome')
+          .eq('equipamento_id', equipId);
+
+        if (!err2 && links && links.length) {
+          // try to match by name to servicos
+          const names = links.map((l: any) => (l.nome || '').toString().trim());
+          const matched: any[] = [];
+          names.forEach((nm: string) => {
+            const m = servicos.find((s: any) => (s.nome || '').toString().trim() === nm);
+            if (m) matched.push(m);
+          });
+          // if no exact matches, try partial match
+          if (matched.length === 0) {
+            names.forEach((nm: string) => {
+              const m = servicos.find((s: any) => (s.nome || '').toString().toLowerCase().includes(nm.toLowerCase()));
+              if (m) matched.push(m);
+            });
+          }
+          // remove duplicates
+          const unique = Array.from(new Set(matched.map(s => s.id))).map(id => matched.find((m: any) => m.id === id));
+          if (unique.length) {
+            const per = Math.floor((100 / unique.length) * 100) / 100; // two decimals
+            const map: Record<string, number> = {};
+            unique.forEach((u: any) => { map[u.id] = per; });
+            // adjust to sum exactly 100 by distributing remainder to first item
+            const sum = Object.values(map).reduce((a,b)=>a+b,0);
+            const diff = Math.round((100 - sum) * 100) / 100;
+            if (diff !== 0 && unique.length > 0) map[unique[0].id] = Number((map[unique[0].id] + diff).toFixed(2));
+            setPercentServices(unique);
+            setPercentMap(map);
+            return;
+          }
+        }
+
+        // If no existing config and no equipamento_servicos links, show empty list
+        setPercentServices([]);
+        setPercentMap({});
+      } catch (err) {
+        console.error('Erro loading percent config for equipment', err);
+      }
+    };
+
+    if (percentSelectedEquip) loadForEquip(percentSelectedEquip);
+    else {
+      setPercentServices([]);
+      // reset percentMap to zeros
+      const initial: Record<string, number> = {};
+      (servicos || []).forEach((sv: any) => { initial[sv.id] = 0; });
+      setPercentMap(initial);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [percentSelectedEquip]);
+
+  // close equipment dropdown when clicking outside
+  useEffect(() => {
+    if (!showEquipDropdown) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (equipDropdownRef.current && !equipDropdownRef.current.contains(e.target as Node)) {
+        setShowEquipDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [showEquipDropdown]);
+
+  const savePercentConfig = async () => {
+    if (!percentSelectedEquip) { alert('Selecione um equipamento'); return; }
+    if (totalPercent !== 100) { alert('Distribua até fechar 100%'); return; }
+    try {
+      // remove existing config for equipamento
+      const del = await supabase.from('servicos_equipamentos').delete().eq('equipamento_id', percentSelectedEquip);
+      if (del.error) console.warn('Could not delete previous configs', del.error);
+      const rows: any[] = [];
+      Object.entries(percentMap).forEach(([servId, val]) => {
+        const v = Number(val) || 0;
+        if (v > 0) rows.push({ equipamento_id: percentSelectedEquip, servico_id: servId, percentual: v, concluido: false });
+      });
+      if (rows.length) {
+        const ins = await supabase.from('servicos_equipamentos').insert(rows);
+        if (ins.error) throw ins.error;
+      }
+      alert('Percentuais vinculados ao equipamento com sucesso');
+      setShowPercentModal(false);
+    } catch (err) {
+      console.error('Erro ao salvar percentuais:', err);
+      alert('Erro ao salvar percentuais');
     }
   };
 
@@ -236,8 +463,12 @@ export default function ServicosPage() {
               <h1 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Serviços</h1>
               <p className={`mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Cadastre serviços padrão e vincule aos equipamentos</p>
             </div>
-            <div>
+            <div className="flex gap-2 items-center">
               <button onClick={openNew} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-lg">Novo Serviço</button>
+              <button onClick={openPercentModal} className="px-4 py-3 bg-emerald-600 text-white rounded-lg flex items-center gap-2">
+                <Percent size={16} />
+                % Serviço x Equipamento
+              </button>
             </div>
           </div>
 
@@ -253,24 +484,34 @@ export default function ServicosPage() {
                 {Object.entries(groupedServices(servicos, servicosQuery)).map(([categoria, items]) => (
                   <div key={categoria}>
                     <h4 className={`text-lg font-semibold mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{categoria}</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
                       {items.map(s => (
-                        <div key={s.id} className={`p-4 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow`}>
-                          <div className="flex items-start justify-between mb-2">
-                            <div>
+                        <div key={s.id} className={`flex items-center justify-between p-4 rounded-lg ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow`}>
+                          <div className="flex-1 min-w-0">
                               <div className="text-sm text-gray-400">{s.codigo}</div>
-                              <h3 className={`font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{s.nome}</h3>
-                            </div>
+                              <div
+                                className={`font-semibold truncate ${darkMode ? 'text-white' : 'text-gray-900'} cursor-pointer underline-offset-2 hover:underline flex items-center gap-2`}
+                                onClick={() => openLinked(s)}
+                                title="Ver equipamentos vinculados"
+                              >
+                                <span className="truncate">{s.nome}</span>
+                                {(serviceCounts[s.nome] || 0) > 0 && (
+                                  <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-amber-300 text-amber-900">
+                                    <i className="ri-link-line"></i>
+                                    {serviceCounts[s.nome]}
+                                  </span>
+                                )}
+                              </div>
+                              <p className={`text-sm mt-1 truncate ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{s.descricao}</p>
+                          </div>
+                          <div className="flex items-center gap-4 ml-4">
+                            <span className={`${darkMode ? 'text-xs px-2 py-1 rounded bg-slate-700 text-gray-200' : 'text-xs px-2 py-1 rounded bg-gray-200 text-gray-800'}`}>{s.categoria || 'Sem Categoria'}</span>
                             <div className="flex gap-2">
                               <button onClick={() => openVincular(s.id)} className="px-3 py-1 bg-emerald-600 text-white rounded">Vincular</button>
                               <button onClick={() => openEdit(s)} className="px-3 py-1 bg-blue-600 text-white rounded">Editar</button>
                               <button onClick={() => remove(s.id)} className="px-3 py-1 bg-red-600 text-white rounded">Excluir</button>
                             </div>
                           </div>
-                                  <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{s.descricao}</p>
-                                  <div className="mt-2">
-                                    <span className="text-xs px-2 py-1 rounded bg-gray-200 text-gray-800">{s.categoria || 'Sem Categoria'}</span>
-                                  </div>
                         </div>
                       ))}
                     </div>
@@ -323,6 +564,92 @@ export default function ServicosPage() {
             </div>
           )}
 
+          {/* % Serviço x Equipamento Modal */}
+          {showPercentModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm">
+              <div className={`${darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'} rounded-2xl w-full max-w-5xl p-6`}> 
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <Factory />
+                    <div className="relative" ref={equipDropdownRef}>
+                      <button
+                        type="button"
+                        onClick={() => setShowEquipDropdown(v => !v)}
+                        className={`px-3 py-2 rounded border ${darkMode ? 'bg-slate-800 text-white border-slate-600' : 'bg-white text-gray-900 border-gray-300'}`}
+                      >
+                        {percentSelectedEquip ? (equipamentos.find(eq => eq.id === percentSelectedEquip)?.nome || 'Selecionado') : 'Selecione um Equipamento'}
+                      </button>
+                      {showEquipDropdown && (
+                        <div className={`absolute z-50 mt-2 w-80 max-h-64 overflow-y-auto rounded shadow-lg ${darkMode ? 'bg-slate-800 text-white' : 'bg-white text-gray-900'}`}>
+                          {equipamentos.length === 0 ? (
+                            <div className="p-3 text-sm text-gray-400">Nenhum equipamento disponível</div>
+                          ) : (
+                            equipamentos.map(eq => (
+                              <button key={eq.id} onClick={() => { setPercentSelectedEquip(eq.id); setShowEquipDropdown(false); }} className={`w-full text-left px-3 py-2 hover:${darkMode ? 'bg-slate-700' : 'bg-gray-100'}`}> 
+                                <div className="font-medium">{eq.nome}</div>
+                                <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{eq.codigo_interno || ''}</div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <h3 className="text-lg font-semibold">Distribuição de Percentuais da Revisão</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>setShowPercentModal(false)} className={`px-4 py-2 rounded ${darkMode ? 'bg-slate-700 text-white' : 'bg-gray-300 text-gray-800'}`}>Cancelar</button>
+                    <button onClick={savePercentConfig} disabled={totalPercent !== 100} className={`px-4 py-2 rounded ${totalPercent===100 ? 'bg-emerald-600 text-white' : (darkMode ? 'bg-slate-700 text-gray-400' : 'bg-gray-300 text-gray-600')}`}>
+                      Salvar Configuração
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>Total distribuído: <strong>{totalPercent}%</strong></div>
+                    {percentError && <div className="text-red-400">{percentError}</div>}
+                  </div>
+                  <div className={`h-4 rounded ${darkMode ? 'bg-slate-700' : 'bg-gray-200'} overflow-hidden`}>
+                    <div className={`h-4 ${totalPercent>100 ? 'bg-red-500' : 'bg-emerald-500'} transition-all`} style={{ width: `${Math.min(totalPercent,100)}%` }} />
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {percentServices && percentServices.length > 0 ? (
+                    percentServices.map(s => (
+                      <div key={s.id} className={`flex items-center justify-between p-3 rounded ${darkMode ? 'bg-slate-800' : 'bg-gray-50'}`}>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium">{s.nome}</div>
+                            { (percentMap[s.id] || 0) > 0 ? <CheckCircle className="text-emerald-400" /> : null }
+                          </div>
+                          <div className={`${darkMode ? 'text-gray-400' : 'text-gray-400'} text-sm`}>{s.codigo}</div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={0.5}
+                            value={percentMap[s.id] ?? 0}
+                            onChange={(e) => {
+                              const v = Number(e.target.value || 0);
+                              handlePercentChange(s.id, v);
+                            }}
+                            className="w-28 px-3 py-2 rounded border bg-transparent text-right"
+                          />
+                          {percentMap[s.id] && percentMap[s.id] > 0 ? <CheckCircle className="text-emerald-500" /> : <AlertTriangle className="text-gray-400" />}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className={`p-4 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum serviço vinculado a este equipamento.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Modal Vincular */}
           {showVincularModal && (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -354,6 +681,41 @@ export default function ServicosPage() {
                 <div className="flex gap-2 justify-end mt-4">
                   <button onClick={()=>setShowVincularModal(false)} className="px-4 py-2 bg-transparent border border-white rounded">Cancelar</button>
                   <button onClick={vincular} className="px-4 py-2 bg-emerald-600 text-white rounded">Vincular</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Linked Equipamentos (read-only) */}
+          {showLinkedModal && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className={`${darkMode ? 'bg-slate-800 text-white' : 'bg-white text-gray-900'} rounded-xl w-full max-w-2xl p-6`}>
+                <h3 className="text-lg font-semibold">Equipamentos vinculados</h3>
+                <div className="mt-4">
+                  {loadingLinked ? (
+                    <div className="text-sm text-gray-400">Carregando...</div>
+                  ) : (
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {linkedEquipamentos.length === 0 ? (
+                        <div className="text-sm text-gray-500">Nenhum equipamento vinculado a este serviço.</div>
+                      ) : (
+                        linkedEquipamentos.map((row) => (
+                          <div key={row.equipamento_id} className={`flex items-center justify-between p-2 rounded ${darkMode ? 'bg-slate-700' : 'bg-gray-100'}`}>
+                            <div>
+                              <div className={`${darkMode ? 'text-gray-200' : 'text-gray-900'} font-medium`}>{row.equipamento?.nome || 'Sem nome'}</div>
+                              <div className="text-sm text-gray-500">IND: {row.equipamento?.ind || row.equipamento?.codigo_interno || '-'}</div>
+                            </div>
+                            <div>
+                              <button onClick={() => { if (row.equipamento?.id) navigate(`/equipamento/${row.equipamento.id}`); }} className="px-3 py-1 bg-blue-600 text-white rounded">Abrir</button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-end mt-4">
+                  <button onClick={() => setShowLinkedModal(false)} className="px-4 py-2">Fechar</button>
                 </div>
               </div>
             </div>

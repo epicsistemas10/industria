@@ -21,13 +21,11 @@ export default function UsuariosPage() {
 
   useEffect(() => {
     carregarUsuarios();
-    // try to read persisted theme
     try {
       const t = localStorage.getItem('theme');
       if (t === 'light') setDarkMode(false);
       else setDarkMode(true);
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   const carregarUsuarios = async () => {

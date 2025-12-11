@@ -38,6 +38,28 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
 
+  const localInputToISOWithOffset = (local: string | undefined | null) => {
+    if (!local) return new Date().toISOString();
+    // local expected as 'YYYY-MM-DDTHH:mm'
+    try {
+      const d = new Date(local);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const year = d.getFullYear();
+      const month = pad(d.getMonth() + 1);
+      const day = pad(d.getDate());
+      const hours = pad(d.getHours());
+      const minutes = pad(d.getMinutes());
+      const offsetMin = -d.getTimezoneOffset(); // minutes ahead of UTC
+      const sign = offsetMin >= 0 ? '+' : '-';
+      const abs = Math.abs(offsetMin);
+      const offH = pad(Math.floor(abs / 60));
+      const offM = pad(abs % 60);
+      return `${year}-${month}-${day}T${hours}:${minutes}:00${sign}${offH}:${offM}`;
+    } catch (e) {
+      return new Date(local as any).toISOString();
+    }
+  };
+
   const getPlannedServiceKey = (p: any) => {
     if (!p) return '';
     if (typeof p === 'string') return p;
@@ -237,7 +259,7 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
   const confirmStartForIndex = async (i: number) => {
     if (!ordem) return;
     try {
-      const iso = startAt ? new Date(startAt).toISOString() : new Date().toISOString();
+      const iso = startAt ? localInputToISOWithOffset(startAt) : new Date().toISOString();
       const updatedObs = { planned_services: planned.slice() };
       updatedObs.planned_services[i] = { ...updatedObs.planned_services[i], iniciado_em: iso, status: 'em andamento' };
       const payload: any = { status: 'Em Andamento', data_inicio: iso, observacoes: JSON.stringify(updatedObs) };
@@ -263,7 +285,7 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
   const confirmEndForIndex = async (i: number) => {
     if (!ordem) return;
     try {
-      const iso = endAt ? new Date(endAt).toISOString() : new Date().toISOString();
+      const iso = endAt ? localInputToISOWithOffset(endAt) : new Date().toISOString();
       const updatedObs = { planned_services: planned.slice() };
       updatedObs.planned_services[i] = { ...updatedObs.planned_services[i], finalizado_em: iso, status: 'concluido' };
       const allFinished = updatedObs.planned_services.every((ps: any) => ps.finalizado_em);

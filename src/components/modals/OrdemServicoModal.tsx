@@ -304,11 +304,28 @@ export default function OrdemServicoModal({
     if (!osId) return;
     try {
       const val = typeof value !== 'undefined' ? value : formData[field];
-      const toISO = (val: string) => {
-        if (!val) return null;
-        try { return new Date(val).toISOString(); } catch (e) { return val; }
+      // convert local datetime-local value to ISO with timezone offset to preserve entered local time
+      const localInputToISOWithOffset = (local?: string | null) => {
+        if (!local) return null;
+        try {
+          const d = new Date(local);
+          const pad = (n: number) => String(n).padStart(2, '0');
+          const year = d.getFullYear();
+          const month = pad(d.getMonth() + 1);
+          const day = pad(d.getDate());
+          const hours = pad(d.getHours());
+          const minutes = pad(d.getMinutes());
+          const offsetMin = -d.getTimezoneOffset();
+          const sign = offsetMin >= 0 ? '+' : '-';
+          const abs = Math.abs(offsetMin);
+          const offH = pad(Math.floor(abs / 60));
+          const offM = pad(abs % 60);
+          return `${year}-${month}-${day}T${hours}:${minutes}:00${sign}${offH}:${offM}`;
+        } catch (e) {
+          try { return new Date(local as any).toISOString(); } catch (er) { return null; }
+        }
       };
-      const iso = toISO(val as string);
+      const iso = localInputToISOWithOffset(val as string);
       await ordensServicoAPI.update(osId, { [field]: iso });
       // Optionally update local formData to reflect saved ISO -> but keep datetime-local string for input
     } catch (e) {

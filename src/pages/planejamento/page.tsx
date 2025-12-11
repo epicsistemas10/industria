@@ -753,6 +753,22 @@ export default function PlanejamentoPage() {
               )}
               <div>
                 <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Equipe Responsável
+                </label>
+                <select
+                  value={formData.equipe_id}
+                  onChange={(e) => setFormData({ ...formData, equipe_id: e.target.value })}
+                  className={`w-full px-4 py-3 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-blue-500 outline-none pr-8`}
+                  required
+                >
+                  <option value="">Selecione uma equipe</option>
+                  {equipes.map(equipe => (
+                    <option key={equipe.id} value={equipe.id}>{equipe.nome}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                   Observações (opcional)
                 </label>
                 <textarea

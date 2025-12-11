@@ -25,6 +25,22 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
   const [showComponenteModal, setShowComponenteModal] = useState(false);
   const partsQuantityRef = useRef<HTMLInputElement | null>(null);
 
+  const getPlannedServiceKey = (p: any) => {
+    if (!p) return '';
+    if (typeof p === 'string') return p;
+    if (typeof p === 'object') {
+      if (p.servico_id) return String(p.servico_id);
+      if (p.id) return String(p.id);
+      if (p.uuid) return String(p.uuid);
+      if (p.servico && typeof p.servico === 'string') return p.servico;
+      if (p.servico && typeof p.servico === 'object') {
+        if (p.servico.id) return String(p.servico.id);
+        if (p.servico.uuid) return String(p.servico.uuid);
+      }
+    }
+    return '';
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     setStartAt(new Date().toISOString().slice(0, 16)); // yyyy-mm-ddThh:mm for input
@@ -64,14 +80,44 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
     if (!isOpen) return;
     const loadNames = async () => {
       try {
-        const ids = Array.from(new Set(planned.map(p => p.servico_id).filter(Boolean)));
+        // extract service ids from multiple possible shapes
+        const idsSet = new Set<string>();
+        planned.forEach((p: any) => {
+          if (!p) return;
+          if (typeof p === 'string') idsSet.add(p);
+          if (typeof p === 'object') {
+            if (p.servico_id) idsSet.add(String(p.servico_id));
+            else if (p.id) idsSet.add(String(p.id));
+            else if (p.uuid) idsSet.add(String(p.uuid));
+            else if (p.servico && typeof p.servico === 'string') idsSet.add(p.servico);
+            else if (p.servico && typeof p.servico === 'object') {
+              if (p.servico.id) idsSet.add(String(p.servico.id));
+              if (p.servico.uuid) idsSet.add(String(p.servico.uuid));
+            }
+          }
+        });
+        const ids = Array.from(idsSet).filter(Boolean);
         if (ids.length === 0) {
           setServiceNames({});
           return;
         }
-        const { data } = await supabase.from('servicos').select('id, nome').in('id', ids as any[]);
         const map: Record<string, string> = {};
-        (data || []).forEach((s: any) => { map[String(s.id)] = s.nome || s.id; });
+        try {
+          const { data } = await supabase.from('servicos').select('id, nome').in('id', ids as any[]);
+          (data || []).forEach((s: any) => { map[String(s.id)] = s.nome || String(s.id); });
+        } catch (e) {
+          // ignore
+        }
+        // fallback to equipamento_servicos for ids not found in servicos
+        const stillMissing = ids.filter(i => !map[String(i)]);
+        if (stillMissing.length > 0) {
+          try {
+            const { data: eqData } = await supabase.from('equipamento_servicos').select('id, nome').in('id', stillMissing as any[]);
+            (eqData || []).forEach((s: any) => { map[String(s.id)] = s.nome || String(s.id); });
+          } catch (e) {
+            // ignore
+          }
+        }
         setServiceNames(map);
       } catch (e) {
         console.warn('Erro ao carregar nomes de serviços', e);
@@ -205,7 +251,7 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl max-w-md w-full p-6`}> 
+      <div className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl max-w-3xl w-full p-6 max-h-[80vh] overflow-y-auto`}> 
         <h3 className="text-xl font-semibold mb-4">Iniciar Ordem de Serviço</h3>
         <p className="text-sm mb-4">Selecione o serviço que será iniciado e confirme a data/hora de início.</p>
 
@@ -220,7 +266,8 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
             <label className="block text-sm font-medium mb-2">Serviços planejados</label>
             <div className="flex flex-col gap-2">
               {planned.map((p: any, i: number) => {
-                const name = serviceNames[String(p.servico_id)] || p.servico_nome || (p.servico && p.servico.nome) || String(p.servico_id || p.servico || `Serviço ${i+1}`);
+                const key = getPlannedServiceKey(p) || String(p.servico_id || p.servico || `svc-${i}`);
+                const name = (key && serviceNames[String(key)]) || p.servico_nome || (p.servico && p.servico.nome) || String(p.servico_id || p.servico || `Serviço ${i+1}`);
                 const selected = selectedIndex === i;
                 return (
                   <button
@@ -296,13 +343,13 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
           </div>
 
           <div className="mt-3">
-            <label className="block text-sm font-medium mb-2">Peças adicionais</label>
+            <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>Peças adicionais</label>
             <div className="flex gap-2">
               <input type="text" value={additionalQuery} onChange={(e) => setAdditionalQuery(e.target.value)} placeholder="Buscar por código ou nome" className="flex-1 px-3 py-2 rounded border" />
               <button type="button" onClick={searchAdditional} className="px-3 py-2 bg-emerald-500 rounded">Buscar</button>
             </div>
             <div className="mt-2">
-              {additionalResults.length === 0 && <div className="text-sm text-gray-300">Nenhum resultado</div>}
+              {additionalResults.length === 0 && <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Nenhum resultado</div>}
               {additionalResults.map((c) => (
                 <div key={c.id} className="flex items-center justify-between gap-2 py-2 border-b border-slate-600">
                   <div>

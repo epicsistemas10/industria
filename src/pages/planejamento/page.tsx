@@ -311,6 +311,20 @@ export default function PlanejamentoPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      console.debug('handleSubmit called', formData);
+      // basic client-side validation to give immediate feedback
+      if (!formData.equipamento_id) {
+        alert('Selecione um equipamento antes de adicionar atividade(s).');
+        return;
+      }
+      if (!formData.servico_ids || formData.servico_ids.length === 0) {
+        alert('Selecione ao menos um serviço.');
+        return;
+      }
+      if (!formData.equipe_id) {
+        alert('Selecione a equipe responsável.');
+        return;
+      }
       const computeWeekStart = (offsetWeeks: number) => {
         const now = new Date();
         // JS: 0=Sunday,1=Monday,... we consider Monday as week start
@@ -353,6 +367,8 @@ export default function PlanejamentoPage() {
         .from('planejamento_semana')
         .insert(toInsert)
         .select();
+
+      console.debug('insert response', inserted, error);
 
       if (error) throw error;
 

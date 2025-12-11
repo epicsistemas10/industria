@@ -421,7 +421,7 @@ export default function OrdensServicoPage() {
   };
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-gray-100'} transition-colors duration-300`}>
+    <div className={`min-h-screen ${darkMode ? 'bg-slate-900 text-white' : 'bg-gray-100 text-gray-900'} transition-colors duration-300`}>
       <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
       
       <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>

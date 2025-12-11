@@ -7,7 +7,7 @@ import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
 import { supabase } from '../../lib/supabase';
-import { grupoEquipamentosAPI } from '../../lib/api';
+import { grupoEquipamentosAPI, componenteTerceirizadoAPI } from '../../lib/api';
 import { storageAPI } from '../../lib/storage';
 import useMapaHotspots from '../../hooks/useMapaHotspots';
 import { useToast } from '../../hooks/useToast';
@@ -62,6 +62,7 @@ export default function MapaPage() {
   const [showAddHotspot, setShowAddHotspot] = useState(false);
   const [selectedEquipmentForHotspot, setSelectedEquipmentForHotspot] = useState<string>('');
   const [equipmentDetails, setEquipmentDetails] = useState<any>(null);
+  const [equipWithTerceirizados, setEquipWithTerceirizados] = useState<Record<string, boolean>>({});
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [showCustomizePanel, setShowCustomizePanel] = useState(false);
   const [hotspotColor, setHotspotColor] = useState('#10b981');
@@ -437,6 +438,15 @@ export default function MapaPage() {
         setEquipments(mapped as Equipment[]);
         try { localStorage.setItem('equipments', JSON.stringify(mapped)); } catch (e) { /* ignore */ }
         setEquipmentLoadInfo(`${mapped.length} equipamentos carregados (Supabase)`);
+        // mark equipments that have components currently in terceirização
+        try {
+          const open = await componenteTerceirizadoAPI.listOpen();
+          const map: Record<string, boolean> = {};
+          (open || []).forEach((r: any) => { if (r.equipamento_id) map[String(r.equipamento_id)] = true; });
+          setEquipWithTerceirizados(map);
+        } catch (e) {
+          console.warn('Erro ao carregar componentes terceirizados abertos', e);
+        }
       } else {
         // attempt to recover from localStorage fallback
         try {
@@ -1716,8 +1726,9 @@ export default function MapaPage() {
 
                       if (!equipment) return null;
 
-                      const prog = equipment.progresso ?? 0;
-                      const hotspotColor = getProgressColor(prog);
+                      // prefer percent computed by hotspot (from servicos_equipamentos aggregation)
+                      const displayPercent = typeof hotspot.percent === 'number' ? hotspot.percent : (equipment.progresso ?? 0);
+                      const hotspotColor = hotspot.color || getProgressColor(displayPercent);
                       const fontSize = hotspot.fontSize || 14;
                       const iconClass = hotspot.icon || 'ri-tools-fill';
                       const circleSize = Math.max(36, fontSize * 3);
@@ -1759,7 +1770,7 @@ export default function MapaPage() {
                           >
                             <i className={`${iconClass} text-white mb-1`} style={{ fontSize: `${fontSize + 4}px` }}></i>
                             <span className="text-white font-bold" style={{ fontSize: `${Math.max(10, fontSize - 2)}px` }}>
-                              {equipment.progresso}%
+                              {displayPercent}%
                             </span>
                           </div>
 
@@ -1791,19 +1802,25 @@ export default function MapaPage() {
                                     )}
                                   </div>
                                 </div>
-                              ) : (
-                                <>
-                                  <div className="font-bold"><EquipamentoName equipamento={equipment} numberClassName="text-amber-300" /></div>
-                                  <div className="text-sm">{equipment.setor}</div>
-                                  <div className="text-xs">Revisão: {equipment.progresso}%</div>
-                                </>
-                              )}
+                                  ) : (
+                                      <>
+                                        <div className="font-bold"><EquipamentoName equipamento={equipment} numberClassName="text-amber-300" /></div>
+                                        <div className="text-sm">{equipment.setor}</div>
+                                        <div className="text-xs">Revisão: {displayPercent}%</div>
+                                      </>
+                                    )}
                             </div>
                           )}
 
                           {(equipment.criticidade?.toLowerCase() === 'critica' || equipment.criticidade?.toLowerCase() === 'crítica') && (
                             <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
                               <i className="ri-alert-fill text-white text-xs"></i>
+                            </div>
+                          )}
+
+                          {equipWithTerceirizados[String(equipment.id)] && (
+                            <div className="absolute -top-2 -left-2 w-5 h-5 bg-indigo-600 rounded-full flex items-center justify-center" title="Componente em terceirização">
+                              <i className="ri-truck-line text-white text-xs"></i>
                             </div>
                           )}
 
@@ -1883,8 +1900,8 @@ export default function MapaPage() {
                         let equipment: any = null;
                         if (!isGroup) equipment = equipments.find((eq) => eq.id === hotspot.equipamento_id);
                         if (!equipment) return null;
-                        const prog = equipment.progresso ?? 0;
-                        const hotspotColor = getProgressColor(prog);
+                        const displayPercent = typeof hotspot.percent === 'number' ? hotspot.percent : (equipment.progresso ?? 0);
+                        const hotspotColor = hotspot.color || getProgressColor(displayPercent);
                         const fontSize = hotspot.fontSize || 14;
                         const iconClass = hotspot.icon || 'ri-tools-fill';
                         const circleSize = Math.max(36, fontSize * 3);
@@ -1922,7 +1939,7 @@ export default function MapaPage() {
                             >
                               <i className={`${iconClass} text-white mb-1`} style={{ fontSize: `${fontSize + 4}px` }}></i>
                               <span className="text-white font-bold" style={{ fontSize: `${Math.max(10, fontSize - 2)}px` }}>
-                                {equipment.progresso}%
+                                {displayPercent}%
                               </span>
                             </div>
                           </div>

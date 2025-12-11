@@ -685,12 +685,16 @@ export default function DashboardTVPage(): JSX.Element {
                               const fontSize = h.fontSize || 12;
                               const circleSize = Math.max(28, (fontSize + 8));
 
-                              // if group hotspot, compute average progress from members
-                              let displayProgress = equipment?.progresso ?? 0;
-                              if (isGroup && Array.isArray((h as any).members)) {
+                              // prefer hotspot.percent when available; otherwise compute
+                              let displayProgress = 0;
+                              if (typeof (h as any).percent === 'number') {
+                                displayProgress = (h as any).percent;
+                              } else if (isGroup && Array.isArray((h as any).members)) {
                                 const members: string[] = (h as any).members;
                                 const memberEquipments = members.map((id) => equipments.find(e => String(e.id) === String(id))).filter(Boolean) as Equipment[];
                                 displayProgress = memberEquipments.length > 0 ? Math.round(memberEquipments.reduce((s, e) => s + (e.progresso ?? 0), 0) / memberEquipments.length) : 0;
+                              } else {
+                                displayProgress = equipment?.progresso ?? 0;
                               }
 
                               // Use percentage positioning inside the image-box so behavior matches `mapa`
@@ -716,7 +720,7 @@ export default function DashboardTVPage(): JSX.Element {
                                   }}
                                   onMouseLeave={() => { setTooltipId(null); }}
                                 >
-                                  <div className="rounded-full relative flex flex-col items-center justify-center shadow-2xl overflow-hidden" style={{ background: getProgressColor(displayProgress), width: `${circleSize}px`, height: `${circleSize}px`, boxShadow: '0 0 10px rgba(0,229,255,0.35)' }}>
+                                  <div className="rounded-full relative flex flex-col items-center justify-center shadow-2xl overflow-hidden" style={{ background: (h as any).color || getProgressColor(displayProgress), width: `${circleSize}px`, height: `${circleSize}px`, boxShadow: '0 0 10px rgba(0,229,255,0.35)' }}>
                                     {/* percentage centered inside the circle (icon removed) */}
                                     <span className="flex items-center justify-center text-white font-bold" style={{ fontSize: `${Math.max(10, Math.floor(circleSize * 0.42))}px`, lineHeight: 1, zIndex: 1 }}>{displayProgress}%</span>
                                   </div>

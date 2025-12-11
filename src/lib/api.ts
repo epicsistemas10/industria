@@ -402,7 +402,8 @@ export const ordensServicoAPI = {
           *,
           equipamentos (
             id,
-            nome
+            nome,
+            codigo_interno
           )
         `)
         .order('created_at', { ascending: false });
@@ -427,7 +428,8 @@ export const ordensServicoAPI = {
           *,
           equipamentos (
             id,
-            nome
+            nome,
+            codigo_interno
           )
         `)
         .eq('id', id)
@@ -502,6 +504,65 @@ export const ordensServicoAPI = {
     } catch (error) {
       console.error('Erro na exclusão da ordem de serviço:', error);
       throw error;
+    }
+  }
+};
+
+// ==================== COMPONENTE TERCEIRIZADO ====================
+export const componenteTerceirizadoAPI = {
+  async create(record: any) {
+    try {
+      const payload = { ...record };
+      const { data, error } = await supabase.from('componente_terceirizado').insert([payload]).select().single();
+      if (error) throw error;
+      return data;
+    } catch (e) {
+      console.error('Erro ao criar componente_terceirizado', e);
+      throw e;
+    }
+  },
+
+  async update(id: string, patch: any) {
+    try {
+      const { data, error } = await supabase.from('componente_terceirizado').update(patch).eq('id', id).select().single();
+      if (error) throw error;
+      return data;
+    } catch (e) {
+      console.error('Erro ao atualizar componente_terceirizado', e);
+      throw e;
+    }
+  },
+
+  async getById(id: string) {
+    try {
+      const { data, error } = await supabase.from('componente_terceirizado').select('*').eq('id', id).single();
+      if (error) throw error;
+      return data;
+    } catch (e) {
+      console.error('Erro ao buscar componente_terceirizado', e);
+      throw e;
+    }
+  },
+
+  async listByEquipment(equipamentoId: string) {
+    try {
+      const { data, error } = await supabase.from('componente_terceirizado').select('*').eq('equipamento_id', equipamentoId).order('data_envio', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    } catch (e) {
+      console.error('Erro ao listar componente_terceirizado por equipamento', e);
+      throw e;
+    }
+  },
+
+  async listOpen() {
+    try {
+      const { data, error } = await supabase.from('componente_terceirizado').select('*').neq('status', 'retornou').order('data_envio', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    } catch (e) {
+      console.error('Erro ao listar componentes terceirizados abertos', e);
+      throw e;
     }
   }
 };
@@ -1142,6 +1203,52 @@ export const grupoEquipamentosAPI = {
   }
 };
 
+// ==================== SERVICOS_EQUIPAMENTOS HELPERS ====================
+export const servicosEquipamentosAPI = {
+  // returns sum of percentual for concluded services of an equipment
+  getCompletedPercentSum: async (equipamentoId: string) => {
+    const { data, error } = await supabase
+      .from('servicos_equipamentos')
+      .select('percentual')
+      .eq('equipamento_id', equipamentoId)
+      .eq('concluido', true);
+    if (error) throw error;
+    return (data || []).reduce((sum: number, r: any) => sum + Number(r.percentual || 0), 0);
+  },
+
+  // optional: get all rows for an equipment
+  getByEquipamento: async (equipamentoId: string) => {
+    const { data, error } = await supabase
+      .from('servicos_equipamentos')
+      .select('*')
+      .eq('equipamento_id', equipamentoId);
+    if (error) throw error;
+    return data || [];
+  }
+};
+
+// Batch helpers: get sums for multiple equipamentos in one call
+// Returns an object mapping equipamento_id -> sum(percentual of concluded services)
+export const servicosEquipamentosBatchAPI = {
+  getCompletedPercentSums: async (equipamentoIds: string[]) => {
+    if (!equipamentoIds || equipamentoIds.length === 0) return {};
+    const uniq = Array.from(new Set(equipamentoIds.map(String)));
+    const { data, error } = await supabase
+      .from('servicos_equipamentos')
+      .select('equipamento_id, percentual')
+      .in('equipamento_id', uniq)
+      .eq('concluido', true);
+    if (error) throw error;
+    const map: Record<string, number> = {};
+    (data || []).forEach((row: any) => {
+      const k = String(row.equipamento_id);
+      const v = Number(row.percentual || 0);
+      map[k] = (map[k] || 0) + v;
+    });
+    return map;
+  }
+};
+
 // ==================== PLANEJAMENTO ====================
 export const planejamentoAPI = {
   createPlanning: async (planning: any, items: any[]) => {
@@ -1185,15 +1292,65 @@ export const planejamentoAPI = {
 
     const created: any[] = [];
     for (const equipamentoId of Object.keys(byEquip)) {
-      const services = byEquip[equipamentoId];
+      let services = byEquip[equipamentoId];
+      // Filter out services that are already present in an open/non-finalized OS for this equipment
+      try {
+        const { data: existingOS, error: osErr } = await supabase
+          .from('ordens_servico')
+          .select('id, observacoes, status')
+          .eq('equipamento_id', equipamentoId);
+        if (!osErr && existingOS && existingOS.length) {
+          // consider only non-finalized OS (status not containing 'conclu' or 'cancel')
+          const openOS = existingOS.filter((o: any) => {
+            const st = (o.status || '').toString().toLowerCase();
+            return !(st.includes('conclu') || st.includes('cancel'));
+          });
+          if (openOS.length) {
+            const remaining: any[] = [];
+            for (const s of services) {
+              let already = false;
+              for (const osRow of openOS) {
+                if (!osRow.observacoes) continue;
+                try {
+                  const parsed = JSON.parse(osRow.observacoes);
+                  const planned = parsed?.planned_services || [];
+                  if (planned.find((p: any) => String(p.servico_id) === String(s.servico_id))) {
+                    already = true;
+                    break;
+                  }
+                } catch (e) {
+                  // ignore parse errors
+                }
+              }
+              if (!already) remaining.push(s);
+            }
+            services = remaining;
+          }
+        }
+      } catch (e) {
+        // if check fails, fall back to creating OS (safer than skipping silently)
+        // eslint-disable-next-line no-console
+        console.warn('Erro ao verificar OS existentes para equipamento', equipamentoId, e);
+      }
+      // if no services remain after filtering, skip creating an OS for this equipment
+      if (!services || services.length === 0) continue;
       // create a single OS for this equipment containing references in description
+      // build a structured payload and include planned services in `observacoes` as JSON
+      const plannedServices = services.map(s => ({ servico_id: s.servico_id, equipe_id: s.equipe_id || null, responsavel_id: s.responsavel_id || null, iniciado_em: null, finalizado_em: null, status: 'planejado' }));
+
+      const numeroOS = `OS-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
       const osPayload: any = {
+        numero_os: numeroOS,
         equipamento_id: equipamentoId,
         equipe_id: services[0].equipe_id || null,
         criado_por: services[0].responsavel_id || null,
-        status: 'aberta',
-        descricao: `OS automática gerada para ${services.length} serviço(s): ${services.map(s => s.servico_id).join(',')}`
+        status: 'Aberta',
+        titulo: `Manutenção automática - ${services.length} serviço(s)`,
+        descricao: `OS automática gerada para ${services.length} serviço(s)`,
+        data_abertura: new Date().toISOString(),
+        observacoes: JSON.stringify({ planned_services: plannedServices })
       };
+
       const { data, error } = await supabase.from('ordens_servico').insert([osPayload]).select().single();
       if (error) throw error;
       created.push(data);

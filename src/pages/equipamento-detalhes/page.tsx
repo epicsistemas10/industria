@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import TerceirizadosList from './TerceirizadosList';
 import Sidebar from '../dashboard/components/Sidebar';
 import { formatEquipamentoName } from '../../utils/format';
 import EquipamentoName from '../../components/base/EquipamentoName';
@@ -263,6 +264,7 @@ export default function EquipamentoDetalhesPage() {
                 { id: 'geral', label: 'Geral', icon: 'ri-information-line' },
                 { id: 'componentes', label: 'Componentes', icon: 'ri-settings-4-line' },
                 { id: 'os', label: 'Ordens de Serviço', icon: 'ri-file-list-3-line' },
+                { id: 'terceirizados', label: 'Componentes Terceirizados', icon: 'ri-truck-line' },
                 { id: 'custos', label: 'Custos', icon: 'ri-money-dollar-circle-line' },
                 { id: 'historico', label: 'Histórico', icon: 'ri-history-line' }
               ].map(tab => (
@@ -447,6 +449,14 @@ export default function EquipamentoDetalhesPage() {
                       <p className="text-gray-300 leading-relaxed">{equipamento.descricao}</p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Tab: Componentes Terceirizados */}
+              {activeTab === 'terceirizados' && (
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4">Componentes em Terceirização</h3>
+                  <TerceirizadosList equipamentoId={equipamentoId as string} />
                 </div>
               )}
 

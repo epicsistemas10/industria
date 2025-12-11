@@ -5,6 +5,7 @@ import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
 import { supabase } from '../../lib/supabase';
+import { planejamentoAPI } from '../../lib/api';
 
 interface Servico {
   id: string;
@@ -228,7 +229,29 @@ export default function PlanejamentoPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const { error } = await supabase
+      const computeWeekStart = (offsetWeeks: number) => {
+        const now = new Date();
+        // JS: 0=Sunday,1=Monday,... we consider Monday as week start
+        const day = now.getDay();
+        const diffToMonday = (day === 0 ? -6 : 1 - day);
+        const monday = new Date(now);
+        monday.setDate(now.getDate() + diffToMonday + (offsetWeeks * 7));
+        // return date in YYYY-MM-DD which maps to SQL date
+        return monday.toISOString().slice(0, 10);
+      };
+
+      const computeWeekEnd = (offsetWeeks: number) => {
+        // week end we'll treat as Saturday (Monday + 5 days)
+        const start = new Date(computeWeekStart(offsetWeeks));
+        const end = new Date(start);
+        end.setDate(start.getDate() + 5);
+        return end.toISOString().slice(0, 10);
+      };
+
+      const semana_inicio = computeWeekStart(semanaAtual);
+      const semana_fim = computeWeekEnd(semanaAtual);
+
+      const { data: inserted, error } = await supabase
         .from('planejamento_semana')
         .insert([{
           equipamento_id: formData.equipamento_id,
@@ -236,13 +259,24 @@ export default function PlanejamentoPage() {
           equipe_id: formData.equipe_id,
           dia_semana: diaSelecionado,
           semana: semanaAtual,
+          semana_inicio,
+          semana_fim,
           status: 'planejado',
           concluido: false,
           observacoes: formData.observacoes,
           created_at: new Date().toISOString()
-        }]);
+        }])
+        .select();
 
       if (error) throw error;
+
+      // after items created, generate OS automatically grouped by equipamento
+      try {
+        const createdItems = (inserted || []).map((r: any) => ({ equipamento_id: r.equipamento_id, servico_id: r.servico_id, equipe_id: r.equipe_id, responsavel_id: r.responsavel_id }));
+        if (createdItems.length) await planejamentoAPI.generateOsFromItems(createdItems);
+      } catch (e) {
+        console.error('Erro ao gerar OS automáticas:', e);
+      }
 
       setShowModal(false);
       setFormData({
@@ -322,6 +356,32 @@ export default function PlanejamentoPage() {
               <p className={`mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                 Organize as atividades de manutenção da semana
               </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  try {
+                    const resp = await supabase.from('planejamento_semana').select('*').eq('semana', semanaAtual);
+                    if (resp.error) throw resp.error;
+                    const rows = resp.data || [];
+                    const items = rows.map((r: any) => ({ equipamento_id: r.equipamento_id, servico_id: r.servico_id, equipe_id: r.equipe_id, responsavel_id: r.responsavel }));
+                    if (items.length === 0) {
+                      alert('Nenhuma atividade encontrada para gerar OS nesta semana.');
+                      return;
+                    }
+                    await planejamentoAPI.generateOsFromItems(items);
+                    alert('OS geradas para as atividades desta semana.');
+                    loadAtividades();
+                  } catch (e) {
+                    console.error('Erro ao gerar OS da semana:', e);
+                    alert('Erro ao gerar OS da semana. Veja o console para detalhes.');
+                  }
+                }}
+                className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-2 rounded-lg hover:shadow-lg transition-all whitespace-nowrap cursor-pointer"
+              >
+                <i className="ri-file-list-3-line text-lg"></i>
+                Gerar OS da Semana
+              </button>
             </div>
           </div>
 

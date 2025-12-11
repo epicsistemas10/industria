@@ -75,9 +75,9 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
         {isOpen ? (
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setShowSettings(!showSettings)}>
             {companyLogo ? (
-              <img src={companyLogo} alt="Logo" className={`w-10 h-10 rounded-lg object-contain flex-shrink-0 ${!_darkMode ? 'filter brightness-0 invert' : ''}`} />
+              <img src={companyLogo} alt="Logo" className={`w-12 h-12 rounded-lg object-contain flex-shrink-0 ${!_darkMode ? 'filter brightness-0 invert' : ''}`} />
             ) : (
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
                 <i className="ri-plant-line text-white text-xl"></i>
               </div>
             )}
@@ -86,9 +86,9 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
         ) : (
           <div className="cursor-pointer" onClick={() => setShowSettings(!showSettings)}>
             {companyLogo ? (
-              <img src={companyLogo} alt="Logo" className={`w-10 h-10 rounded-lg object-contain ${!_darkMode ? 'filter brightness-0 invert' : ''}`} />
+              <img src={companyLogo} alt="Logo" className={`w-12 h-12 rounded-lg object-contain ${!_darkMode ? 'filter brightness-0 invert' : ''}`} />
             ) : (
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
                 <i className="ri-plant-line text-white text-xl"></i>
               </div>
             )}
@@ -122,9 +122,9 @@ export default function Sidebar({ isOpen, onToggle, darkMode: _darkMode }: Sideb
                 <label className="block text-sm font-medium text-gray-300 mb-2">Logo da Empresa</label>
                 <div className="flex items-center gap-4">
                   {companyLogo ? (
-                    <img src={companyLogo} alt="Logo" className="w-20 h-20 rounded-lg object-contain bg-gray-700 p-2" />
+                    <img src={companyLogo} alt="Logo" className="w-24 h-24 rounded-lg object-contain bg-gray-700 p-2" />
                   ) : (
-                    <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                    <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
                       <i className="ri-plant-line text-white text-3xl"></i>
                     </div>
                   )}

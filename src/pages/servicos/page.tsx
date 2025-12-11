@@ -467,7 +467,7 @@ export default function ServicosPage() {
               <button onClick={openNew} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-lg">Novo Serviço</button>
               <button onClick={openPercentModal} className="px-4 py-3 bg-emerald-600 text-white rounded-lg flex items-center gap-2">
                 <Percent size={16} />
-                % Serviço x Equipamento
+                Calculo Revisao
               </button>
             </div>
           </div>

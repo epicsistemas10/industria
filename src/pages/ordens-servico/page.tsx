@@ -4,6 +4,7 @@ import Sidebar from '../dashboard/components/Sidebar';
 import TopBar from '../dashboard/components/TopBar';
 import useSidebar from '../../hooks/useSidebar';
 import { ordensServicoAPI } from '../../lib/api';
+import StartOsModal from '../../components/modals/StartOsModal';
 import { usePermissions } from '../../hooks/usePermissions';
 import OrdemServicoModal from '../../components/modals/OrdemServicoModal';
 import { supabase } from '../../lib/supabase';
@@ -36,6 +37,8 @@ export default function OrdensServicoPage() {
   const [showModal, setShowModal] = useState(false);
   const [selectedOSId, setSelectedOSId] = useState<string | undefined>();
   const [generatingAuto, setGeneratingAuto] = useState(false);
+  const [startModalOpen, setStartModalOpen] = useState(false);
+  const [startOs, setStartOs] = useState<any | null>(null);
 
   useEffect(() => {
     if (darkMode) {
@@ -128,8 +131,8 @@ export default function OrdensServicoPage() {
 
         if (osExistente) continue;
 
-        // Gerar número da OS
-        const numeroOS = `OS-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        // Gerar número da OS (6 dígitos) — apenas para OS automáticas
+        const numeroOS = Math.floor(Math.random() * 1_000_000).toString().padStart(6, '0');
 
         // Determinar prioridade baseada no status e criticidade
         let prioridade = 'media';
@@ -144,7 +147,8 @@ export default function OrdensServicoPage() {
 
         osParaCriar.push({
           numero_os: numeroOS,
-          titulo: `Manutenção ${tipo} - ${formatEquipamentoName(eq)}`,
+          // titulo não é necessário para as OS automáticas (UI mostrará apenas o serviço)
+          titulo: ``,
           descricao: `OS gerada automaticamente devido ao status: ${eq.status}. Criticidade: ${eq.criticidade}.`,
           equipamento_id: eq.id,
           prioridade,
@@ -184,6 +188,197 @@ export default function OrdensServicoPage() {
     const matchPrioridade = !filterPrioridade || os.prioridade === filterPrioridade;
     return matchSearch && matchStatus && matchPrioridade;
   });
+
+  // carregar nomes dos serviços (mapa) para exibir descrição legível
+  const [serviceNames, setServiceNames] = useState<Record<string, string>>({});
+  const [equipesMap, setEquipesMap] = useState<Record<string, string>>({});
+  const [equipesMeta, setEquipesMeta] = useState<Record<string, { nome: string; foto_url?: string }>>({});
+  const [equipmentComponentsMap, setEquipmentComponentsMap] = useState<Record<string, any[]>>({});
+  const [plannedNamesByOs, setPlannedNamesByOs] = useState<Record<string, string>>({});
+  useEffect(() => {
+    (async () => {
+      try {
+        // carregar equipes com primeiro colaborador (foto)
+        const { data } = await supabase.from('equipes').select('id, nome');
+        const map: Record<string, string> = {};
+        (data || []).forEach((r: any) => { map[String(r.id)] = r.nome; });
+        setEquipesMap(map);
+
+        // carregar meta (foto do primeiro colaborador da equipe)
+        const meta: Record<string, { nome: string; foto_url?: string }> = {};
+        try {
+          const ids = (data || []).map((d: any) => d.id);
+          if (ids.length > 0) {
+            const { data: cols } = await supabase.from('colaboradores').select('id, nome, foto_url, equipe_id').in('equipe_id', ids as any[]).order('nome');
+            const grouped: Record<string, any[]> = {};
+            (cols || []).forEach((c: any) => { grouped[String(c.equipe_id)] = grouped[String(c.equipe_id)] || []; grouped[String(c.equipe_id)].push(c); });
+            (data || []).forEach((r: any) => {
+              const g = grouped[String(r.id)] || [];
+              meta[String(r.id)] = { nome: r.nome, foto_url: g[0]?.foto_url };
+            });
+          }
+        } catch (e) {
+          // ignore meta loading errors
+        }
+        setEquipesMeta(meta);
+      } catch (e) {
+        console.warn('Erro ao carregar equipes', e);
+      }
+    })();
+  }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('servicos').select('id, nome');
+        const map: Record<string, string> = {};
+        (data || []).forEach((s: any) => map[String(s.id)] = s.nome || String(s.id));
+        setServiceNames(map);
+      } catch (e) {
+        console.warn('Erro ao carregar nomes de serviços', e);
+      }
+    })();
+  }, []);
+
+  // ensure we have fetched any missing service names referenced inside ordens.observacoes.planned_services
+  useEffect(() => {
+    (async () => {
+      try {
+        const missing = new Set<string>();
+        (ordens || []).forEach((os: any) => {
+          try {
+            const obs = os.observacoes ? JSON.parse(os.observacoes) : null;
+            const ps = obs?.planned_services || [];
+            (ps || []).forEach((p: any) => {
+              // attempt to extract service id from multiple shapes
+              const tryExtract = (obj: any) => {
+                if (!obj) return null;
+                if (typeof obj === 'string') return obj;
+                if (typeof obj === 'object') {
+                  if (obj.id) return obj.id;
+                  if (obj.servico_id) return obj.servico_id;
+                  if (obj.uuid) return obj.uuid;
+                  if (obj.codigo) return obj.codigo;
+                  // scan for any string value that looks like a UUID
+                  const uuids = Object.values(obj).filter(v => typeof v === 'string' && /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}/.test(v));
+                  if (uuids.length > 0) return uuids[0];
+                }
+                return null;
+              };
+              const sidCandidate = tryExtract(p.servico_id || p.servico || p);
+              if (sidCandidate && !serviceNames[String(sidCandidate)]) missing.add(String(sidCandidate));
+            });
+          } catch (e) { /* ignore */ }
+        });
+        if (missing.size === 0) return;
+        const ids = Array.from(missing);
+        const merged = { ...serviceNames };
+        // try servicos table first
+        try {
+          const { data: svcData } = await supabase.from('servicos').select('id, nome').in('id', ids as any[]);
+          (svcData || []).forEach((s: any) => { merged[String(s.id)] = s.nome || String(s.id); });
+        } catch (e) {
+          // ignore
+        }
+        // for any ids still unresolved, try equipamento_servicos (used by planejamento)
+        const stillMissing = ids.filter(i => !merged[String(i)]);
+        if (stillMissing.length > 0) {
+          try {
+            const { data: eqData } = await supabase.from('equipamento_servicos').select('id, nome').in('id', stillMissing as any[]);
+            (eqData || []).forEach((s: any) => { merged[String(s.id)] = s.nome || String(s.id); });
+          } catch (e) {
+            // ignore
+          }
+        }
+        setServiceNames(merged);
+      } catch (e) { /* ignore */ }
+    })();
+  }, [ordens]);
+
+  // enriquecer nomes planejados por OS (quando ordens ou serviceNames mudarem)
+  useEffect(() => {
+    try {
+      const map: Record<string, string> = {};
+      ordens.forEach((os: any) => {
+        try {
+          const obs = os.observacoes ? JSON.parse(os.observacoes) : null;
+          const ps = obs?.planned_services || [];
+          if (ps && ps.length > 0) {
+            const first = ps[0];
+            // Normalize possible shapes for the service identifier
+            let sidRaw: any = first.servico_id || first.servico;
+            let sid: string | null = null;
+            if (sidRaw) {
+              if (typeof sidRaw === 'string') sid = sidRaw;
+              else if (typeof sidRaw === 'object' && sidRaw !== null) sid = sidRaw.id || sidRaw.servico_id || sidRaw.uuid || null;
+            }
+
+            // Prefer looking up the service name from loaded `serviceNames` map
+            let name = sid ? serviceNames[String(sid)] : undefined;
+            // fallbacks: explicit servico_nome in payload, nested object with name, or ordem descricao
+            if (!name) name = first.servico_nome || (typeof first.servico === 'object' && first.servico?.nome) || os.descricao || '';
+            map[String(os.id)] = name || '';
+          } else {
+            map[String(os.id)] = os.descricao || '';
+          }
+        } catch (e) {
+          map[String(os.id)] = os.descricao || '';
+        }
+      });
+      setPlannedNamesByOs(map);
+    } catch (e) { /* ignore */ }
+  }, [ordens, serviceNames]);
+
+  // após carregar ordens, carregar componentes vinculados aos equipamentos (para exibir código+nome)
+  useEffect(() => {
+    (async () => {
+      try {
+        const equipIds = Array.from(new Set((ordens || []).map((o: any) => o.equipamento_id).filter(Boolean)));
+        if (equipIds.length === 0) { setEquipmentComponentsMap({}); return; }
+        const { data } = await supabase.from('equipamentos_componentes').select('equipamento_id, quantidade_usada, componentes(id, nome, codigo_interno)').in('equipamento_id', equipIds as any[]);
+        const map: Record<string, any[]> = {};
+        (data || []).forEach((row: any) => {
+          const comp = { id: row.componentes?.id, nome: row.componentes?.nome, codigo_interno: row.componentes?.codigo_interno, quantidade_usada: row.quantidade_usada };
+          map[String(row.equipamento_id)] = map[String(row.equipamento_id)] || [];
+          map[String(row.equipamento_id)].push(comp);
+        });
+        setEquipmentComponentsMap(map);
+      } catch (e) {
+        console.warn('Erro ao carregar componentes por equipamento', e);
+      }
+    })();
+  }, [ordens]);
+
+  // agrupar ordens por equipe (usar nome da equipe quando disponível)
+  const grouped = filteredOrdens.reduce((acc: Record<string, any[]>, os) => {
+    let equipeName = 'Sem Equipe';
+    if (os.equipe_id) equipeName = equipesMap[String(os.equipe_id)] || 'Sem Equipe';
+    else {
+      try {
+        const obs = os.observacoes ? JSON.parse(os.observacoes) : null;
+        const ps = obs?.planned_services || [];
+        if (ps && ps.length > 0 && ps[0].equipe_id) {
+          equipeName = equipesMap[String(ps[0].equipe_id)] || 'Sem Equipe';
+        }
+      } catch (e) { /* ignore */ }
+    }
+    const key = equipeName || 'Sem Equipe';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(os);
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  const formatNumeroOs = (raw: string) => {
+    if (!raw) return '000000';
+    // extrair somente dígitos
+    const digits = (raw || '').toString().replace(/\D/g, '');
+    const last = digits.slice(-6);
+    return last.padStart(6, '0');
+  };
+
+  const handleStartOs = (os: OrdemServico) => {
+    setStartOs(os);
+    setStartModalOpen(true);
+  };
 
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -240,23 +435,6 @@ export default function OrdensServicoPage() {
               <p className={`mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Gerencie todas as ordens de serviço</p>
             </div>
             <div className="flex gap-3">
-              <button
-                onClick={gerarOSAutomaticas}
-                disabled={generatingAuto}
-                className="flex items-center gap-2 bg-gradient-to-r from-orange-600 to-red-600 text-white px-6 py-3 rounded-lg hover:shadow-lg hover:shadow-orange-500/50 transition-all whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {generatingAuto ? (
-                  <>
-                    <i className="ri-loader-4-line text-xl animate-spin"></i>
-                    Gerando...
-                  </>
-                ) : (
-                  <>
-                    <i className="ri-magic-line text-xl"></i>
-                    Gerar Automático
-                  </>
-                )}
-              </button>
               {canCreate && (
                 <button 
                   onClick={handleCreate}
@@ -276,7 +454,7 @@ export default function OrdensServicoPage() {
                 <i className={`ri-search-line absolute left-3 top-1/2 -translate-y-1/2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}></i>
                 <input
                   type="text"
-                  placeholder="Buscar por número ou título..."
+                  placeholder="Buscar por número, título ou serviço..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className={`w-full pl-10 pr-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-purple-500 focus:border-transparent`}
@@ -310,84 +488,71 @@ export default function OrdensServicoPage() {
             </div>
           </div>
 
-          {/* Loading */}
-          {loading && (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
-            </div>
-          )}
-
-          {/* Lista de OS */}
           {!loading && filteredOrdens.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredOrdens.map((os) => (
-                <div
-                  key={os.id}
-                  className={`rounded-xl p-6 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'} border shadow-lg hover:shadow-xl transition-all`}
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm font-mono ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>#{os.numero_os}</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${getStatusColor(os.status)}`}>
-                        {getStatusText(os.status)}
-                      </span>
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${getPrioridadeColor(os.prioridade)}`}>
-                        {os.prioridade?.charAt(0).toUpperCase() + os.prioridade?.slice(1) || 'N/A'}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <h3 className={`text-lg font-bold mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{os.titulo}</h3>
-                  
-                  {os.descricao && (
-                    <p className={`text-sm mb-4 line-clamp-2 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{os.descricao}</p>
-                  )}
-
-                  <div className="space-y-2 mb-4">
-                    {os.equipamentos && (
-                      <div className={`flex items-center gap-2 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                        <i className="ri-tools-line"></i>
-                        <span>{os.equipamentos.nome}</span>
-                      </div>
-                    )}
-                    <div className={`flex items-center gap-2 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      <i className="ri-calendar-line"></i>
-                      <span>{formatDate(os.data_abertura)}</span>
-                    </div>
-                    {os.responsavel && (
-                      <div className={`flex items-center gap-2 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                        <i className="ri-user-line"></i>
-                        <span>{os.responsavel}</span>
-                      </div>
-                    )}
-                    {os.custo_estimado && (
-                      <div className={`flex items-center gap-2 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                        <i className="ri-money-dollar-circle-line"></i>
-                        <span>R$ {os.custo_estimado.toFixed(2)}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    {canEdit && (
-                      <button 
-                        onClick={() => handleEdit(os.id)}
-                        className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap cursor-pointer text-sm"
-                      >
-                        <i className="ri-edit-line mr-1"></i>
-                        Editar
-                      </button>
-                    )}
-                    {canDelete && (
-                      <button 
-                        onClick={() => handleDelete(os.id)}
-                        className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap cursor-pointer text-sm"
-                      >
-                        <i className="ri-delete-bin-line"></i>
-                      </button>
-                    )}
+            <div>
+              {Object.keys(grouped).map((team) => (
+                <div key={team} className="w-full mb-6">
+                  <h2 className={`text-xl font-semibold mb-3 ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>{team}</h2>
+                  <div className="overflow-x-auto bg-transparent rounded">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead>
+                        <tr className="text-left text-sm text-gray-400">
+                          <th className="px-3 py-2">Iniciar</th>
+                          <th className="px-3 py-2">Nº</th>
+                          <th className="px-3 py-2">IND / Equipamento</th>
+                          <th className="px-3 py-2">Serviço planejado</th>
+                          <th className="px-3 py-2">Início</th>
+                          <th className="px-3 py-2">Equipe</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-transparent">
+                        {grouped[team].map((os: any) => {
+                          let plannedServiceName = '';
+                          try {
+                            const obs = os.observacoes ? JSON.parse(os.observacoes) : null;
+                            const ps = obs?.planned_services || [];
+                            if (ps && ps.length > 0) {
+                              const first = ps[0];
+                              const sid = first.servico_id || (first.servico && (first.servico.id || first.servico));
+                              const name = sid ? (serviceNames[String(sid)] || sid) : (first.servico_nome || (first.servico && first.servico.nome) || 'Serviço');
+                              plannedServiceName = ps.length > 1 ? `${name} (+${ps.length - 1} serviço(s))` : name;
+                            } else {
+                              plannedServiceName = plannedNamesByOs[String(os.id)] || os.descricao || '';
+                            }
+                          } catch (e) {
+                            plannedServiceName = plannedNamesByOs[String(os.id)] || os.descricao || '';
+                          }
+                          const equipeMeta = equipesMeta[String(os.equipe_id)] || null;
+                          return (
+                            <tr key={os.id} className={`${darkMode ? 'bg-slate-800 border-b border-slate-700' : ''}`}>
+                              <td className="px-3 py-3 align-top">
+                                <div className="flex flex-col gap-2">
+                                  {canEdit && (
+                                    <button onClick={(e) => { e.stopPropagation(); handleStartOs(os); }} title="Iniciar" className="px-2 py-1 bg-yellow-600 text-black rounded text-sm">
+                                      <i className="ri-play-line"></i>
+                                    </button>
+                                  )}
+                                  <button onClick={(e) => { e.stopPropagation(); handleEdit(os.id); }} title="Editar" className="px-2 py-1 bg-blue-600 text-white rounded text-sm">
+                                    <i className="ri-pencil-line"></i>
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 align-top">#{formatNumeroOs(os.numero_os)}</td>
+                              <td className="px-3 py-3 align-top">
+                                <div className="text-sm font-medium">{os.equipamentos?.codigo_interno || '-'}</div>
+                                <div className="text-sm text-gray-400">{os.equipamentos?.nome || ''}</div>
+                              </td>
+                              <td className="px-3 py-3 align-top text-sm">{plannedServiceName || 'Serviço não informado'}</td>
+                              <td className="px-3 py-3 align-top text-sm">{os.data_inicio ? new Date(os.data_inicio).toLocaleString() : 'Aguardando início'}</td>
+                              <td className="px-3 py-3 align-top text-sm flex items-center gap-2">
+                                {equipeMeta?.foto_url ? <img src={equipeMeta.foto_url} alt={equipeMeta.nome} className="w-8 h-8 rounded-full object-cover" /> : <i className="ri-group-line text-2xl text-gray-400" />}
+                                <div>{equipesMap[String(os.equipe_id)] || 'Sem Equipe'}</div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               ))}
@@ -425,6 +590,13 @@ export default function OrdensServicoPage() {
         onClose={handleModalClose}
         onSuccess={handleModalSuccess}
         osId={selectedOSId}
+        darkMode={darkMode}
+      />
+      <StartOsModal
+        isOpen={startModalOpen}
+        onClose={() => { setStartModalOpen(false); setStartOs(null); }}
+        ordem={startOs}
+        onStarted={() => { setStartModalOpen(false); setStartOs(null); loadOrdens(); }}
         darkMode={darkMode}
       />
     </div>

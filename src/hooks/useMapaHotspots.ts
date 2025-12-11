@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { mapaHotspotsAPI, grupoEquipamentosAPI } from '../lib/api';
+import { mapaHotspotsAPI, grupoEquipamentosAPI, servicosEquipamentosAPI, servicosEquipamentosBatchAPI } from '../lib/api';
 import { useToast } from './useToast';
 
 export interface HotspotItem {
@@ -37,6 +37,22 @@ export function useMapaHotspots() {
           fontSize: item.font_size ?? 14,
           icon: item.icon ?? 'ri-tools-fill',
         }));
+        // enrich equipment hotspots with computed percent using a single batch query
+        if (equipmentHotspots.length > 0) {
+          const equipIds = Array.from(new Set(equipmentHotspots.map((eh: any) => String(eh.equipamento_id)).filter(Boolean)));
+          try {
+            const sums = await servicosEquipamentosBatchAPI.getCompletedPercentSums(equipIds);
+            equipmentHotspots.forEach((eh: any) => {
+              const val = Number(sums[String(eh.equipamento_id)] || 0);
+              eh.percent = Number(val.toFixed(2));
+              if (eh.percent >= 66) eh.color = eh.color || '#10b981';
+              else if (eh.percent >= 33) eh.color = eh.color || '#f59e0b';
+              else eh.color = eh.color || '#ef4444';
+            });
+          } catch (e) {
+            equipmentHotspots.forEach((eh: any) => { eh.percent = 0; });
+          }
+        }
       } catch (err) {
         console.error('[useMapaHotspots] failed to load equipment hotspots:', err);
         // keep equipmentHotspots empty and proceed to try loading groups
@@ -53,6 +69,20 @@ export function useMapaHotspots() {
           } catch (e) {
             members = [];
           }
+          // compute group percent as average of member equipment percents
+          let groupPercent = 0;
+          try {
+            if (members && members.length > 0) {
+              const sums = await Promise.all(members.map(async (mid: string) => {
+                try { return await servicosEquipamentosAPI.getCompletedPercentSum(mid); } catch (e) { return 0; }
+              }));
+              const total = sums.reduce((a: number, b: number) => a + (Number(b) || 0), 0);
+              groupPercent = Number((total / (sums.length || 1)).toFixed(2));
+            }
+          } catch (e) {
+            groupPercent = 0;
+          }
+
           return {
             id: `grp-${g.id}`,
             isGroup: true,
@@ -62,9 +92,12 @@ export function useMapaHotspots() {
             y: Number(g.y) ?? 10,
             width: Number(g.width) ?? 8,
             height: Number(g.height) ?? 8,
-            color: g.color ?? '#10b981',
+              color: g.color ?? '#10b981',
             fontSize: g.font_size ?? 14,
             icon: g.icon ?? 'ri-tools-fill',
+            percent: groupPercent,
+            // derive color from percent if group has no explicit color
+            ...(g.color ? {} : (groupPercent >= 66 ? { color: '#10b981' } : (groupPercent >= 33 ? { color: '#f59e0b' } : { color: '#ef4444' })))
           };
         }));
       } catch (err) {
@@ -77,6 +110,28 @@ export function useMapaHotspots() {
         // eslint-disable-next-line no-console
         console.log('[useMapaHotspots] loaded', { equipmentHotspots, groupHotspots });
       } catch (e) {}
+      // After both equipment and groups are loaded, compute group percents in batch as well
+      try {
+        const memberIds = Array.from(new Set((groupHotspots || []).flatMap((g: any) => (g.members || []))));
+        if (memberIds.length > 0) {
+          const memberSums = await servicosEquipamentosBatchAPI.getCompletedPercentSums(memberIds);
+          groupHotspots.forEach((g: any) => {
+            const members = (g.members || []).map((m: any) => String(m));
+            const sums = members.map((mid: string) => Number(memberSums[mid] || 0));
+            const total = sums.reduce((a: number, b: number) => a + (Number(b) || 0), 0);
+            g.percent = members.length ? Number((total / members.length).toFixed(2)) : 0;
+            if (!g.color) {
+              if (g.percent >= 66) g.color = '#10b981';
+              else if (g.percent >= 33) g.color = '#f59e0b';
+              else g.color = '#ef4444';
+            }
+          });
+        } else {
+          groupHotspots.forEach((g: any) => { g.percent = 0; });
+        }
+      } catch (e) {
+        groupHotspots.forEach((g: any) => { g.percent = 0; });
+      }
 
       // If both loads failed (no data retrieved), do not clear existing hotspots
       const hasNewData = (groupHotspots && groupHotspots.length > 0) || (equipmentHotspots && equipmentHotspots.length > 0);

@@ -192,6 +192,15 @@ export function useMapaHotspots() {
 
   useEffect(() => {
     load();
+    const onRefresh = () => {
+      try {
+        // eslint-disable-next-line no-console
+        console.log('[useMapaHotspots] external refresh requested');
+        load();
+      } catch (e) {}
+    };
+    try { window.addEventListener('app:refresh-hotspots', onRefresh as EventListener); } catch (e) {}
+    return () => { try { window.removeEventListener('app:refresh-hotspots', onRefresh as EventListener); } catch (e) {} };
   }, []);
 
   return { hotspots, loading, load, createHotspot, updateHotspot, deleteHotspot };

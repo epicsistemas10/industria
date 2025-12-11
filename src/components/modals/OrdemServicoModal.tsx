@@ -300,6 +300,22 @@ export default function OrdemServicoModal({
     }
   };
 
+  const saveDateField = async (field: 'data_inicio' | 'data_conclusao', value?: string) => {
+    if (!osId) return;
+    try {
+      const val = typeof value !== 'undefined' ? value : formData[field];
+      const toISO = (val: string) => {
+        if (!val) return null;
+        try { return new Date(val).toISOString(); } catch (e) { return val; }
+      };
+      const iso = toISO(val as string);
+      await ordensServicoAPI.update(osId, { [field]: iso });
+      // Optionally update local formData to reflect saved ISO -> but keep datetime-local string for input
+    } catch (e) {
+      console.error('Erro ao salvar campo de data/hora', field, e);
+    }
+  };
+
   const updateObservacoes = async (newObs: any) => {
     if (!osId) return;
     try {
@@ -541,12 +557,12 @@ export default function OrdemServicoModal({
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Data Início e Hora</label>
-              <input type="datetime-local" value={formData.data_inicio} onChange={(e) => setFormData({ ...formData, data_inicio: e.target.value })} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:border-green-500`} />
+              <input type="datetime-local" value={formData.data_inicio} onChange={(e) => setFormData({ ...formData, data_inicio: e.target.value })} onBlur={(e) => saveDateField('data_inicio', e.currentTarget.value)} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-black' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:border-green-500`} />
             </div>
 
             <div>
               <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Data Conclusão e Hora</label>
-              <input type="datetime-local" value={formData.data_conclusao} onChange={(e) => setFormData({ ...formData, data_conclusao: e.target.value })} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:border-green-500`} />
+              <input type="datetime-local" value={formData.data_conclusao} onChange={(e) => setFormData({ ...formData, data_conclusao: e.target.value })} onBlur={(e) => saveDateField('data_conclusao', e.currentTarget.value)} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-black' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:border-green-500`} />
             </div>
 
             <div>

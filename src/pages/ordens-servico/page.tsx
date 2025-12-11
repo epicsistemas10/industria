@@ -420,6 +420,17 @@ export default function OrdensServicoPage() {
     }
   };
 
+  // Forçar exibição do botão Iniciar durante testes locais ou com ?forceStart=1
+  const showStartButtonGlobally = (() => {
+    try {
+      if (typeof window === 'undefined') return false;
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('forceStart') === '1') return true;
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') return true;
+      return false;
+    } catch (e) { return false; }
+  })();
+
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-slate-900 text-white' : 'bg-gray-100 text-gray-900'} transition-colors duration-300`}>
       <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode={darkMode} />
@@ -447,13 +458,7 @@ export default function OrdensServicoPage() {
             </div>
           </div>
 
-          {/* Debug: mostrar permissões em localhost para auxiliar testes */}
-          {typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
-            <div className="mb-4 p-3 rounded bg-yellow-50 text-sm text-gray-800">
-              <div className="font-medium">Debug (local):</div>
-              <div className="text-xs">permission: <strong>{permission}</strong> • canExecuteOS: <strong>{String(canExecuteOS)}</strong> • canEdit: <strong>{String(canEdit)}</strong> • canCreate: <strong>{String(canCreate)}</strong></div>
-            </div>
-          )}
+          {/* debug card removed */}
 
           {/* Filtros */}
           <div className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl p-4 mb-6 shadow-lg`}>
@@ -535,7 +540,7 @@ export default function OrdensServicoPage() {
                             <tr key={os.id} className={`${darkMode ? 'bg-slate-800 border-b border-slate-700' : ''}`}>
                               <td className="px-3 py-3 align-top">
                                 <div className="flex flex-col gap-2">
-                                  {canExecuteOS && (
+                                  {(canExecuteOS || showStartButtonGlobally) && (
                                     <button onClick={(e) => { e.stopPropagation(); handleStartOs(os); }} title="Iniciar" className="px-2 py-1 bg-green-600 text-white rounded text-sm">
                                       <i className="ri-play-line"></i>
                                     </button>

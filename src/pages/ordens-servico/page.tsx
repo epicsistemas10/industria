@@ -33,7 +33,7 @@ export default function OrdensServicoPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterPrioridade, setFilterPrioridade] = useState('');
-  const { canCreate, canEdit, canDelete } = usePermissions();
+  const { canCreate, canEdit, canDelete, canExecuteOS } = usePermissions();
   const [showModal, setShowModal] = useState(false);
   const [selectedOSId, setSelectedOSId] = useState<string | undefined>();
   const [generatingAuto, setGeneratingAuto] = useState(false);
@@ -527,7 +527,7 @@ export default function OrdensServicoPage() {
                             <tr key={os.id} className={`${darkMode ? 'bg-slate-800 border-b border-slate-700' : ''}`}>
                               <td className="px-3 py-3 align-top">
                                 <div className="flex flex-col gap-2">
-                                  {canEdit && (
+                                  {canExecuteOS && (
                                     <button onClick={(e) => { e.stopPropagation(); handleStartOs(os); }} title="Iniciar" className="px-2 py-1 bg-green-600 text-white rounded text-sm">
                                       <i className="ri-play-line"></i>
                                     </button>

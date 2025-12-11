@@ -35,6 +35,7 @@ interface AtividadePlanejada {
   dia_semana: number;
   concluido: boolean;
   observacoes?: string;
+  has_os?: boolean;
 }
 
 export default function PlanejamentoPage() {
@@ -50,7 +51,7 @@ export default function PlanejamentoPage() {
   const [diaSelecionado, setDiaSelecionado] = useState<number>(1);
   const [formData, setFormData] = useState({
     equipamento_id: '',
-    servico_id: '',
+    servico_ids: [] as string[],
     equipe_id: '',
     observacoes: ''
   });
@@ -201,7 +202,8 @@ export default function PlanejamentoPage() {
         .order('dia_semana', { ascending: true });
 
       if (!error && data) {
-        setAtividades(data.map(item => ({
+        // build base atividades
+        const mapped = data.map(item => ({
           id: item.id,
           equipamento_id: item.equipamento_id,
           equipamento_nome: item.equipamentos?.nome || 'Sem equipamento',
@@ -211,8 +213,50 @@ export default function PlanejamentoPage() {
           equipe_nome: item.equipes?.nome || 'Sem equipe',
           dia_semana: item.dia_semana,
           concluido: item.concluido || false,
-          observacoes: item.observacoes
-        })));
+          observacoes: item.observacoes,
+          has_os: false
+        }));
+
+        // collect equipamento ids to check existing OS
+        const equipamentoIds = Array.from(new Set(mapped.map((m: any) => m.equipamento_id).filter(Boolean)));
+        if (equipamentoIds.length) {
+          try {
+            const { data: osData, error: osErr } = await supabase
+              .from('ordens_servico')
+              .select('equipamento_id, observacoes, status')
+              .in('equipamento_id', equipamentoIds);
+            if (!osErr && osData) {
+              const osMap: Record<string, Set<string>> = {};
+              for (const osRow of osData) {
+                const st = (osRow.status || '').toString().toLowerCase();
+                // only consider non-finalized OS
+                if (st.includes('conclu') || st.includes('cancel')) continue;
+                if (!osRow.observacoes) continue;
+                try {
+                  const parsed = JSON.parse(osRow.observacoes);
+                  const planned = parsed?.planned_services || [];
+                  for (const p of planned) {
+                    const eq = String(osRow.equipamento_id);
+                    osMap[eq] = osMap[eq] || new Set<string>();
+                    if (p && (p.servico_id || p.servico)) osMap[eq].add(String(p.servico_id || p.servico));
+                  }
+                } catch (e) {
+                  // ignore parse errors
+                }
+              }
+
+              // mark mapped atividades
+              mapped.forEach((m: any) => {
+                const set = osMap[String(m.equipamento_id)];
+                if (set && set.has(String(m.servico_id))) m.has_os = true;
+              });
+            }
+          } catch (e) {
+            console.warn('Erro ao verificar OS existentes para marcar atividades:', e);
+          }
+        }
+
+        setAtividades(mapped);
       }
     } catch (error) {
       console.error('Erro ao carregar atividades:', error);
@@ -251,21 +295,25 @@ export default function PlanejamentoPage() {
       const semana_inicio = computeWeekStart(semanaAtual);
       const semana_fim = computeWeekEnd(semanaAtual);
 
+      // prepare one or more items depending on selected services
+      const serviceIds = Array.isArray(formData.servico_ids) ? formData.servico_ids : [formData.servico_ids];
+      const toInsert = serviceIds.map(sid => ({
+        equipamento_id: formData.equipamento_id,
+        servico_id: sid,
+        equipe_id: formData.equipe_id,
+        dia_semana: diaSelecionado,
+        semana: semanaAtual,
+        semana_inicio,
+        semana_fim,
+        status: 'planejado',
+        concluido: false,
+        observacoes: formData.observacoes,
+        created_at: new Date().toISOString()
+      }));
+
       const { data: inserted, error } = await supabase
         .from('planejamento_semana')
-        .insert([{
-          equipamento_id: formData.equipamento_id,
-          servico_id: formData.servico_id,
-          equipe_id: formData.equipe_id,
-          dia_semana: diaSelecionado,
-          semana: semanaAtual,
-          semana_inicio,
-          semana_fim,
-          status: 'planejado',
-          concluido: false,
-          observacoes: formData.observacoes,
-          created_at: new Date().toISOString()
-        }])
+        .insert(toInsert)
         .select();
 
       if (error) throw error;
@@ -281,7 +329,7 @@ export default function PlanejamentoPage() {
       setShowModal(false);
       setFormData({
         equipamento_id: '',
-        servico_id: '',
+        servico_ids: [],
         equipe_id: '',
         observacoes: ''
       });
@@ -506,9 +554,17 @@ export default function PlanejamentoPage() {
                                 }`}>
                                   <EquipamentoName equipamento={atividade.equipamento_nome} numberClassName="text-amber-300" />
                                 </h4>
-                                <p className={`text-xs mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                                  🔧 {atividade.servico_nome}
-                                </p>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                    🔧 {atividade.servico_nome}
+                                  </p>
+                                  {atividade.has_os && (
+                                    <span className="text-xs inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/40 dark:text-yellow-200">
+                                      <i className="ri-link-m" />
+                                      OS vinculada
+                                    </span>
+                                  )}
+                                </div>
                                 <p className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
                                   👥 {atividade.equipe_nome}
                                 </p>
@@ -557,28 +613,28 @@ export default function PlanejamentoPage() {
                 <div className="flex items-center gap-2 mb-2">
                   <button
                     type="button"
-                    onClick={() => { setEquipLineFilter('all'); setFormData({ ...formData, equipamento_id: '', servico_id: '' }); }}
+                    onClick={() => { setEquipLineFilter('all'); setFormData({ ...formData, equipamento_id: '', servico_ids: [] }); }}
                     className={`px-3 py-1 rounded-lg text-sm ${equipLineFilter === 'all' ? 'bg-blue-600 text-white' : darkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}
                   >
                     Todas
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setEquipLineFilter('linha1'); setFormData({ ...formData, equipamento_id: '', servico_id: '' }); }}
+                    onClick={() => { setEquipLineFilter('linha1'); setFormData({ ...formData, equipamento_id: '', servico_ids: [] }); }}
                     className={`px-3 py-1 rounded-lg text-sm ${equipLineFilter === 'linha1' ? 'bg-blue-600 text-white' : darkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}
                   >
                     Linha 1
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setEquipLineFilter('linha2'); setFormData({ ...formData, equipamento_id: '', servico_id: '' }); }}
+                    onClick={() => { setEquipLineFilter('linha2'); setFormData({ ...formData, equipamento_id: '', servico_ids: [] }); }}
                     className={`px-3 py-1 rounded-lg text-sm ${equipLineFilter === 'linha2' ? 'bg-blue-600 text-white' : darkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}
                   >
                     Linha 2
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setEquipLineFilter('iba'); setFormData({ ...formData, equipamento_id: '', servico_id: '' }); }}
+                    onClick={() => { setEquipLineFilter('iba'); setFormData({ ...formData, equipamento_id: '', servico_ids: [] }); }}
                     className={`px-3 py-1 rounded-lg text-sm ${equipLineFilter === 'iba' ? 'bg-blue-600 text-white' : darkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}
                   >
                     IBA
@@ -586,7 +642,7 @@ export default function PlanejamentoPage() {
                 </div>
                 <select
                   value={formData.equipamento_id}
-                  onChange={(e) => setFormData({ ...formData, equipamento_id: e.target.value, servico_id: '' })}
+                  onChange={(e) => setFormData({ ...formData, equipamento_id: e.target.value, servico_ids: [] })}
                   className={`w-full px-4 py-3 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-blue-500 outline-none pr-8`}
                   required
                 >

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ordensServicoAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import ComponenteTerceirizadoModal from './ComponenteTerceirizadoModal';
@@ -23,6 +23,7 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
   const [additionalResults, setAdditionalResults] = useState<any[]>([]);
   const [addingQuantity, setAddingQuantity] = useState<number>(1);
   const [showComponenteModal, setShowComponenteModal] = useState(false);
+  const partsQuantityRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -210,15 +211,49 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
 
         {planned.length > 0 ? (
           <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Serviço</label>
-            <select value={selectedIndex ?? ''} onChange={(e) => setSelectedIndex(e.target.value === '' ? null : parseInt(e.target.value, 10))} className="w-full px-3 py-2 rounded border">
-              {planned.map((p, i) => (
-                <option key={i} value={i}>{`${serviceNames[String(p.servico_id)] || p.servico_id} — Equipe: ${p.equipe_id || '-'}`}</option>
-              ))}
-            </select>
+            <label className="block text-sm font-medium mb-2">Equipamento</label>
+            <div className="mb-3 text-sm">
+              <div className="font-medium">{ordem?.equipamentos?.codigo_interno || ordem?.equipamentos?.codigo || '—'}</div>
+              <div className="text-sm text-gray-300">{ordem?.equipamentos?.nome || ordem?.equipamentos?.descricao || ''}</div>
+            </div>
+
+            <label className="block text-sm font-medium mb-2">Serviços planejados</label>
+            <div className="flex flex-col gap-2">
+              {planned.map((p: any, i: number) => {
+                const name = serviceNames[String(p.servico_id)] || p.servico_nome || (p.servico && p.servico.nome) || String(p.servico_id || p.servico || `Serviço ${i+1}`);
+                const selected = selectedIndex === i;
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setSelectedIndex(i);
+                      // scroll to parts section and focus quantity input
+                      const partsEl = document.getElementById('startos-parts-section');
+                      if (partsEl) partsEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      setTimeout(() => {
+                        if (partsQuantityRef.current) partsQuantityRef.current.focus();
+                      }, 250);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded border ${selected ? 'bg-green-600 text-white' : 'bg-transparent text-left text-sm'} `}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">{name}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-xs text-gray-300">Equipe: {p.equipe_id || '-'}</div>
+                        {p.iniciado_em && (
+                          <div className="inline-block px-2 py-0.5 text-xs rounded bg-green-600 text-white">Iniciado</div>
+                        )}
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setShowComponenteModal(true); }} className="ml-2 text-xs px-2 py-1 rounded bg-amber-600 text-black">Terceirizar</button>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         ) : (
-          <div className="mb-4 text-sm text-gray-400">Sem serviços planejados para esta OS.</div>
+          <div className="mb-4 text-sm text-gray-300">Sem serviços planejados para esta OS.</div>
         )}
 
         <div className="mb-4">
@@ -226,7 +261,7 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
           <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="w-full px-3 py-2 rounded border" />
         </div>
 
-        <div className="border rounded p-3 mb-4">
+        <div id="startos-parts-section" className="border rounded p-3 mb-4">
           <h4 className="font-semibold mb-2">Peças usadas / trocadas</h4>
           {(getObservacoesObject().parts_used || []).length === 0 && (
             <div className="text-sm text-gray-300 mb-2">Nenhuma peça registrada.</div>
@@ -248,7 +283,7 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
                 <option key={c.id} value={c.id}>{c.nome}</option>
               ))}
             </select>
-            <input type="number" min={1} value={partsForm.quantidade} onChange={(e) => setPartsForm({ ...partsForm, quantidade: Number(e.target.value) })} className="px-3 py-2 rounded border" placeholder="Qtd" />
+            <input ref={partsQuantityRef} type="number" min={1} value={partsForm.quantidade} onChange={(e) => setPartsForm({ ...partsForm, quantidade: Number(e.target.value) })} className="px-3 py-2 rounded border" placeholder="Qtd" />
             <input type="number" step="0.01" value={partsForm.custo} onChange={(e) => setPartsForm({ ...partsForm, custo: Number(e.target.value) })} className="px-3 py-2 rounded border" placeholder="Custo" />
             <input type="text" value={partsForm.notas} onChange={(e) => setPartsForm({ ...partsForm, notas: e.target.value })} className="px-3 py-2 rounded border col-span-4 md:col-span-4" placeholder="Notas" />
             <div className="md:col-span-4 flex justify-end">

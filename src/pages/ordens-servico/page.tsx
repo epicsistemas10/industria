@@ -528,7 +528,7 @@ export default function OrdensServicoPage() {
                               <td className="px-3 py-3 align-top">
                                 <div className="flex flex-col gap-2">
                                   {canEdit && (
-                                    <button onClick={(e) => { e.stopPropagation(); handleStartOs(os); }} title="Iniciar" className="px-2 py-1 bg-yellow-600 text-black rounded text-sm">
+                                    <button onClick={(e) => { e.stopPropagation(); handleStartOs(os); }} title="Iniciar" className="px-2 py-1 bg-green-600 text-white rounded text-sm">
                                       <i className="ri-play-line"></i>
                                     </button>
                                   )}
@@ -542,7 +542,20 @@ export default function OrdensServicoPage() {
                                 <div className="text-sm font-medium">{os.equipamentos?.codigo_interno || '-'}</div>
                                 <div className="text-sm text-gray-400">{os.equipamentos?.nome || ''}</div>
                               </td>
-                              <td className="px-3 py-3 align-top text-sm">{plannedServiceName || 'Serviço não informado'}</td>
+                              <td className="px-3 py-3 align-top text-sm">
+                                <div className="flex items-center gap-2">
+                                  <div>{plannedServiceName || 'Serviço não informado'}</div>
+                                  {(() => {
+                                    try {
+                                      const obs = os.observacoes ? JSON.parse(os.observacoes) : null;
+                                      const ps = obs?.planned_services || [];
+                                      const anyStarted = ps.some((p: any) => p?.iniciado_em);
+                                      if (anyStarted) return <div className="inline-block px-2 py-0.5 text-xs rounded bg-green-600 text-white">Em andamento</div>;
+                                    } catch (e) { /* ignore */ }
+                                    return null;
+                                  })()}
+                                </div>
+                              </td>
                               <td className="px-3 py-3 align-top text-sm">{os.data_inicio ? new Date(os.data_inicio).toLocaleString() : 'Aguardando início'}</td>
                               <td className="px-3 py-3 align-top text-sm flex items-center gap-2">
                                 {equipeMeta?.foto_url ? <img src={equipeMeta.foto_url} alt={equipeMeta.nome} className="w-8 h-8 rounded-full object-cover" /> : <i className="ri-group-line text-2xl text-gray-400" />}

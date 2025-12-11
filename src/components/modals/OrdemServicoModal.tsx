@@ -202,6 +202,33 @@ export default function OrdemServicoModal({
     }
   };
 
+  const localToISOWithOffset = (localOrDate?: string | Date | null) => {
+    if (!localOrDate) return null;
+    try {
+      let d: Date;
+      if (localOrDate instanceof Date) d = localOrDate;
+      else {
+        // if string contains timezone offset, let Date parse it; otherwise treat as local datetime
+        d = new Date(localOrDate);
+      }
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const year = d.getFullYear();
+      const month = pad(d.getMonth() + 1);
+      const day = pad(d.getDate());
+      const hours = pad(d.getHours());
+      const minutes = pad(d.getMinutes());
+      const seconds = pad(d.getSeconds());
+      const offsetMin = -d.getTimezoneOffset();
+      const sign = offsetMin >= 0 ? '+' : '-';
+      const abs = Math.abs(offsetMin);
+      const offH = pad(Math.floor(abs / 60));
+      const offM = pad(abs % 60);
+      return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offH}:${offM}`;
+    } catch (e) {
+      try { return new Date(localOrDate as any).toISOString(); } catch (er) { return null; }
+    }
+  };
+
   const generateNumeroOS = () => {
     // gerar somente 6 dígitos numéricos
     const num = Math.floor(Math.random() * 1_000_000).toString().padStart(6, '0');
@@ -282,12 +309,8 @@ export default function OrdemServicoModal({
         finalForm.observacoes = JSON.stringify({ notes: obsText || '' });
       }
 
-      // converter campos datetime-local para ISO antes de enviar
-      const toISO = (val: string) => {
-        if (!val) return null;
-        try { return new Date(val).toISOString(); } catch (e) { return val; }
-      };
-      finalForm = { ...finalForm, data_inicio: toISO(finalForm.data_inicio), data_conclusao: toISO(finalForm.data_conclusao) };
+      // converter campos datetime-local para ISO antes de enviar (preserve local time with explicit offset)
+      finalForm = { ...finalForm, data_inicio: localToISOWithOffset(finalForm.data_inicio), data_conclusao: localToISOWithOffset(finalForm.data_conclusao) };
       if (osId) await ordensServicoAPI.update(osId, finalForm);
       else await ordensServicoAPI.create(finalForm);
       onSuccess();
@@ -305,27 +328,7 @@ export default function OrdemServicoModal({
     try {
       const val = typeof value !== 'undefined' ? value : formData[field];
       // convert local datetime-local value to ISO with timezone offset to preserve entered local time
-      const localInputToISOWithOffset = (local?: string | null) => {
-        if (!local) return null;
-        try {
-          const d = new Date(local);
-          const pad = (n: number) => String(n).padStart(2, '0');
-          const year = d.getFullYear();
-          const month = pad(d.getMonth() + 1);
-          const day = pad(d.getDate());
-          const hours = pad(d.getHours());
-          const minutes = pad(d.getMinutes());
-          const offsetMin = -d.getTimezoneOffset();
-          const sign = offsetMin >= 0 ? '+' : '-';
-          const abs = Math.abs(offsetMin);
-          const offH = pad(Math.floor(abs / 60));
-          const offM = pad(abs % 60);
-          return `${year}-${month}-${day}T${hours}:${minutes}:00${sign}${offH}:${offM}`;
-        } catch (e) {
-          try { return new Date(local as any).toISOString(); } catch (er) { return null; }
-        }
-      };
-      const iso = localInputToISOWithOffset(val as string);
+      const iso = localToISOWithOffset(val as string);
       await ordensServicoAPI.update(osId, { [field]: iso });
       // Optionally update local formData to reflect saved ISO -> but keep datetime-local string for input
     } catch (e) {
@@ -360,19 +363,19 @@ export default function OrdemServicoModal({
   const handleStartService = async (index: number) => {
     if (!plannedServices || !osId) return;
     const obs = { planned_services: [...plannedServices] };
-    obs.planned_services[index] = { ...obs.planned_services[index], iniciado_em: new Date().toISOString(), status: 'em andamento' };
+    obs.planned_services[index] = { ...obs.planned_services[index], iniciado_em: localToISOWithOffset(new Date()), status: 'em andamento' };
     await updateObservacoes(obs);
   };
 
   const handleFinishService = async (index: number) => {
     if (!plannedServices || !osId) return;
     const obs = { planned_services: [...plannedServices] };
-    obs.planned_services[index] = { ...obs.planned_services[index], finalizado_em: new Date().toISOString(), status: 'concluido' };
+    obs.planned_services[index] = { ...obs.planned_services[index], finalizado_em: localToISOWithOffset(new Date()), status: 'concluido' };
     await updateObservacoes(obs);
     const allDone = obs.planned_services.every((s: any) => s.finalizado_em);
     if (allDone) {
       try {
-        await ordensServicoAPI.update(osId, { status: 'Concluída', data_conclusao: new Date().toISOString() });
+        await ordensServicoAPI.update(osId, { status: 'Concluída', data_conclusao: localToISOWithOffset(new Date()) });
       } catch (e) {
         console.error('Erro ao fechar OS automaticamente', e);
       }

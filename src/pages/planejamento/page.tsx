@@ -709,26 +709,7 @@ export default function PlanejamentoPage() {
                 </select>
               </div>
 
-              {equipamentoSelecionado && equipamentoSelecionado.servicos && equipamentoSelecionado.servicos.length > 0 && (
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                    Serviço
-                  </label>
-                  <select
-                    value={formData.servico_id}
-                    onChange={(e) => setFormData({ ...formData, servico_id: e.target.value })}
-                    className={`w-full px-4 py-3 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-blue-500 outline-none pr-8`}
-                    required
-                  >
-                    <option value="">Selecione um serviço</option>
-                    {equipamentoSelecionado.servicos.map(servico => (
-                      <option key={servico.id} value={servico.id}>
-                        {servico.nome} ({servico.percentual_revisao}% da revisão)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {/* single-select removed in favor of checkbox multi-select */}
 
               {equipamentoSelecionado && equipamentoSelecionado.servicos && equipamentoSelecionado.servicos.length > 0 && (
                 <div>
@@ -793,10 +774,10 @@ export default function PlanejamentoPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={!formData.equipamento_id || !formData.servico_id || !formData.equipe_id}
+                  disabled={!formData.equipamento_id || !(formData.servico_ids && formData.servico_ids.length > 0) || !formData.equipe_id}
                   className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-lg hover:shadow-lg hover:shadow-purple-500/50 transition-all whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Adicionar Atividade
+                  Adicionar Atividade(s)
                 </button>
               </div>
             </form>

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ordensServicoAPI } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
+import { usePecas } from '../../hooks/usePecas';
 import ComponenteTerceirizadoModal from './ComponenteTerceirizadoModal';
 
 interface StartOsModalProps {
@@ -27,6 +28,8 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
   const [additionalQtyMap, setAdditionalQtyMap] = useState<Record<string, number>>({});
   const partsQuantityRef = useRef<HTMLInputElement | null>(null);
   const [equipesMap, setEquipesMap] = useState<Record<string, string>>({});
+  const [showConfirmStart, setShowConfirmStart] = useState<number | null>(null);
+  const { data: allPecas = [], loading: pecasLoading } = usePecas();
 
   const getPlannedServiceKey = (p: any) => {
     if (!p) return '';
@@ -42,6 +45,15 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
       }
     }
     return '';
+  };
+
+  const parsedPlannedIds = () => {
+    try {
+      const lst = (ordem?.observacoes ? JSON.parse(ordem.observacoes) : { planned_services: [] })?.planned_services || planned || [];
+      return lst.map((p: any) => p?.equipe_id).filter(Boolean);
+    } catch (e) {
+      return [];
+    }
   };
 
   useEffect(() => {
@@ -63,7 +75,8 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
     // load equipes names used by planned services
     (async () => {
       try {
-        const ids = Array.from(new Set((parsedPlannedIds() || [])));
+        const ids = Array.from(new Set((ordem?.observacoes ? (JSON.parse(ordem.observacoes).planned_services || []).map((p:any)=>p.equipe_id) : []) || []))
+          .filter(Boolean);
         if (ids.length === 0) { setEquipesMap({}); return; }
         const { data } = await supabase.from('equipes').select('id, nome').in('id', ids as any[]);
         const map: Record<string, string> = {};
@@ -313,13 +326,37 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
                     <div className="flex items-center justify-between">
                       <div className="font-medium">{name}</div>
                       <div className="flex items-center gap-2">
-                        <div className="text-xs text-gray-300">Equipe: {p.equipe_id || '-'}</div>
+                        <div className="text-xs text-gray-300">Equipe: {equipesMap[String(p.equipe_id)] || p.equipe_id || '-'}</div>
                         {p.iniciado_em && (
                           <div className="inline-block px-2 py-0.5 text-xs rounded bg-green-600 text-white">Iniciado</div>
                         )}
                         <button type="button" onClick={(e) => { e.stopPropagation(); setShowComponenteModal(true); }} className="ml-2 text-xs px-2 py-1 rounded bg-amber-600 text-black">Terceirizar</button>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setShowConfirmStart(i); setStartAt(new Date().toISOString().slice(0,16)); }} title="Play" className="ml-2 text-xs px-2 py-1 rounded bg-green-600 text-white">Play</button>
                       </div>
                     </div>
+                    {showConfirmStart === i && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="px-3 py-2 rounded border" />
+                        <button onClick={async () => {
+                          // confirm start for this service
+                          try {
+                            const iso = startAt ? new Date(startAt).toISOString() : new Date().toISOString();
+                            const updatedObs = { planned_services: planned.slice() };
+                            updatedObs.planned_services[i] = { ...updatedObs.planned_services[i], iniciado_em: iso, status: 'em andamento' };
+                            const payload: any = { status: 'Em Andamento', data_inicio: iso, observacoes: JSON.stringify(updatedObs) };
+                            await ordensServicoAPI.update(ordem!.id, payload);
+                            alert('Serviço iniciado');
+                            setShowConfirmStart(null);
+                            onStarted();
+                            onClose();
+                          } catch (err) {
+                            console.error('Erro ao iniciar serviço', err);
+                            alert('Erro ao iniciar serviço');
+                          }
+                        }} className="px-3 py-2 bg-green-600 text-white rounded">Confirmar</button>
+                        <button onClick={() => setShowConfirmStart(null)} className="px-3 py-2 bg-gray-300 rounded">Cancelar</button>
+                      </div>
+                    )}
                   </button>
                 );
               })}

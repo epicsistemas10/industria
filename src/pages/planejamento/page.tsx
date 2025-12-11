@@ -55,6 +55,7 @@ export default function PlanejamentoPage() {
     equipe_id: '',
     observacoes: ''
   });
+  const [existingServiceIds, setExistingServiceIds] = useState<Set<string>>(new Set());
 
   const diasSemana = [
     { numero: 1, nome: 'Segunda-feira', abrev: 'SEG' },
@@ -76,6 +77,43 @@ export default function PlanejamentoPage() {
   useEffect(() => {
     loadData();
   }, [semanaAtual]);
+
+  // when equipamento selection changes, load open OS for that equipamento
+  useEffect(() => {
+    const loadExisting = async () => {
+      setExistingServiceIds(new Set());
+      if (!formData.equipamento_id) return;
+      try {
+        const { data: osData, error: osErr } = await supabase
+          .from('ordens_servico')
+          .select('observacoes, status')
+          .eq('equipamento_id', formData.equipamento_id);
+        if (osErr) {
+          console.warn('Erro ao buscar OS para equipamento:', osErr);
+          return;
+        }
+        const set = new Set<string>();
+        for (const osRow of osData || []) {
+          const st = (osRow.status || '').toString().toLowerCase();
+          if (st.includes('conclu') || st.includes('cancel')) continue;
+          if (!osRow.observacoes) continue;
+          try {
+            const parsed = JSON.parse(osRow.observacoes);
+            const planned = parsed?.planned_services || [];
+            for (const p of planned) {
+              if (p && (p.servico_id || p.servico)) set.add(String(p.servico_id || p.servico));
+            }
+          } catch (e) {
+            // ignore
+          }
+        }
+        setExistingServiceIds(set);
+      } catch (e) {
+        console.warn('Erro ao carregar OS existentes para equipamento:', e);
+      }
+    };
+    loadExisting();
+  }, [formData.equipamento_id]);
 
   const loadData = async () => {
     await Promise.all([
@@ -676,31 +714,46 @@ export default function PlanejamentoPage() {
                 </div>
               )}
 
-              {equipamentoSelecionado && (!equipamentoSelecionado.servicos || equipamentoSelecionado.servicos.length === 0) && (
-                <div className={`p-4 rounded-lg ${darkMode ? 'bg-yellow-500/10 border border-yellow-500/30' : 'bg-yellow-50 border border-yellow-200'}`}>
-                  <p className={`text-sm ${darkMode ? 'text-yellow-400' : 'text-yellow-700'}`}>
-                    ⚠️ Este equipamento não possui serviços cadastrados. Cadastre os serviços na página de Equipamentos primeiro.
-                  </p>
+              {equipamentoSelecionado && equipamentoSelecionado.servicos && equipamentoSelecionado.servicos.length > 0 && (
+                <div>
+                  <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Serviços (marque um ou mais)
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {equipamentoSelecionado.servicos.map((servico: any) => {
+                      const checked = formData.servico_ids.includes(servico.id);
+                      const hasOs = existingServiceIds.has(String(servico.id));
+                      return (
+                        <label key={servico.id} className={`flex items-center gap-2 p-2 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-gray-200'}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = new Set(formData.servico_ids || []);
+                              if (e.target.checked) next.add(servico.id);
+                              else next.delete(servico.id);
+                              setFormData({ ...formData, servico_ids: Array.from(next) });
+                            }}
+                            className="w-4 h-4"
+                          />
+                          <div className="flex-1 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className={`${darkMode ? 'text-gray-200' : 'text-gray-900'}`}>{servico.nome}</span>
+                              <span className="text-xs text-gray-500">({servico.percentual_revisao}% da revisão)</span>
+                              {hasOs && (
+                                <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/40 dark:text-yellow-200 text-xs">
+                                  <i className="ri-link-m" />
+                                  OS vinculada
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
-
-              <div>
-                <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Equipe Responsável
-                </label>
-                <select
-                  value={formData.equipe_id}
-                  onChange={(e) => setFormData({ ...formData, equipe_id: e.target.value })}
-                  className={`w-full px-4 py-3 rounded-lg border ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-blue-500 outline-none pr-8`}
-                  required
-                >
-                  <option value="">Selecione uma equipe</option>
-                  {equipes.map(equipe => (
-                    <option key={equipe.id} value={equipe.id}>{equipe.nome}</option>
-                  ))}
-                </select>
-              </div>
-
               <div>
                 <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                   Observações (opcional)

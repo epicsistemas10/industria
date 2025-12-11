@@ -33,7 +33,7 @@ export default function OrdensServicoPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterPrioridade, setFilterPrioridade] = useState('');
-  const { canCreate, canEdit, canDelete, canExecuteOS } = usePermissions();
+  const { canCreate, canEdit, canDelete, canExecuteOS, permission } = usePermissions();
   const [showModal, setShowModal] = useState(false);
   const [selectedOSId, setSelectedOSId] = useState<string | undefined>();
   const [generatingAuto, setGeneratingAuto] = useState(false);
@@ -447,6 +447,14 @@ export default function OrdensServicoPage() {
             </div>
           </div>
 
+          {/* Debug: mostrar permissões em localhost para auxiliar testes */}
+          {typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
+            <div className="mb-4 p-3 rounded bg-yellow-50 text-sm text-gray-800">
+              <div className="font-medium">Debug (local):</div>
+              <div className="text-xs">permission: <strong>{permission}</strong> • canExecuteOS: <strong>{String(canExecuteOS)}</strong> • canEdit: <strong>{String(canEdit)}</strong> • canCreate: <strong>{String(canCreate)}</strong></div>
+            </div>
+          )}
+
           {/* Filtros */}
           <div className={`${darkMode ? 'bg-slate-800' : 'bg-white'} rounded-xl p-4 mb-6 shadow-lg`}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -543,19 +551,23 @@ export default function OrdensServicoPage() {
                                 <div className="text-sm text-gray-400">{os.equipamentos?.nome || ''}</div>
                               </td>
                               <td className="px-3 py-3 align-top text-sm">
-                                <div className="flex items-center gap-2">
-                                  <div>{plannedServiceName || 'Serviço não informado'}</div>
-                                  {(() => {
-                                    try {
-                                      const obs = os.observacoes ? JSON.parse(os.observacoes) : null;
-                                      const ps = obs?.planned_services || [];
-                                      const anyStarted = ps.some((p: any) => p?.iniciado_em);
-                                      if (anyStarted) return <div className="inline-block px-2 py-0.5 text-xs rounded bg-green-600 text-white">Em andamento</div>;
-                                    } catch (e) { /* ignore */ }
-                                    return null;
-                                  })()}
-                                </div>
-                              </td>
+                            <div className="flex items-center gap-2">
+                              <div>{plannedServiceName || 'Serviço não informado'}</div>
+                              {(() => {
+                                try {
+                                  const obs = os.observacoes ? JSON.parse(os.observacoes) : null;
+                                  const ps = obs?.planned_services || [];
+                                  const anyStarted = ps.some((p: any) => {
+                                    if (!p?.iniciado_em) return false;
+                                    const parsed = Date.parse(String(p.iniciado_em));
+                                    return !isNaN(parsed) && isFinite(parsed);
+                                  });
+                                  if (anyStarted) return <div className="inline-block px-2 py-0.5 text-xs rounded bg-green-600 text-white">Em andamento</div>;
+                                } catch (e) { /* ignore */ }
+                                return null;
+                              })()}
+                            </div>
+                          </td>
                               <td className="px-3 py-3 align-top text-sm">{os.data_inicio ? new Date(os.data_inicio).toLocaleString() : 'Aguardando início'}</td>
                               <td className="px-3 py-3 align-top text-sm flex items-center gap-2">
                                 {equipeMeta?.foto_url ? <img src={equipeMeta.foto_url} alt={equipeMeta.nome} className="w-8 h-8 rounded-full object-cover" /> : <i className="ri-group-line text-2xl text-gray-400" />}

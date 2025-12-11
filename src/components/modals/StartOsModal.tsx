@@ -23,7 +23,10 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
   const [additionalResults, setAdditionalResults] = useState<any[]>([]);
   const [addingQuantity, setAddingQuantity] = useState<number>(1);
   const [showComponenteModal, setShowComponenteModal] = useState(false);
+  const [selectedAdditional, setSelectedAdditional] = useState<Record<string, boolean>>({});
+  const [additionalQtyMap, setAdditionalQtyMap] = useState<Record<string, number>>({});
   const partsQuantityRef = useRef<HTMLInputElement | null>(null);
+  const [equipesMap, setEquipesMap] = useState<Record<string, string>>({});
 
   const getPlannedServiceKey = (p: any) => {
     if (!p) return '';
@@ -57,6 +60,19 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
       setPlanned([]);
       setSelectedIndex(null);
     }
+    // load equipes names used by planned services
+    (async () => {
+      try {
+        const ids = Array.from(new Set((parsedPlannedIds() || [])));
+        if (ids.length === 0) { setEquipesMap({}); return; }
+        const { data } = await supabase.from('equipes').select('id, nome').in('id', ids as any[]);
+        const map: Record<string, string> = {};
+        (data || []).forEach((r: any) => { map[String(r.id)] = r.nome; });
+        setEquipesMap(map);
+      } catch (e) {
+        // ignore
+      }
+    })();
     // load components for equipment to allow selecting parts
     (async () => {
       try {
@@ -125,6 +141,16 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
     };
     loadNames();
   }, [isOpen, planned]);
+
+  // helper to collect equipe ids referenced by planned services
+  const parsedPlannedIds = () => {
+    try {
+      const lst = (ordem?.observacoes ? JSON.parse(ordem.observacoes) : { planned_services: [] })?.planned_services || planned || [];
+      return lst.map((p: any) => p?.equipe_id).filter(Boolean);
+    } catch (e) {
+      return [];
+    }
+  };
 
   const handleConfirm = async () => {
     if (!ordem) return;
@@ -352,16 +378,57 @@ export default function StartOsModal({ isOpen, onClose, ordem, onStarted, darkMo
               {additionalResults.length === 0 && <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Nenhum resultado</div>}
               {additionalResults.map((c) => (
                 <div key={c.id} className="flex items-center justify-between gap-2 py-2 border-b border-slate-600">
-                  <div>
-                    <div className="font-medium">{c.codigo_produto ? `${c.codigo_produto} — ${c.nome}` : c.nome}</div>
-                    <div className="text-sm text-gray-400">R$ {Number(c.valor_unitario || 0).toFixed(2)}</div>
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={!!selectedAdditional[String(c.id)]} onChange={(e) => setSelectedAdditional({ ...selectedAdditional, [String(c.id)]: e.target.checked })} />
+                    <div>
+                      <div className="font-medium">{c.codigo_produto ? `${c.codigo_produto} — ${c.nome}` : c.nome}</div>
+                      <div className="text-sm text-gray-400">R$ {Number(c.valor_unitario || 0).toFixed(2)}</div>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <input type="number" min={1} value={addingQuantity} onChange={(e) => setAddingQuantity(Number(e.target.value))} className="w-20 px-2 py-1 rounded border" />
+                    <input type="number" min={1} value={additionalQtyMap[String(c.id)] ?? addingQuantity} onChange={(e) => setAdditionalQtyMap({ ...additionalQtyMap, [String(c.id)]: Number(e.target.value) })} className="w-20 px-2 py-1 rounded border" />
                     <button type="button" onClick={() => handleAddAdditional(c)} className="px-3 py-1 bg-blue-600 text-white rounded">Adicionar</button>
                   </div>
                 </div>
               ))}
+              {additionalResults.length > 0 && (
+                <div className="mt-2 flex justify-end">
+                  <button type="button" onClick={async () => {
+                    const ids = Object.keys(selectedAdditional).filter(k => selectedAdditional[k]);
+                    if (ids.length === 0) return alert('Selecione ao menos uma peça.');
+                    try {
+                      const obs = getObservacoesObject();
+                      obs.parts_used = obs.parts_used || [];
+                      ids.forEach((id) => {
+                        const comp = additionalResults.find(r => String(r.id) === String(id));
+                        if (!comp) return;
+                        const quantidade = Number(additionalQtyMap[String(id)] ?? addingQuantity ?? 1);
+                        const valorUnit = Number(comp.valor_unitario || 0);
+                        const custoCalculado = Number((quantidade * (valorUnit || 0)).toFixed(2));
+                        obs.parts_used.push({
+                          componente_id: comp.id,
+                          componente_nome: comp.nome,
+                          componente_codigo: comp.codigo_produto || comp.codigo_peca || '',
+                          quantidade,
+                          custo: custoCalculado,
+                          valor_unitario: valorUnit,
+                          notas: 'Adicional',
+                          criado_em: new Date().toISOString(),
+                        });
+                      });
+                      await ordensServicoAPI.update(ordem!.id, { observacoes: JSON.stringify(obs) });
+                      setSelectedAdditional({});
+                      setAdditionalQtyMap({});
+                      setAdditionalQuery('');
+                      setAdditionalResults([]);
+                      alert('Peças adicionais adicionadas');
+                    } catch (e) {
+                      console.error('Erro ao adicionar peças selecionadas', e);
+                      alert('Erro ao adicionar peças selecionadas');
+                    }
+                  }} className="px-4 py-2 bg-blue-600 text-white rounded">Adicionar selecionadas</button>
+                </div>
+              )}
             </div>
             <ComponenteTerceirizadoModal
               isOpen={showComponenteModal}

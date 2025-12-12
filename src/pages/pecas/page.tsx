@@ -411,9 +411,14 @@ export default function PecasPage() {
                                   <td className="px-4 py-3">
                                         <div className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                                           {p.nome}
-                                          {((suprimentosData || []).some(s => String(s.peca_id) === String(p.id)) || ((p.codigo_produto || '') && (suprimentosData || []).some(s => String(s.codigo_produto) === String(p.codigo_produto)))) && (
-                                            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/40 dark:text-yellow-200 text-xs">EM SUPRIMENTOS</span>
-                                          )}
+                                          {(() => {
+                                            const sd = suprimentosData || [];
+                                            const existsByPeca = sd.some((s: any) => s && s.peca_id && String(s.peca_id) === String(p.id));
+                                            const existsByCode = (p.codigo_produto) ? sd.some((s: any) => s && s.codigo_produto && String(s.codigo_produto).trim().toLowerCase() === String(p.codigo_produto).trim().toLowerCase()) : false;
+                                            return (existsByPeca || existsByCode) ? (
+                                              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/40 dark:text-yellow-200 text-xs">EM SUPRIMENTOS</span>
+                                            ) : null;
+                                          })()}
                                         </div>
                                         <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{p.codigo_interno || p.codigo_produto || p.codigo_fabricante || '-'}</div>
                                         </td>
@@ -439,8 +444,22 @@ export default function PecasPage() {
                                       </button>
                                       {
                                         (() => {
-                                          const existsByPeca = (suprimentosData || []).some(s => String(s.peca_id) === String(p.id));
-                                          const existsByCode = (p.codigo_produto && (suprimentosData || []).some(s => String(s.codigo_produto) === String(p.codigo_produto)));
+                                          const sd = suprimentosData || [];
+                                          const existsByPeca = sd.some((s: any) => s && s.peca_id && String(s.peca_id) === String(p.id));
+                                          const existsByCode = p.codigo_produto ? sd.some((s: any) => s && s.codigo_produto && String(s.codigo_produto).trim().toLowerCase() === String(p.codigo_produto).trim().toLowerCase()) : false;
+                                          // debug: log matching candidates when a badge would be shown (temporary)
+                                          try {
+                                            if (typeof window !== 'undefined' && (existsByPeca || existsByCode) && (window as any).__DEBUG_SUPRIMENTOS__) {
+                                              const matches = sd.filter((s: any) => {
+                                                if (s && s.peca_id && String(s.peca_id) === String(p.id)) return true;
+                                                if (p.codigo_produto && s && s.codigo_produto && String(s.codigo_produto).trim().toLowerCase() === String(p.codigo_produto).trim().toLowerCase()) return true;
+                                                return false;
+                                              });
+                                              console.debug('[suprimentos-debug] piece', { id: p.id, nome: p.nome, codigo_produto: p.codigo_produto, matches });
+                                            }
+                                          } catch (e) {
+                                            // ignore debug errors
+                                          }
                                           const already = existsByPeca || existsByCode;
                                           return (
                                             <button

@@ -16,7 +16,7 @@ export default function PecasPage() {
   const [darkMode, setDarkMode] = useState(true);
   const { data: pecas, loading, fetch, create, update, remove, upsertLocal } = usePecas();
   const [dbTotalCount, setDbTotalCount] = useState<number | null>(null);
-  const { copyFromPeca } = useSuprimentos();
+  const { data: suprimentosData, copyFromPeca } = useSuprimentos();
   const [showPecaModal, setShowPecaModal] = useState(false);
   const [selectedPecaId, setSelectedPecaId] = useState<string | undefined>();
   const [showImportPanel, setShowImportPanel] = useState(false);
@@ -409,9 +409,14 @@ export default function PecasPage() {
                               return (
                                 <tr key={p.id} className={`${(low || notDetermined) ? (darkMode ? 'bg-red-900/40' : 'bg-red-50') : ''} border-b`}>
                                   <td className="px-4 py-3">
-                                    <div className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>{p.nome}</div>
-                                    <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{p.codigo_interno || p.codigo_produto || p.codigo_fabricante || '-'}</div>
-                                    </td>
+                                        <div className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                                          {p.nome}
+                                          {((suprimentosData || []).some(s => String(s.peca_id) === String(p.id)) || ((p.codigo_produto || '') && (suprimentosData || []).some(s => String(s.codigo_produto) === String(p.codigo_produto)))) && (
+                                            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/40 dark:text-yellow-200 text-xs">EM SUPRIMENTOS</span>
+                                          )}
+                                        </div>
+                                        <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{p.codigo_interno || p.codigo_produto || p.codigo_fabricante || '-'}</div>
+                                        </td>
                                     <td className="px-4 py-3">{p.codigo_produto || p.codigo_fabricante || '-'}</td>
                                   <td className="px-4 py-3">{p.unidade_medida || p.unidade || p.unidadeMedida || '-'}</td>
                                   <td className="px-4 py-3 text-right">{fmtInt.format(qtd)}</td>
@@ -432,17 +437,32 @@ export default function PecasPage() {
                                       <button onClick={() => handleEdit(p.id)} className="w-8 h-8 bg-blue-600 text-white rounded flex items-center justify-center">
                                         <i className="ri-edit-line"></i>
                                       </button>
-                                      <button onClick={async () => {
-                                        try {
-                                          await copyFromPeca(p.id);
-                                          success('Copiado para Suprimentos');
-                                        } catch (err) {
-                                          console.error('Erro ao copiar para suprimentos:', err);
-                                          showError('Erro ao copiar para Suprimentos');
-                                        }
-                                      }} className="w-8 h-8 bg-amber-600 text-white rounded flex items-center justify-center" title="Copiar para Suprimentos">
-                                        <i className="ri-file-copy-line"></i>
-                                      </button>
+                                      {
+                                        (() => {
+                                          const existsByPeca = (suprimentosData || []).some(s => String(s.peca_id) === String(p.id));
+                                          const existsByCode = (p.codigo_produto && (suprimentosData || []).some(s => String(s.codigo_produto) === String(p.codigo_produto)));
+                                          const already = existsByPeca || existsByCode;
+                                          return (
+                                            <button
+                                              onClick={async () => {
+                                                if (already) return;
+                                                try {
+                                                  await copyFromPeca(p.id);
+                                                  success('Copiado para Suprimentos');
+                                                } catch (err) {
+                                                  console.error('Erro ao copiar para suprimentos:', err);
+                                                  showError('Erro ao copiar para Suprimentos');
+                                                }
+                                              }}
+                                              disabled={already}
+                                              className={`w-8 h-8 rounded flex items-center justify-center ${already ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-amber-600 text-white'}`}
+                                              title={already ? 'Já presente em Suprimentos' : 'Copiar para Suprimentos'}
+                                            >
+                                              <i className="ri-file-copy-line"></i>
+                                            </button>
+                                          );
+                                        })()
+                                      }
                                       <button onClick={() => handleDelete(p.id)} className="w-8 h-8 bg-red-600 text-white rounded flex items-center justify-center">
                                         <i className="ri-delete-bin-line"></i>
                                       </button>

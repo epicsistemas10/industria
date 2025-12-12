@@ -413,11 +413,22 @@ export default function PecasPage() {
                                           {p.nome}
                                           {(() => {
                                             const sd = suprimentosData || [];
-                                            const existsByPeca = sd.some((s: any) => s && s.peca_id && String(s.peca_id) === String(p.id));
-                                            const existsByCode = (p.codigo_produto) ? sd.some((s: any) => s && s.codigo_produto && String(s.codigo_produto).trim().toLowerCase() === String(p.codigo_produto).trim().toLowerCase()) : false;
-                                            return (existsByPeca || existsByCode) ? (
-                                              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/40 dark:text-yellow-200 text-xs">EM SUPRIMENTOS</span>
-                                            ) : null;
+                                            const matches = sd.filter((s: any) => {
+                                              if (!s) return false;
+                                              if (s.peca_id && String(s.peca_id) === String(p.id)) return true;
+                                              if (p.codigo_produto && s.codigo_produto && String(s.codigo_produto).trim().toLowerCase() === String(p.codigo_produto).trim().toLowerCase()) return true;
+                                              return false;
+                                            });
+                                            if (matches.length > 0) {
+                                              try {
+                                                console.debug('PecasPage: suprimentos matches for pecas', { pecaId: p.id, codigo: p.codigo_produto, matches });
+                                              } catch (e) {}
+                                              const title = matches.map((m: any) => `id:${m.id || '-'} peca_id:${m.peca_id || '-'} code:${m.codigo_produto || '-'} name:${(m.nome||'').slice(0,40)}`).join('\n');
+                                              return (
+                                                <span title={title} className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/40 dark:text-yellow-200 text-xs">EM SUPRIMENTOS</span>
+                                              );
+                                            }
+                                            return null;
                                           })()}
                                         </div>
                                         <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{p.codigo_interno || p.codigo_produto || p.codigo_fabricante || '-'}</div>

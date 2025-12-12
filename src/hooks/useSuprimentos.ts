@@ -36,6 +36,19 @@ export function useSuprimentos() {
 
   useEffect(() => { fetch(); }, [fetch]);
 
+  // listen for global changes to suprimentos so multiple hook instances stay in sync
+  useEffect(() => {
+    const onChange = () => { fetch().catch((e) => console.warn('Failed refresh after suprimentos change', e)); };
+    try {
+      document.addEventListener('suprimentos:changed', onChange as EventListener);
+    } catch (e) {
+      // ignore if not available
+    }
+    return () => {
+      try { document.removeEventListener('suprimentos:changed', onChange as EventListener); } catch (e) {}
+    };
+  }, [fetch]);
+
   const create = async (payload: any) => {
     const { data: d, error } = await supabase.from('suprimentos').insert(payload).select().single();
     if (error) throw error; 
@@ -85,13 +98,16 @@ export function useSuprimentos() {
           const id = existing[0].id;
           await supabase.from('suprimentos').update(payload).eq('id', id);
           await fetch();
+          try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id, action: 'update' } })); } catch (e) {}
           return { updated: true };
         }
       }
 
-      await supabase.from('suprimentos').insert(payload);
+      const { data: ins, error: insErr } = await supabase.from('suprimentos').insert(payload).select().single();
+      if (insErr) throw insErr;
       await fetch();
-      return { inserted: true };
+      try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id: ins?.id, action: 'insert' } })); } catch (e) {}
+      return { inserted: true, id: ins?.id };
     } catch (err) {
       console.error('Erro ao copiar peça para suprimentos:', err);
       throw err;

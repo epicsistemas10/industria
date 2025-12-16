@@ -12,11 +12,25 @@ export default function SuprimentosPage() {
   const { data: items, loading, fetch, create, update, remove, copyFromPeca, missingTable, copyAllFromPecas } = useSuprimentos();
   const [defaultsEnsured, setDefaultsEnsured] = useState(false);
   const [search, setSearch] = useState('');
+  const [showOnlyLinked, setShowOnlyLinked] = useState(true);
+  const [showAutoSynced, setShowAutoSynced] = useState(false);
   const { success, error: showError } = useToast();
   const [showReport, setShowReport] = useState(false);
   const [reportText, setReportText] = useState('');
 
-  const filtered = (items || []).filter((i: any) => !search || (i.nome || '').toLowerCase().includes(search.toLowerCase()));
+  // Filter items: default show only manual copies; optionally include auto_synced rows
+  const filtered = (items || []).filter((i: any) => {
+    if (!i) return false;
+    if (showOnlyLinked) {
+      // require an explicit manual copy marker
+      if (!i.peca_id) return false;
+      if (!(i.meta && i.meta.from_pecas)) return false;
+    } else {
+      // when not restricting to only linked, still hide auto_synced rows by default
+      if (!showAutoSynced && i.meta && i.meta.auto_synced) return false;
+    }
+    return !search || (i.nome || '').toLowerCase().includes(search.toLowerCase());
+  });
   // parse formatted numbers robustly (handles '29.272', '29,272', '29.272,50')
   const parseNumber = (v: any) => {
     if (v == null) return null;
@@ -519,15 +533,19 @@ export default function SuprimentosPage() {
       <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} darkMode />
       <div className={`${sidebarOpen ? 'ml-64' : 'ml-20'} transition-all`}> 
         <TopBar darkMode setDarkMode={() => {}} />
-        <main className="p-6">
+        <main className="p-6 text-white">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-white">Suprimentos</h1>
               <p className="text-gray-400">Gerencie o estoque de suprimentos e métricas de produção</p>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-4">
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar" className="px-3 py-2 rounded w-72" />
+                <label className="flex items-center gap-2 text-sm text-gray-300">
+                  <input type="checkbox" checked={showOnlyLinked} onChange={(e) => setShowOnlyLinked(e.target.checked)} />
+                  <span>Mostrar apenas copiados</span>
+                </label>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => refreshStock()} className="px-4 py-2 h-10 bg-blue-600 text-white rounded-lg text-sm whitespace-nowrap">Atualizar</button>
@@ -549,7 +567,7 @@ export default function SuprimentosPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 items-stretch">
+          <div className="overflow-x-auto bg-transparent rounded">
             {(() => {
               const groups = new Map<string, any[]>();
               for (const it of filtered) {
@@ -573,11 +591,24 @@ export default function SuprimentosPage() {
                 });
                 representatives.push(list[0]);
               }
-              return representatives.map((it: any) => (
-                <div key={it.id} className="h-full">
-                  <SuprimentosCard item={it} onUpdate={update} onDelete={remove} />
-                </div>
-              ));
+              return (
+                <table className="min-w-full text-sm bg-transparent">
+                  <thead className="bg-slate-800 text-gray-100">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Nome</th>
+                      <th className="px-4 py-2 text-left">Unidade</th>
+                      <th className="px-4 py-2 text-right">Quantidade</th>
+                      <th className="px-4 py-2 text-right">Estoque Mínimo</th>
+                      <th className="px-4 py-2 text-center">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {representatives.map((it: any) => (
+                      <SuprimentosCard key={it.id} item={it} onUpdate={update} onDelete={remove} as="row" />
+                    ))}
+                  </tbody>
+                </table>
+              );
             })()}
           </div>
           {showReport && (

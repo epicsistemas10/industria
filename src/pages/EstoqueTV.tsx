@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import useSuprimentos from '../hooks/useSuprimentos';
 import {
   CheckCircle,
   AlertTriangle,
+  AlertCircle,
   Slash,
   Package as PackageIcon,
   Factory,
@@ -44,10 +45,11 @@ export default function EstoqueTV(): JSX.Element {
   const { data: suprimentosFromHook, fetch: fetchSuprimentos } = useSuprimentos();
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
-  const [tvMode, setTvMode] = useState<boolean>(true);
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
+  const [tvMode, setTvMode] = useState<boolean>(false);
   const [carouselIndex, setCarouselIndex] = useState<number>(0);
   const [companyLogo, setCompanyLogo] = useState<string>('');
+  // always show suprimentos as rows in TV
   
 
   // fetch data
@@ -78,7 +80,7 @@ export default function EstoqueTV(): JSX.Element {
         return out;
       };
 
-      const pData = await fetchAllRows('pecas', 'id,nome,codigo_produto,quantidade,saldo_estoque,estoque_minimo,grupo_produto');
+      const pData = await fetchAllRows('pecas', 'id,nome,codigo_produto,quantidade,saldo_estoque,estoque_minimo,grupo_produto,valor_unitario');
       setPecas(Array.isArray(pData) ? pData as PecaRow[] : []);
       // populate suprimentos from the shared hook (ensure hook data is fresh)
       try {
@@ -461,16 +463,30 @@ export default function EstoqueTV(): JSX.Element {
   // TV mode helpers
   const toggleFullscreen = async () => {
     try {
-      if (!tvMode) {
-        const el = document.documentElement;
+      const el = document.documentElement;
+      if (!document.fullscreenElement) {
         if (el.requestFullscreen) await el.requestFullscreen();
-        setTvMode(true);
+        try { document.documentElement.style.backgroundColor = '#071122'; document.body.style.background = '#071122'; } catch (e) {}
       } else {
-        if (document.fullscreenElement) await document.exitFullscreen();
-        setTvMode(false);
+        if (document.exitFullscreen) await document.exitFullscreen();
+        try { document.documentElement.style.backgroundColor = ''; document.body.style.background = ''; } catch (e) {}
       }
     } catch (e) { console.warn('fullscreen failed', e); }
   };
+
+  // keep tvMode state in sync with actual fullscreen state to avoid click mismatches
+  useEffect(() => {
+    const onFull = () => {
+      const isFull = Boolean(document.fullscreenElement);
+      setTvMode(isFull);
+      try {
+        if (isFull) { document.documentElement.style.backgroundColor = '#071122'; document.body.style.background = '#071122'; }
+        else { document.documentElement.style.backgroundColor = ''; document.body.style.background = ''; }
+      } catch (e) {}
+    };
+    window.addEventListener('fullscreenchange', onFull);
+    return () => window.removeEventListener('fullscreenchange', onFull);
+  }, []);
 
   // simple keyboard shortcuts for TV mode: press T to toggle
   useEffect(() => {
@@ -483,7 +499,7 @@ export default function EstoqueTV(): JSX.Element {
   const Header = () => (
     <header className="w-full bg-gradient-to-r from-[#0f172a] to-[#1e293b] text-white px-6 py-4 flex items-center justify-between shadow-2xl">
       <div className="flex items-center gap-4">
-      <img src={companyLogo || '/logo.png'} alt="Empresa" className="h-12 w-auto object-contain filter brightness-0 invert" onError={(e) => { try { (e.target as HTMLImageElement).src = '/favicon.svg'; } catch (err) {} }} />
+      <img src={companyLogo || '/logo.png'} alt="Empresa" className="h-12 w-auto object-contain filter brightness-0 invert" onError={() => { if (companyLogo !== '/favicon.svg') setCompanyLogo('/favicon.svg'); }} />
         <div>
           <div className="text-xs text-slate-300">CENTRAL DE ESTOQUE & SUPRIMENTOS</div>
           <div className="text-2xl font-extrabold tracking-wider uppercase">IBA SANTA LUZIA</div>
@@ -504,96 +520,128 @@ export default function EstoqueTV(): JSX.Element {
     </header>
   );
 
-  const SummaryCards = () => (
-    <div className={`grid ${tvMode ? 'grid-cols-3' : 'grid-cols-1 md:grid-cols-3'} gap-4 w-full`}> 
-      <div className="p-3 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-3">
-        <div className="p-3 rounded-lg bg-[#0b3f1a]/80 text-[#22c55e] shadow">
-          <CheckCircle size={28} />
+  const SummaryCards = () => {
+    // compute separate monetary totals for pecas and suprimentos
+    const suprKeys = new Set<string>();
+    for (const s of (suprimentosRepresentatives || [])) suprKeys.add(normalizeLookupName(s.nome || s.codigo_produto || ''));
+
+    let pecasTotal = 0;
+    const pecaPriceMap = new Map<string, number>();
+    for (const p of (pecas || [])) {
+      const key = normalizeLookupName(p.nome || p.codigo_produto || '');
+      const qty = Number(p.saldo_estoque ?? p.quantidade ?? 0) || 0;
+      const val = Number((p as any).valor_unitario ?? 0) || 0;
+      // exclude pecas that were copied to suprimentos (they should be counted only in suprimentos)
+      if (!suprKeys.has(key)) pecasTotal += qty * val;
+      pecaPriceMap.set(key, val);
+    }
+
+    let suprimentosTotal = 0;
+    for (const s of (suprimentosRepresentatives || [])) {
+      const qty = Number(s.saldo_estoque ?? s.quantidade ?? 0) || 0;
+      const key = normalizeLookupName(s.nome || s.codigo_produto || '');
+      const val = Number((s as any).valor_unitario ?? pecaPriceMap.get(key) ?? 0) || 0;
+      suprimentosTotal += qty * val;
+    }
+
+    const totalValue = pecasTotal + suprimentosTotal;
+
+    return (
+      <div className={`grid grid-cols-1 md:grid-cols-4 gap-3 w-full`}> 
+      <div className="p-2 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-2">
+        <div className="p-2 rounded-lg bg-[#0b3f1a]/80 text-[#22c55e] shadow">
+          <CheckCircle size={20} />
         </div>
         <div>
-          <div className="text-xs text-slate-300">Produtos (Peças)</div>
-          <div className="text-2xl font-extrabold">{metrics.totalPecas ?? (pecas || []).length}</div>
-          <div className="text-xs text-slate-200">{metrics.totalWithMin ?? 0} com mínimo configurado • {metrics.healthyPercent}% estoque saudável</div>
+          <div className="text-[11px] text-slate-300">Produtos (Peças)</div>
+          <div className="text-xl font-extrabold">{metrics.totalPecas ?? (pecas || []).length}</div>
+          <div className="text-[11px] text-slate-200">Com mínimo cadastrado: {metrics.totalWithMin ?? 0} • {metrics.healthyPercent}% saudável</div>
         </div>
       </div>
 
-      <div className="p-3 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-3">
-        <div className="p-3 rounded-lg bg-[#533f03]/80 text-[#facc15] shadow">
-          <AlertTriangle size={28} />
+      <div className="p-2 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-2">
+        <div className="p-2 rounded-lg bg-[#533f03]/80 text-[#facc15] shadow">
+          <AlertTriangle size={20} />
         </div>
         <div>
-          <div className="text-xs text-slate-300">Produtos no Mínimo</div>
-          <div className="text-2xl font-extrabold">{metrics.atMin}</div>
-          <div className="text-xs text-slate-200">Tempo estimado antes de crítico: —</div>
+          <div className="text-[11px] text-slate-300">Produtos no Mínimo</div>
+          <div className="text-xl font-extrabold">{metrics.atMin}</div>
         </div>
       </div>
 
-      <div className={`p-3 rounded-2xl border border-white/6 flex items-center gap-3 ${metrics.below > 0 ? 'animate-pulse-slow' : ''}`} style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,0,0,0.02))' }}>
-        <div className="p-3 rounded-lg bg-[#4a0b0b]/80 text-[#ef4444] shadow">
-          <Slash size={28} />
+      <div className={`p-2 rounded-2xl border border-white/6 flex items-center gap-2`} style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,0,0,0.02))' }}>
+        <div className="p-2 rounded-lg bg-[#4a0b0b]/80 text-[#ef4444] shadow">
+          <Slash size={20} />
         </div>
         <div>
-          <div className="text-xs text-slate-300">Produtos Abaixo do Mínimo</div>
-          <div className="text-2xl font-extrabold text-[#ef4444]">{metrics.below} <span className="text-xs text-red-200 font-semibold">AÇÃO URGENTE</span></div>
-          <div className="text-xs text-slate-200">Itens críticos que requerem atenção imediata</div>
+          <div className="text-[11px] text-slate-300">Produtos Abaixo do Mínimo</div>
+          <div className="text-xl font-extrabold text-[#ef4444]">{metrics.below} <span className="text-xs text-red-200 font-semibold">AÇÃO</span></div>
+          <div className="text-[11px] text-slate-200">Itens críticos</div>
+        </div>
+      </div>
+
+      <div className="p-2 rounded-2xl bg-gradient-to-br from-white/3 to-white/6 backdrop-blur border border-white/6 flex items-center gap-2 justify-between">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-[#0b1722]/80 text-[#60a5fa] shadow">
+            <PackageIcon size={20} />
+          </div>
+          <div>
+            <div className="text-[11px] text-slate-300">Valor Total</div>
+            <div className="text-base font-extrabold">{totalValue > 0 ? totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</div>
+            <div className="text-[12px] text-slate-200">Valor Peças: {pecasTotal > 0 ? pecasTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</div>
+            <div className="text-[12px] text-slate-200">Valor Suprimentos: {suprimentosTotal > 0 ? suprimentosTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</div>
+          </div>
         </div>
       </div>
     </div>
   );
+  };
 
-  const AlertList = () => {
-    // Group alert items by registered product group (`grupo_produto`) when available
-    const groups = new Map<string, any[]>();
-    for (const it of alertItems) {
-      const g = (it.grupo || it.grupo_produto || it.grupoProduto || it.group || 'OUTROS') as string;
-      const key = (g || 'OUTROS').toString().toUpperCase();
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(it);
-    }
+  function ProductCard({ item }: { item: any }) {
+    const estoqueAtual = Number(item.qty ?? item.saldo_estoque ?? item.quantidade ?? 0);
+    const minimo = Number(item.min ?? item.estoque_minimo ?? 0);
+    const isCritical = minimo > 0 && estoqueAtual < minimo;
+    const isMinimum = minimo > 0 && estoqueAtual === minimo;
+
+    const bgColor = isCritical
+      ? 'bg-red-900/60 border-red-500 ring-2 ring-red-500/20'
+      : isMinimum
+      ? 'bg-yellow-900/40 border-yellow-400 ring-2 ring-yellow-400/20'
+      : 'bg-green-900/40 border-green-400 ring-2 ring-green-400/20';
+
+    const Icon = isCritical ? AlertTriangle : isMinimum ? AlertCircle : CheckCircle;
+    const statusLabel = isCritical ? 'Crítico' : isMinimum ? 'No mínimo' : 'OK';
 
     return (
-      <div className="w-full">
-        <h2 className="text-xl font-bold mb-4">Produtos em Alerta</h2>
-        {[...groups.entries()].map(([group, list]) => (
-          <div key={group} className="mb-6">
-            <div className="text-sm text-slate-300 font-semibold mb-2">Grupo: {group} ({list.length})</div>
-            <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse">
-                <thead>
-                    <tr className="text-xs text-slate-400 border-b border-white/6">
-                    <th className="px-3 py-2 w-2/5">Produto</th>
-                    <th className="px-3 py-2 text-right w-24">Qtd</th>
-                    <th className="px-3 py-2 text-right w-24">Mín</th>
-                    <th className="px-3 py-2 w-24">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map((a, idx) => (
-                    <tr key={`${a.id}-${idx}`} className={`border-b border-white/6 ${a.status === 'critical' ? 'bg-red-900/5 animate-pulse-strong' : (a.status === 'min' ? 'bg-yellow-900/5 animate-pulse-slow' : '')}`}>
-                      <td className="px-3 py-2 align-top">
-                        <div className="flex items-center gap-3">
-                          <div className="font-medium truncate">{a.nome}</div>
-                          <div className="text-xs text-slate-400">{a.codigo ?? '—'}</div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right align-top">{fmt(a.qty)}</td>
-                      <td className="px-3 py-2 text-right align-top">{fmt(a.min)}</td>
-                      <td className="px-3 py-2 align-top">{a.status === 'critical' ? 'Crítico' : (a.status === 'min' ? 'No Mínimo' : 'OK')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      <div className={`border ${bgColor} p-2 rounded-xl shadow-sm flex flex-col justify-between min-h-[96px]`}>
+        <div className="flex items-start justify-between">
+          <div className="text-sm font-medium tracking-wide text-white max-w-[75%] truncate">{item.nome}</div>
+          <Icon className="text-white w-5 h-5" />
+        </div>
+
+        <div className="text-sm text-gray-300 mt-2">Código: {item.codigo ?? '—'}</div>
+        <div className="flex justify-between mt-3 items-end text-white">
+          <div>
+            <div className="text-xs text-slate-200">Estoque Atual</div>
+            <div className="font-semibold text-base">{fmt(estoqueAtual)}</div>
           </div>
-        ))}
+          <div className="text-right">
+            <div className="text-xs text-slate-200">Mínimo Cadastro</div>
+            <div className="font-semibold text-base">{fmt(minimo)}</div>
+          </div>
+        </div>
+
+        <div className="mt-3 font-bold text-center text-white text-sm">{statusLabel}</div>
       </div>
     );
-  };
+  }
+
+  // No auto-scroll for TV; grid layout will display items without vertical scroll
 
   // Use the shared `SuprimentosCard` component for consistency with the Suprimentos page
 
   return (
-    <div className={`min-h-screen text-white ${tvMode ? 'text-2xl' : 'text-base'} font-sans bg-[#071122]`}>
+    <div className={`min-h-screen text-white ${tvMode ? 'text-2xl' : 'text-base md:text-lg lg:text-xl'} font-sans bg-[#071122]`}>
       <Header />
 
       <main className={`p-6 ${tvMode ? 'px-12 py-8' : ''}`}>
@@ -605,43 +653,26 @@ export default function EstoqueTV(): JSX.Element {
         </div>
 
         <div className={`space-y-6 ${tvMode ? 'h-[58vh]' : ''}`}>
-          {/* Carousel panes */}
-          <div className="relative w-full overflow-hidden">
-            <div className="flex w-[200%] transition-transform duration-700 will-change-transform" style={{ transform: `translate3d(-${carouselIndex * 50}%,0,0)` }}>
-              <div className="flex-none w-1/2 p-4 bg-transparent min-h-[44vh]">
-                  <div>
-                    <h2 className="text-xl font-bold mb-4">Suprimentos</h2>
-                    <div className="mb-3 flex items-center gap-3">
-                      <div className="text-sm text-slate-300">Itens: <strong className="text-base">{(suprimentosState && suprimentosState.length) ? suprimentosState.length : (suprimentosFromHook || []).length}</strong></div>
-                    </div>
-                    <div className={`${tvMode ? 'h-[44vh]' : 'h-full'}`}>
-                      <div className={`${tvMode ? 'grid grid-cols-3' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4 ${tvMode ? 'overflow-auto' : ''}`}>
-                        {tvRenderRowsFromSuprimentos && tvRenderRowsFromSuprimentos.length ? (
-                          tvRenderRowsFromSuprimentos.map(s => <SuprimentosCard key={`sup-${s.id}`} item={s} initialExpanded={false} tvMode={tvMode} />)
-                        ) : (
-                          <div className="p-6 rounded-2xl bg-white/5 border border-white/6 text-slate-300">Nenhum suprimento cadastrado.</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex-none w-1/2 p-4 bg-transparent min-h-[44vh]">
-                  <AlertList />
+          {/* Apenas Produtos em Alerta — ocupa toda a área */}
+          <div className="w-full p-4 bg-transparent min-h-[60vh]">
+            <div>
+              <h2 className="text-lg font-bold mb-3">Produtos em Alerta</h2>
+          
+              <div>
+                          <div className="grid grid-cols-5 gap-2 w-full mt-6 px-2">
+                  {((alertItems || []) as any[]).slice().sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR', { sensitivity: 'base' })).map((item: any) => (
+                    <ProductCard key={item.id || `${item.codigo}-${item.nome}`} item={item} />
+                  ))}
                 </div>
               </div>
+            </div>
           </div>
         </div>
 
         {/* Footer removed as requested (no last-updated card or info button) */}
       </main>
 
-      {/* small styles for pulsing animations */}
-      <style>{`
-        .animate-pulse-slow { animation: pulse 2.6s infinite ease-in-out; }
-        .animate-pulse-strong { animation: pulse 1.6s infinite ease-in-out; }
-        @keyframes pulse { 0% { transform: translateY(0); } 50% { transform: translateY(-4px); } 100% { transform: translateY(0); } }
-      `}</style>
+      {/* removed pulsing animations for TV stability and readability */}
     </div>
   );
 }

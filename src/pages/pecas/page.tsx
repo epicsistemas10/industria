@@ -16,7 +16,7 @@ export default function PecasPage() {
   const [darkMode, setDarkMode] = useState(true);
   const { data: pecas, loading, fetch, create, update, remove, upsertLocal } = usePecas();
   const [dbTotalCount, setDbTotalCount] = useState<number | null>(null);
-  const { data: suprimentosData, copyFromPeca } = useSuprimentos();
+  const { data: suprimentosData, copyFromPeca, remove: removeSuprimento } = useSuprimentos();
   const [showPecaModal, setShowPecaModal] = useState(false);
   const [selectedPecaId, setSelectedPecaId] = useState<string | undefined>();
   const [showImportPanel, setShowImportPanel] = useState(false);
@@ -413,12 +413,8 @@ export default function PecasPage() {
                                           {p.nome}
                                           {(() => {
                                             const sd = suprimentosData || [];
-                                            const matches = sd.filter((s: any) => {
-                                              if (!s) return false;
-                                              if (s.peca_id && String(s.peca_id) === String(p.id)) return true;
-                                              if (p.codigo_produto && s.codigo_produto && String(s.codigo_produto).trim().toLowerCase() === String(p.codigo_produto).trim().toLowerCase()) return true;
-                                              return false;
-                                            });
+                                            // Only consider explicit manual copies (meta.from_pecas === true)
+                                            const matches = sd.filter((s: any) => s && s.peca_id && String(s.peca_id) === String(p.id) && (s.meta && s.meta.from_pecas));
                                             if (matches.length > 0) {
                                               try {
                                                 console.debug('PecasPage: suprimentos matches for pecas', { pecaId: p.id, codigo: p.codigo_produto, matches });
@@ -456,37 +452,34 @@ export default function PecasPage() {
                                       {
                                         (() => {
                                           const sd = suprimentosData || [];
-                                          const existsByPeca = sd.some((s: any) => s && s.peca_id && String(s.peca_id) === String(p.id));
-                                          const existsByCode = p.codigo_produto ? sd.some((s: any) => s && s.codigo_produto && String(s.codigo_produto).trim().toLowerCase() === String(p.codigo_produto).trim().toLowerCase()) : false;
-                                          // debug: log matching candidates when a badge would be shown (temporary)
-                                          try {
-                                            if (typeof window !== 'undefined' && (existsByPeca || existsByCode) && (window as any).__DEBUG_SUPRIMENTOS__) {
-                                              const matches = sd.filter((s: any) => {
-                                                if (s && s.peca_id && String(s.peca_id) === String(p.id)) return true;
-                                                if (p.codigo_produto && s && s.codigo_produto && String(s.codigo_produto).trim().toLowerCase() === String(p.codigo_produto).trim().toLowerCase()) return true;
-                                                return false;
-                                              });
-                                              console.debug('[suprimentos-debug] piece', { id: p.id, nome: p.nome, codigo_produto: p.codigo_produto, matches });
-                                            }
-                                          } catch (e) {
-                                            // ignore debug errors
-                                          }
-                                          const already = existsByPeca || existsByCode;
+                                          // prefer explicit manual copies (meta.from_pecas === true)
+                                          const matchedFromPecas = sd.find((s: any) => s && s.peca_id && String(s.peca_id) === String(p.id) && s.meta && s.meta.from_pecas);
+                                          const matchedAny = sd.find((s: any) => s && s.peca_id && String(s.peca_id) === String(p.id));
+                                          const already = !!matchedFromPecas; // only consider manual copies as "already"
                                           return (
                                             <button
                                               onClick={async () => {
-                                                if (already) return;
                                                 try {
-                                                  await copyFromPeca(p.id);
-                                                  success('Copiado para Suprimentos');
+                                                  if (already) {
+                                                    // remove the explicit manual copy (meta.from_pecas)
+                                                    if (matchedFromPecas && matchedFromPecas.id) {
+                                                      await removeSuprimento(matchedFromPecas.id);
+                                                      success('Removido de Suprimentos');
+                                                    } else {
+                                                      showError('Registro de suprimento manual não encontrado para remoção');
+                                                    }
+                                                  } else {
+                                                    // If there's an auto_synced or other linked row present, still treat as not-copied
+                                                    await copyFromPeca(p.id);
+                                                    success('Copiado para Suprimentos');
+                                                  }
                                                 } catch (err) {
-                                                  console.error('Erro ao copiar para suprimentos:', err);
-                                                  showError('Erro ao copiar para Suprimentos');
+                                                  console.error('Erro ao alternar suprimentos:', err);
+                                                  showError('Erro ao atualizar Suprimentos');
                                                 }
                                               }}
-                                              disabled={already}
-                                              className={`w-8 h-8 rounded flex items-center justify-center ${already ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-amber-600 text-white'}`}
-                                              title={already ? 'Já presente em Suprimentos' : 'Copiar para Suprimentos'}
+                                              className={`w-8 h-8 rounded flex items-center justify-center ${already ? 'bg-gray-400 text-white' : 'bg-amber-600 text-white'}`}
+                                              title={already ? 'Remover de Suprimentos' : (matchedAny ? 'Copiar para Suprimentos (há outra entrada não manual)' : 'Copiar para Suprimentos')}
                                             >
                                               <i className="ri-file-copy-line"></i>
                                             </button>

@@ -11,9 +11,29 @@ export function useSuprimentos() {
     try {
       const { data: rows, error } = await supabase.from('suprimentos').select('*').neq('is_archived', true).order('nome', { ascending: true });
       if (error) throw error;
-      setData(rows || []);
-      return rows || [];
+      // normalize numeric fields to JS numbers to avoid UI inconsistencies
+      const coerceNumber = (v: any) => {
+        if (v == null) return null;
+        if (typeof v === 'number') return v;
+        const s = String(v).trim();
+        if (s === '') return null;
+        let t = s.replace(/\u00A0/g, '').replace(/\./g, '').replace(/,/g, '.');
+        t = t.replace(/[^0-9.-]/g, '');
+        const n = parseFloat(t);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const normalized = (rows || []).map((r: any) => ({
+        ...r,
+        quantidade: coerceNumber(r.quantidade),
+        estoque_minimo: coerceNumber(r.estoque_minimo),
+        saldo_estoque: coerceNumber(r.saldo_estoque),
+      }));
+
+      // Do NOT auto-link suprimentos rows without `peca_id` — only show explicit user-added links.
       setMissingTable(false);
+      setData(normalized || []);
+      return normalized || [];
     } catch (err) {
       // Handle case where table does not exist in Supabase schema cache
       try {
@@ -64,6 +84,7 @@ export function useSuprimentos() {
     setData((prev) => (prev || []).map((it) => (it.id === id ? updated : it)));
     // refresh in background to keep canonical state in sync (non-blocking)
     fetch().catch((e) => console.warn('Background refresh failed', e));
+    try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id, action: 'update' } })); } catch (e) {}
     return updated;
   };
 
@@ -71,6 +92,7 @@ export function useSuprimentos() {
     const { error } = await supabase.from('suprimentos').delete().eq('id', id);
     if (error) throw error;
     await fetch();
+    try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id, action: 'delete' } })); } catch (e) {}
   };
 
   const copyFromPeca = async (pecaId: string) => {
@@ -78,13 +100,29 @@ export function useSuprimentos() {
     const { data: peca, error: pErr } = await supabase.from('pecas').select('*').eq('id', pecaId).single();
     if (pErr) throw pErr;
 
+    // helper: robust number parsing (handles '12,00', '1.234', '1.234,50')
+    const parseNumber = (v: any) => {
+      if (v == null) return null;
+      if (typeof v === 'number') return v;
+      let s = String(v).trim();
+      if (s === '') return null;
+      // remove non-breaking spaces
+      s = s.replace(/\u00A0/g, '');
+      // if contains comma as decimal separator and dot as thousand, normalize
+      if (s.indexOf(',') > -1 && s.indexOf('.') > -1) s = s.replace(/\./g, '').replace(/,/g, '.');
+      else s = s.replace(/,/g, '.');
+      s = s.replace(/[^0-9.-]/g, '');
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : null;
+    };
+
     const payload = {
       peca_id: String(peca.id),
       nome: peca.nome || peca.produto || null,
       codigo_produto: peca.codigo_produto || peca.codigo_fabricante || null,
       unidade_medida: peca.unidade_medida || peca.unidade || null,
-      quantidade: peca.saldo_estoque != null ? Number(peca.saldo_estoque) : (peca.quantidade != null ? Number(peca.quantidade) : null),
-      estoque_minimo: peca.estoque_minimo != null ? Number(peca.estoque_minimo) : null,
+      quantidade: parseNumber(peca.saldo_estoque != null ? peca.saldo_estoque : (peca.quantidade != null ? peca.quantidade : 0)) || 0,
+      estoque_minimo: parseNumber(peca.estoque_minimo != null ? peca.estoque_minimo : null),
       tipo: null,
       meta: null
     };
@@ -92,22 +130,58 @@ export function useSuprimentos() {
     // upsert: if exists by peca_id then update, else insert
     try {
       if (payload.peca_id) {
-        const { data: existing, error: exErr } = await supabase.from('suprimentos').select('id').eq('peca_id', payload.peca_id).limit(1);
+        const { data: existing, error: exErr } = await supabase.from('suprimentos').select('*').eq('peca_id', payload.peca_id).limit(10);
         if (exErr) throw exErr;
         if (Array.isArray(existing) && existing.length > 0) {
+          // Prefer updating an existing manual copy if present.
+          const existingFrom = existing.find((r: any) => r.meta && r.meta.from_pecas);
+          if (existingFrom) {
+            const id = existingFrom.id;
+            await supabase.from('suprimentos').update({ ...payload, meta: { ...(payload.meta || {}), from_pecas: true } }).eq('id', id);
+            await fetch();
+            try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id, action: 'update' } })); } catch (e) {}
+            return { updated: true };
+          }
+          // If only an auto_synced row exists, do NOT overwrite it; insert a separate manual row instead.
+          const existingAuto = existing.find((r: any) => r.meta && r.meta.auto_synced);
+          if (existingAuto) {
+            const { data: ins, error: insErr } = await supabase.from('suprimentos').insert({ ...payload, meta: { ...(payload.meta || {}), from_pecas: true } }).select().single();
+            if (insErr) throw insErr;
+            await fetch();
+            try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id: ins?.id, action: 'insert' } })); } catch (e) {}
+            return { inserted: true, id: ins?.id };
+          }
+          // Otherwise update the first matching record (no special flags present)
           const id = existing[0].id;
-          await supabase.from('suprimentos').update(payload).eq('id', id);
+          await supabase.from('suprimentos').update({ ...payload, meta: { ...(payload.meta || {}), from_pecas: true } }).eq('id', id);
           await fetch();
           try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id, action: 'update' } })); } catch (e) {}
           return { updated: true };
         }
       }
 
-      const { data: ins, error: insErr } = await supabase.from('suprimentos').insert(payload).select().single();
-      if (insErr) throw insErr;
-      await fetch();
-      try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id: ins?.id, action: 'insert' } })); } catch (e) {}
-      return { inserted: true, id: ins?.id };
+      try {
+        const { data: ins, error: insErr } = await supabase.from('suprimentos').insert({ ...payload, meta: { ...(payload.meta || {}), from_pecas: true } }).select().single();
+        if (insErr) throw insErr;
+        await fetch();
+        try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id: ins?.id, action: 'insert' } })); } catch (e) {}
+        return { inserted: true, id: ins?.id };
+      } catch (insertErr: any) {
+        // Handle unique constraint race where another client inserted the same peca_id concurrently
+        if (insertErr && (insertErr.code === '23505' || (insertErr.error && insertErr.error.code === '23505'))) {
+          try {
+            const { data: upd, error: updErr } = await supabase.from('suprimentos').update({ ...payload, meta: { ...(payload.meta || {}), from_pecas: true } }).eq('peca_id', payload.peca_id).select().limit(1).maybeSingle();
+            if (updErr) throw updErr;
+            await fetch();
+            try { document.dispatchEvent(new CustomEvent('suprimentos:changed', { detail: { id: upd?.id, action: 'update' } })); } catch (e) {}
+            return { updated: true };
+          } catch (uErr) {
+            console.error('Erro ao recuperar/atualizar suprimento após conflito de insert:', uErr);
+            throw uErr;
+          }
+        }
+        throw insertErr;
+      }
     } catch (err) {
       console.error('Erro ao copiar peça para suprimentos:', err);
       throw err;
@@ -141,6 +215,18 @@ export function useSuprimentos() {
         if (s.codigo_produto) existingMap.set(`code:${String(s.codigo_produto)}`, true);
         if (s.nome) existingMap.set(`name:${normalizeName(s.nome)}`, true);
       });
+      const parseNumber = (v: any) => {
+        if (v == null) return 0;
+        if (typeof v === 'number') return v;
+        let s = String(v).trim();
+        if (s === '') return 0;
+        if (s.indexOf(',') > -1 && s.indexOf('.') > -1) s = s.replace(/\./g, '').replace(/,/g, '.');
+        else s = s.replace(/,/g, '.');
+        s = s.replace(/[^0-9.-]/g, '');
+        const n = parseFloat(s);
+        return Number.isFinite(n) ? n : 0;
+      };
+
       const toInsert: any[] = [];
       for (const p of pecas) {
         const keyByPeca = p.id ? `peca:${String(p.id)}` : null;
@@ -152,9 +238,9 @@ export function useSuprimentos() {
           nome: p.nome || p.produto || null,
           codigo_produto: p.codigo_produto || p.codigo_fabricante || null,
           unidade_medida: p.unidade_medida || p.unidade || null,
-          quantidade: p.saldo_estoque != null ? Number(p.saldo_estoque) : (p.quantidade != null ? Number(p.quantidade) : 0),
-          estoque_minimo: p.estoque_minimo != null ? Number(p.estoque_minimo) : null,
-          meta: p.meta || null,
+          quantidade: parseNumber(p.saldo_estoque != null ? p.saldo_estoque : (p.quantidade != null ? p.quantidade : 0)),
+          estoque_minimo: parseNumber(p.estoque_minimo != null ? p.estoque_minimo : null) || null,
+          meta: { ...(p.meta || {}), auto_synced: true },
         });
         // also mark keys to avoid duplicates inside this run (prevent same-name multiple inserts)
         if (keyByPeca) existingMap.set(keyByPeca, true);

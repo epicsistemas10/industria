@@ -50,6 +50,8 @@ export default function EstoqueTV(): JSX.Element {
   const [tvMode, setTvMode] = useState<boolean>(false);
   const [carouselIndex, setCarouselIndex] = useState<number>(0);
   const [companyLogo, setCompanyLogo] = useState<string>('');
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareText, setShareText] = useState('');
   // always show suprimentos as rows in TV
   
 
@@ -198,15 +200,69 @@ export default function EstoqueTV(): JSX.Element {
 
   const generateEstoquePDF = async () => {
     try {
-      await reportService.generateEstoquePDF(mergedRows, { title: 'Relatório Estoque TV', subtitle: `Atualizado em ${new Date().toLocaleString('pt-BR')}` });
+      // filter items at or below minimum
+      const filtered = (mergedRows || []).filter((it: any) => {
+        const qtd = Number(it.quantidade ?? it.saldo_estoque ?? it.saldo ?? 0) || 0;
+        const min = (it.estoque_minimo != null) ? Number(it.estoque_minimo) : null;
+        return min != null && min >= 0 && qtd <= min;
+      });
+
+      // compute pecas and suprimentos totals
+      const parseMoney = (v: any) => {
+        if (v == null) return 0;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      let pecasTotal = 0;
+      for (const p of (pecas || [])) pecasTotal += (Number(p.saldo_estoque ?? p.quantidade ?? 0) || 0) * (Number((p as any).valor_unitario || 0) || 0);
+      let suprimentosTotal = 0;
+      const suprItems = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
+      for (const s of (suprItems || [])) {
+        const explicit = parseMoney((s as any).valor_total);
+        if (explicit > 0) suprimentosTotal += explicit;
+        else {
+          const qty = Number(s.saldo_estoque ?? s.quantidade ?? 0) || 0;
+          const unit = parseMoney((s as any).valor_unitario) || 0;
+          suprimentosTotal += qty * unit;
+        }
+      }
+
+      const subtitle = `Atualizado em ${new Date().toLocaleString('pt-BR')} — Valor peças: R$ ${pecasTotal.toFixed(2)} • Suprimentos: R$ ${suprimentosTotal.toFixed(2)}`;
+      await reportService.generateEstoquePDF(filtered, { title: 'Relatório Estoque TV (itens no/abaixo do mínimo)', subtitle });
     } catch (e) { console.error('[EstoqueTV] generateEstoquePDF error', e); }
   };
 
   const shareEstoqueWhatsApp = () => {
     try {
-      const txt = reportService.buildEstoqueText(mergedRows, { title: 'Relatório Estoque TV' });
-      const url = `https://wa.me/?text=${encodeURIComponent(txt)}`;
-      window.open(url, '_blank');
+      const filtered = (mergedRows || []).filter((it: any) => {
+        const qtd = Number(it.quantidade ?? it.saldo_estoque ?? it.saldo ?? 0) || 0;
+        const min = (it.estoque_minimo != null) ? Number(it.estoque_minimo) : null;
+        return min != null && min >= 0 && qtd <= min;
+      });
+      // compute totals as in PDF
+      const parseMoney = (v: any) => {
+        if (v == null) return 0;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      let pecasTotal = 0;
+      for (const p of (pecas || [])) pecasTotal += (Number(p.saldo_estoque ?? p.quantidade ?? 0) || 0) * (Number((p as any).valor_unitario || 0) || 0);
+      let suprimentosTotal = 0;
+      const suprItems = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
+      for (const s of (suprItems || [])) {
+        const explicit = parseMoney((s as any).valor_total);
+        if (explicit > 0) suprimentosTotal += explicit;
+        else {
+          const qty = Number(s.saldo_estoque ?? s.quantidade ?? 0) || 0;
+          const unit = parseMoney((s as any).valor_unitario) || 0;
+          suprimentosTotal += qty * unit;
+        }
+      }
+      const title = `Relatório Estoque TV - itens no/abaixo do mínimo`;
+      const header = `${title} - Peças: R$ ${pecasTotal.toFixed(2)} • Suprimentos: R$ ${suprimentosTotal.toFixed(2)}\n`;
+      const txt = header + '\n' + reportService.buildEstoqueText(filtered, { title });
+      setShareText(txt);
+      setShowShareModal(true);
     } catch (e) { console.error('[EstoqueTV] shareEstoqueWhatsApp error', e); }
   };
 
@@ -644,6 +700,26 @@ export default function EstoqueTV(): JSX.Element {
   );
   };
 
+  // Share modal for WhatsApp/text copy
+  const ShareModal = () => {
+    if (!showShareModal) return null;
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-white text-black rounded-lg w-11/12 md:w-2/3 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold">Compartilhar Relatório (copiar / abrir WhatsApp)</h3>
+            <div className="flex items-center gap-2">
+              <button onClick={async () => { try { await navigator.clipboard.writeText(shareText); } catch(e) { console.error(e); } }} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">Copiar</button>
+              <button onClick={() => { const url = `https://wa.me/?text=${encodeURIComponent(shareText)}`; window.open(url, '_blank'); }} className="px-3 py-1 bg-green-500 text-white rounded text-sm">Abrir WhatsApp</button>
+              <button onClick={() => setShowShareModal(false)} className="px-3 py-1 bg-red-600 text-white rounded text-sm">Fechar</button>
+            </div>
+          </div>
+          <textarea readOnly value={shareText} className="w-full h-64 p-2 border rounded text-sm" />
+        </div>
+      </div>
+    );
+  };
+
   function ProductCard({ item }: { item: any }) {
     const estoqueAtual = Number(item.qty ?? item.saldo_estoque ?? item.quantidade ?? 0);
     const minimo = Number(item.min ?? item.estoque_minimo ?? 0);
@@ -690,6 +766,7 @@ export default function EstoqueTV(): JSX.Element {
   return (
     <div className={`min-h-screen text-white ${tvMode ? 'text-2xl' : 'text-base md:text-lg lg:text-xl'} font-sans bg-[#071122]`}>
       <Header />
+      <ShareModal />
 
       <main className={`p-6 ${tvMode ? 'px-12 py-8' : ''}`}>
         {/* Sections carousel when TV mode active */}

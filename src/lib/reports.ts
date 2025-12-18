@@ -343,4 +343,69 @@ export const reportService = {
     
     doc.save(`relatorio_consolidado_${new Date().getTime()}.pdf`);
   }
+
+  ,
+  // Gerar relatório de Estoque/Suprimentos em PDF
+  async generateEstoquePDF(items: any[], options: ReportOptions) {
+    const doc = new jsPDF({ compress: true });
+    doc.setFontSize(16);
+    doc.text(options.title || 'Relatório de Estoque', 14, 20);
+    if (options.subtitle) { doc.setFontSize(11); doc.text(options.subtitle, 14, 28); }
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 36);
+
+    const head = [['Nome', 'Código', 'Qtd', 'Mínimo', 'Alerta', 'Valor Unit.', 'Valor Total']];
+    const body = (items || []).map(it => {
+      const nome = it.nome || it.produto || '';
+      const codigo = it.codigo_produto || it.codigo || '';
+      const qtd = (it.quantidade ?? it.saldo_estoque ?? it.saldo ?? 0) || 0;
+      const minimo = (it.estoque_minimo != null) ? String(it.estoque_minimo) : '-';
+      const alert = (it.alerta || it.isAlert || (it.estoque_minimo != null && Number(it.estoque_minimo) > 0 && Number(qtd) < Number(it.estoque_minimo))) ? 'SIM' : '-';
+      const vu = (it.valor_unitario != null) ? `R$ ${Number(it.valor_unitario).toFixed(2)}` : '-';
+      const vt = (it.valor_unitario != null && qtd != null) ? `R$ ${(Number(it.valor_unitario) * Number(qtd)).toFixed(2)}` : '-';
+      return [nome, codigo, Number(qtd).toLocaleString('pt-BR'), minimo, alert, vu, vt];
+    });
+
+    const totalItems = (items || []).length;
+    const totalQty = (items || []).reduce((s, it) => s + (Number(it.quantidade ?? it.saldo_estoque ?? it.saldo ?? 0) || 0), 0);
+    const totalValue = (items || []).reduce((s, it) => s + ((Number(it.valor_unitario || 0) * Number(it.quantidade ?? it.saldo_estoque ?? it.saldo ?? 0)) || 0), 0);
+    doc.text(`Total de itens: ${totalItems} — Quantidade total: ${totalQty.toLocaleString('pt-BR')} — Valor total: R$ ${totalValue.toFixed(2)}`, 14, 44);
+
+    autoTable(doc, {
+      startY: 52,
+      head: head,
+      body: body,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [59, 130, 246] },
+      theme: 'grid'
+    });
+
+    doc.save(`${(options.title || 'estoque').replace(/\s+/g,'_').toLowerCase()}_${new Date().getTime()}.pdf`);
+  }
+  ,
+  // Monta texto resumido para compartilhar via WhatsApp
+  buildEstoqueText(items: any[], options: ReportOptions) {
+    const lines: string[] = [];
+    lines.push(`${options.title || 'Relatório de Estoque'} - ${new Date().toLocaleString('pt-BR')}`);
+    lines.push('');
+    let totalQty = 0;
+    let totalValue = 0;
+    for (const it of (items || [])) {
+      const nome = it.nome || it.produto || '';
+      const codigo = it.codigo_produto || it.codigo || '';
+      const qtd = Number(it.quantidade ?? it.saldo_estoque ?? it.saldo ?? 0) || 0;
+      const minimo = (it.estoque_minimo != null) ? Number(it.estoque_minimo) : null;
+      const alert = (minimo != null && minimo > 0 && qtd < minimo) ? '⚠️ ABAIXO DO MÍNIMO' : '';
+      const vu = Number(it.valor_unitario || 0);
+      const vt = vu * qtd;
+      totalQty += qtd;
+      totalValue += vt;
+      lines.push(`${nome} (${codigo})`);
+      lines.push(`  Qtd: ${qtd.toLocaleString('pt-BR')} — Mínimo: ${minimo != null ? minimo.toLocaleString('pt-BR') : '-'} ${alert}`);
+      if (vu > 0) lines.push(`  Valor unit.: R$ ${vu.toFixed(2)} — Valor total: R$ ${vt.toFixed(2)}`);
+      lines.push('');
+    }
+    lines.push(`Totais: itens=${(items || []).length} — qtd=${totalQty.toLocaleString('pt-BR')} — valor R$ ${totalValue.toFixed(2)}`);
+    return lines.join('\n');
+  }
 };

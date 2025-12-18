@@ -15,6 +15,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import SuprimentosCard from '../components/SuprimentosCard';
+import { reportService } from '../lib/reports';
 import rawGroupMapping from '../data/group-mapping.json';
 
 // A premium, TV-first dashboard for "CENTRAL DE ESTOQUE & SUPRIMENTOS – IBA SANTA LUZIA"
@@ -194,6 +195,20 @@ export default function EstoqueTV(): JSX.Element {
 
   // helpers
   const fmt = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString('pt-BR'));
+
+  const generateEstoquePDF = async () => {
+    try {
+      await reportService.generateEstoquePDF(mergedRows, { title: 'Relatório Estoque TV', subtitle: `Atualizado em ${new Date().toLocaleString('pt-BR')}` });
+    } catch (e) { console.error('[EstoqueTV] generateEstoquePDF error', e); }
+  };
+
+  const shareEstoqueWhatsApp = () => {
+    try {
+      const txt = reportService.buildEstoqueText(mergedRows, { title: 'Relatório Estoque TV' });
+      const url = `https://wa.me/?text=${encodeURIComponent(txt)}`;
+      window.open(url, '_blank');
+    } catch (e) { console.error('[EstoqueTV] shareEstoqueWhatsApp error', e); }
+  };
 
   // name normalization (same heuristics used on Suprimentos page to dedupe LONA etc.)
   function stripDiacritics(s: string) {
@@ -516,6 +531,8 @@ export default function EstoqueTV(): JSX.Element {
         <button onClick={() => toggleFullscreen()} title="Modo TV" className="p-2 rounded bg-white/5 hover:bg-white/10">
           <MonitorSmartphone className="text-white" />
         </button>
+        <button onClick={() => generateEstoquePDF()} title="Gerar PDF" className="px-3 py-2 rounded bg-gray-200 text-sm">Relatório (PDF)</button>
+        <button onClick={() => shareEstoqueWhatsApp()} title="Compartilhar via WhatsApp" className="px-3 py-2 rounded bg-green-500 text-white text-sm">WhatsApp</button>
       </div>
     </header>
   );

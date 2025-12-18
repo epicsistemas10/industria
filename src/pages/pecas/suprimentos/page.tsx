@@ -601,6 +601,9 @@ export default function SuprimentosPage() {
           <div className="overflow-x-auto bg-transparent rounded">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-sm text-gray-300">Itens filtrados: <strong className="text-white">{filteredCount}</strong> — chaves únicas: <strong className="text-white">{uniqueKeysCount}</strong></div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { /* gerar relatório de todos os suprimentos */ printReport(); }} className="px-3 py-1 bg-gray-800 text-white rounded text-sm">Gerar relatório (todos)</button>
+              </div>
             </div>
             <div className="mb-4">
               <table className="min-w-full text-sm bg-transparent">
@@ -609,6 +612,7 @@ export default function SuprimentosPage() {
                     <th className="px-4 py-2 text-left">Código</th>
                     <th className="px-4 py-2 text-left">Nome</th>
                     <th className="px-4 py-2 text-right">Quantidade</th>
+                    <th className="px-4 py-2 text-right">Estoque Mínimo</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -617,6 +621,7 @@ export default function SuprimentosPage() {
                       <td className="px-4 py-2">{String(it.codigo_produto || it.codigo || '-')}</td>
                       <td className="px-4 py-2">{String(it.nome || it.produto || '-')}</td>
                       <td className="px-4 py-2 text-right">{getQty(it)}</td>
+                      <td className="px-4 py-2 text-right">{it.estoque_minimo != null ? String(it.estoque_minimo) : '-'}</td>
                     </tr>
                   ))}
                 </tbody>

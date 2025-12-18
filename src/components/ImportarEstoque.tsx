@@ -120,6 +120,9 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
   const [groupCodeMap, setGroupCodeMap] = useState<Record<string, string>>({});
   const [mappingText, setMappingText] = useState<string>('');
   const [autoInsertNew, setAutoInsertNew] = useState<boolean>(false);
+  const [autoZeroMissing, setAutoZeroMissing] = useState<boolean>(true);
+  const [showZeroConfirmation, setShowZeroConfirmation] = useState<boolean>(false);
+  const [showNewProductsConfirmation, setShowNewProductsConfirmation] = useState<boolean>(false);
   const [debugEnableSave, setDebugEnableSave] = useState(false);
   const { success, error } = useToast();
 
@@ -551,12 +554,18 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
             }
           if (Object.keys(payload).length > 0) {
             // prefer matching by codigo_produto or nome to avoid issues with id type mismatches
+            // Ensure we only match by numeric id when it's a finite number; otherwise prefer codigo or nome
+            const existingRecord = { id: found.id, codigo_produto: found.codigo_produto, quantidade: found.quantidade, saldo_estoque: found.saldo_estoque, valor_unitario: found.valor_unitario, valor_total: found.valor_total };
+            const idNum = Number(found.id);
             if (found.codigo_produto) {
-              toUpdate.push({ match: { field: 'codigo_produto', value: String(found.codigo_produto).trim() }, payload, existing: { id: found.id, codigo_produto: found.codigo_produto, quantidade: found.quantidade, saldo_estoque: found.saldo_estoque, valor_unitario: found.valor_unitario, valor_total: found.valor_total } });
+              toUpdate.push({ match: { field: 'codigo_produto', value: String(found.codigo_produto).trim() }, payload, existing: existingRecord });
             } else if (found.nome) {
-              toUpdate.push({ match: { field: 'nome', value: String(found.nome).trim() }, payload, existing: { id: found.id, codigo_produto: found.codigo_produto, quantidade: found.quantidade, saldo_estoque: found.saldo_estoque, valor_unitario: found.valor_unitario, valor_total: found.valor_total } });
+              toUpdate.push({ match: { field: 'nome', value: String(found.nome).trim() }, payload, existing: existingRecord });
+            } else if (Number.isFinite(idNum)) {
+              toUpdate.push({ match: { field: 'id', value: idNum }, payload, existing: existingRecord });
             } else {
-              toUpdate.push({ match: { field: 'id', value: found.id }, payload, existing: { id: found.id, codigo_produto: found.codigo_produto, quantidade: found.quantidade, saldo_estoque: found.saldo_estoque, valor_unitario: found.valor_unitario, valor_total: found.valor_total } });
+              // defensive: if no reliable match available, skip this row but log it for inspection
+              console.warn('[ImportarEstoque] skipping update because found record has no reliable match', { found });
             }
           }
         } else {
@@ -577,6 +586,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
       // After preparing updates for rows present in the file, detect products that exist in the system
       // but were NOT present in the uploaded file. These should be presented to the user so they can
       // confirm zeroing their stock (they are not removed from system).
+      let missing: any[] = [];
       try {
         const { data: allPecas, error: allErr } = await supabase.from('pecas').select('id,codigo_produto,nome,quantidade,saldo_estoque,grupo_produto,estoque_minimo').range(0, 19999);
         if (!allErr && Array.isArray(allPecas)) {
@@ -585,7 +595,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
           // Also include any items in 'existentes' that we matched earlier by code/name
           // (this is defensive; primary source is toUpdate)
           (existentes || []).forEach((e: any) => { if (e && e.id && (parsed.some(p => (p.codigo && String(p.codigo).trim() === String(e.codigo_produto).trim()) || (p.descricao && normalizeLookupName(p.descricao) === normalizeLookupName(e.nome))))) matchedIds.add(e.id); });
-          const missing = (allPecas || []).filter((p: any) => !matchedIds.has(p.id)).map((p: any) => ({
+          missing = (allPecas || []).filter((p: any) => !matchedIds.has(p.id)).map((p: any) => ({
             id: p.id,
             codigo: p.codigo_produto || '',
             nome: p.nome || '',
@@ -621,12 +631,40 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
 
       // finished preparing updates; leave pendentes for user confirmation
       setProcessedResult({ updates: toUpdate.length, news: newItems.length });
+      // If configured, open confirmation modal for zeroing missing products so user can accept per-item
+        try {
+        // If there are new items, ask the user to confirm them first (and require unit price).
+        // Only open the zero-confirmation when there are NO new items; otherwise the new-products
+        // modal will drive the flow and after confirming inserts we can show zero confirmation.
+        if (newItems.length > 0) {
+          setShowNewProductsConfirmation(true);
+        } else {
+          // Use the local `missing` variable (freshly computed) instead of state
+          // because `setMissingProducts` is async and state may be stale here.
+          if (autoZeroMissing && missing && missing.length > 0) {
+            setShowZeroConfirmation(true);
+          }
+        }
+      } catch (e) {
+        console.warn('[ImportarEstoque] autoZeroMissing prepare failed', e);
+      }
       // If configured, automatically create new products found in the file.
+      // However: if there are "missing" products that would trigger the zero-confirmation modal,
+      // DO NOT auto-run the save flow because the user needs to confirm which items to zero.
       try {
-        if (newItems.length > 0 && autoInsertNew) {
-          console.info('[ImportarEstoque] autoInsertNew enabled — creating pendentes automatically', { count: newItems.length });
-          // pass prepared updates directly to avoid reading stale state inside cadastrarNovosProdutos
-          await cadastrarNovosProdutos(newItems, toUpdate);
+        const shouldAutoInsert = newItems.length > 0 && autoInsertNew;
+        const missingWillRequireConfirmation = (missing && missing.length > 0 && autoZeroMissing);
+        if (shouldAutoInsert) {
+          if (missingWillRequireConfirmation) {
+            console.info('[ImportarEstoque] autoInsertNew skipped because missing products require user confirmation', { missingCount: missing.length, newCount: newItems.length });
+            // we will show the new-products modal first; user will then confirm inserts and after that
+            // we can show the zero-confirmation modal. do not call cadastrarNovosProdutos automatically.
+            setShowNewProductsConfirmation(true);
+          } else {
+            console.info('[ImportarEstoque] autoInsertNew enabled — creating pendentes automatically', { count: newItems.length });
+            // pass prepared updates and missing list directly to avoid reading stale state inside cadastrarNovosProdutos
+            await cadastrarNovosProdutos(newItems, toUpdate);
+          }
         }
       } catch (e) {
         console.warn('[ImportarEstoque] auto-insert failed', e);
@@ -648,7 +686,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
     }
   };
 
-  const cadastrarNovosProdutos = async (lista: ParsedRow[], pendingUpdatesParam?: { match: { field: string; value: any }; payload: any }[]) => {
+  const cadastrarNovosProdutos = async (lista: ParsedRow[], pendingUpdatesParam?: { match: { field: string; value: any }; payload: any }[], missingProductsParam?: any[]) => {
     // 'lista' may be empty — we still want to apply any preparedUpdates detected during processing.
     // Validate required fields only when there are pendentes to insert.
     if (lista && lista.length > 0) {
@@ -675,14 +713,28 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
       // First: apply any prepared updates (these were detected during processing)
       const pendingUpdates = pendingUpdatesParam || preparedUpdates || [];
       // also include prepared zero-updates for missing products (if any)
-      if (missingProducts && missingProducts.length > 0) {
-        const zeroUpdates = missingProducts.filter(m => m.selected).map(m => {
-          // prefer matching by codigo_produto when available
-          if (m.codigo) return { match: { field: 'codigo_produto', value: String(m.codigo).trim() }, payload: { saldo_estoque: 0, quantidade: 0 } };
-          return { match: { field: 'id', value: m.id }, payload: { saldo_estoque: 0, quantidade: 0 } };
-        });
-        // merge, avoiding duplicates by match key
+      const missingList = missingProductsParam || missingProducts || [];
+      if (missingList && missingList.length > 0) {
+        // build zero update candidates with multiple match strategies (id, codigo exact, codigo trimmed/no-leading-zeros)
+        const zeroUpdatesCandidates: any[] = [];
+        for (const m of missingList.filter((mi: any) => mi.selected)) {
+          const candidates: any[] = [];
+          if (m.id) candidates.push({ match: { field: 'id', value: m.id }, payload: { saldo_estoque: 0, quantidade: 0 } });
+          if (m.codigo) {
+            const rawCode = String(m.codigo).trim();
+            candidates.push({ match: { field: 'codigo_produto', value: rawCode }, payload: { saldo_estoque: 0, quantidade: 0 } });
+            const noLeading = rawCode.replace(/^0+/, '') || rawCode;
+            if (noLeading !== rawCode) candidates.push({ match: { field: 'codigo_produto', value: noLeading }, payload: { saldo_estoque: 0, quantidade: 0 } });
+          }
+          // prefer id first, then codigo variants
+          for (const c of candidates) zeroUpdatesCandidates.push(c);
+        }
+        // remove duplicate match keys
         const keyFor = (u: any) => `${u.match.field}:${String(u.match.value)}`;
+        const seen = new Set<string>();
+        const zeroUpdates = zeroUpdatesCandidates.filter((u: any) => { const k = keyFor(u); if (seen.has(k)) return false; seen.add(k); return true; });
+        try { console.info('[ImportarEstoque] prepared zeroUpdates', { count: zeroUpdates.length, sample: zeroUpdates.slice(0,10) }); } catch(e) {}
+        // merge, avoiding duplicates by match key
         const existingKeys = new Set((pendingUpdates || []).map((u: any) => keyFor(u)));
         for (const z of zeroUpdates) if (!existingKeys.has(keyFor(z))) pendingUpdates.push(z);
       }
@@ -696,19 +748,129 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
           try {
             console.info('[ImportarEstoque] applying prepared update', { match: u.match, payload: u.payload });
             const field = u.match.field;
-            const value = u.match.value;
+            const rawValue = u.match.value;
+
+            // If match is by id but value is missing/invalid, attempt to fallback to codigo_produto or nome present in payload
+            if (field === 'id' && (rawValue === null || rawValue === undefined || rawValue === '' || !Number.isFinite(Number(rawValue)))) {
+              // try payload-based match candidates
+              const candidateCode = u.payload && (u.payload.codigo_produto || u.payload.codigo);
+              const candidateName = u.payload && (u.payload.nome || u.payload.nome_produto || u.payload.descricao);
+              if (candidateCode) {
+                try {
+                  const codeVal = String(candidateCode).trim();
+                  const byCode = await supabase.from('pecas').select('id,codigo_produto,quantidade,saldo_estoque,valor_unitario,valor_total').eq('codigo_produto', codeVal).maybeSingle();
+                  const found = byCode && (byCode.data ?? byCode);
+                  if (found) {
+                    console.info('[ImportarEstoque] derived match by payload.codigo_produto for invalid id', { derived: { field: 'id', value: found.id }, originalMatch: u.match });
+                    u.match = { field: 'id', value: found.id };
+                  }
+                } catch (e) { /* ignore */ }
+              } else if (candidateName) {
+                try {
+                  const nameQ = String(candidateName).slice(0, 60);
+                  const byName = await supabase.from('pecas').select('id,codigo_produto,quantidade,saldo_estoque,valor_unitario,valor_total').ilike('nome', `%${nameQ}%`).limit(1).maybeSingle();
+                  const found = byName && (byName.data ?? byName);
+                  if (found) {
+                    console.info('[ImportarEstoque] derived match by payload.nome for invalid id', { derived: { field: 'id', value: found.id }, originalMatch: u.match });
+                    u.match = { field: 'id', value: found.id };
+                  }
+                } catch (e) { /* ignore */ }
+              }
+            }
+
+            const value = u.match.field === 'id'
+              ? (typeof u.match.value === 'number' ? u.match.value : Number(String(u.match.value ?? '').trim()))
+              : String(u.match.value ?? '').trim();
+
             if (debugEnableSave) {
               try {
-                const beforeRes = await supabase.from('pecas').select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').eq(field, value as any).maybeSingle();
+                const beforeRes = await supabase.from('pecas').select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').eq(u.match.field, value as any).maybeSingle();
                 const before = (beforeRes && (beforeRes.data ?? beforeRes)) || beforeRes;
                 console.info('[ImportarEstoque] update BEFORE', { match: u.match, before, payload: u.payload });
               } catch (e) { /* ignore */ }
             }
 
-            const { data: upRes, error: upErr } = await supabase.from('pecas').update(u.payload).eq(field, value as any).select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').maybeSingle();
-            if (upErr) {
-              console.warn('update error for', field, value, upErr);
-              updateFailures.push({ match: u.match, payload: u.payload, error: upErr });
+            let upRes: any = null;
+            let upErr: any = null;
+
+            // If it's still an invalid id, skip to fallback logic below
+            if (u.match.field === 'id' && Number.isNaN(Number(value))) {
+              console.warn('[ImportarEstoque] primary update skipped due to invalid id', { field: u.match.field, value });
+            } else {
+              try {
+                let up: any;
+                if (debugEnableSave) {
+                  up = await supabase.from('pecas').update(u.payload).eq(u.match.field, value as any).select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').maybeSingle();
+                } else {
+                  up = await supabase.from('pecas').update(u.payload).eq(u.match.field, value as any);
+                }
+                upRes = up && (up.data ?? up);
+                upErr = up && up.error ? up.error : null;
+              } catch (e) { upErr = e; }
+            }
+
+            // If update returned error or no row updated, attempt fallbacks (common on codigo variants)
+            if (upErr || !upRes) {
+              if (upErr) console.warn('[ImportarEstoque] primary update error', { match: u.match, error: upErr });
+              else console.info('[ImportarEstoque] primary update returned no row', { match: u.match });
+
+              // If server returned 406 Not Acceptable, retry update without requesting representation
+              if (upErr && (upErr.status === 406 || upErr.statusCode === 406 || upErr.code === 406 || String(upErr).includes('Not Acceptable') || String(upErr).includes('406'))) {
+                try {
+                  console.info('[ImportarEstoque] retrying update without select due to 406', { match: u.match });
+                  const upNoSelect = await supabase.from('pecas').update(u.payload).eq(u.match.field, value as any);
+                  console.info('[ImportarEstoque] update without select response', upNoSelect);
+                  if (!upNoSelect.error) { upRes = true; upErr = null; }
+                  else { upErr = upNoSelect.error; }
+                } catch (e) { upErr = e; }
+              }
+
+              // primary fallback attempts: try codigo variants, then ilike, then nome
+              let fallbackDone = false;
+              try {
+                // If payload contains codigo_produto or codigo, try updating by that
+                const payloadCode = u.payload && (u.payload.codigo_produto || u.payload.codigo);
+                if (!fallbackDone && payloadCode) {
+                  const variants = [String(payloadCode).trim()];
+                  const noLeading = String(payloadCode).replace(/^0+/, '') || String(payloadCode);
+                  if (noLeading !== variants[0]) variants.push(noLeading);
+                  for (const v of variants) {
+                    try {
+                      const { data: found } = await supabase.from('pecas').select('id,codigo_produto,quantidade,saldo_estoque,valor_unitario,valor_total').eq('codigo_produto', v).maybeSingle();
+                      if (found) {
+                        console.info('[ImportarEstoque] fallback found by codigo_produto', { tryValue: v, found });
+                        const { data: up2, error: upErr2 } = await supabase.from('pecas').update(u.payload).eq('id', found.id).select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').maybeSingle();
+                        if (!upErr2 && up2) { fallbackDone = true; break; }
+                      }
+                    } catch (e) { console.warn('[ImportarEstoque] fallback query error', e); }
+                  }
+                }
+
+                // try ilike on codigo_produto
+                if (!fallbackDone && String(u.match.value || '').trim()) {
+                  try {
+                    const { data: found2 } = await supabase.from('pecas').select('id,codigo_produto,quantidade,saldo_estoque,valor_unitario,valor_total').ilike('codigo_produto', `%${String(u.match.value || '').trim()}%`).limit(1).maybeSingle();
+                    if (found2) {
+                      const { data: up3, error: upErr3 } = await supabase.from('pecas').update(u.payload).eq('id', found2.id).select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').maybeSingle();
+                      if (!upErr3 && up3) { fallbackDone = true; }
+                    }
+                  } catch (e) { /* ignore */ }
+                }
+
+                // try matching by nome (from payload)
+                if (!fallbackDone && u.payload && (u.payload.nome || u.payload.descricao)) {
+                  try {
+                    const nameQ = String(u.payload.nome || u.payload.descricao).slice(0, 60);
+                    const { data: found3 } = await supabase.from('pecas').select('id,codigo_produto,quantidade,saldo_estoque,valor_unitario,valor_total').ilike('nome', `%${nameQ}%`).limit(1).maybeSingle();
+                    if (found3) {
+                      const { data: up4, error: upErr4 } = await supabase.from('pecas').update(u.payload).eq('id', found3.id).select('id, codigo_produto, quantidade, saldo_estoque, valor_unitario, valor_total').maybeSingle();
+                      if (!upErr4 && up4) { fallbackDone = true; }
+                    }
+                  } catch (e) { /* ignore */ }
+                }
+              } catch (e) { console.error('[ImportarEstoque] unexpected fallback error', e); }
+
+              if (!fallbackDone) updateFailures.push({ match: u.match, payload: u.payload, error: upErr || new Error('No row matched') });
             } else {
               console.info('[ImportarEstoque] update RESULT', { match: u.match, result: upRes });
             }
@@ -726,10 +888,61 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         }
       }
 
-      // record failures to state so user can retry
+      // record failures to state so user can retry. First attempt a best-effort retry
       if (updateFailures.length > 0) {
-        setFailedUpdates(prev => [...prev, ...updateFailures.map(f => ({ item: { match: f.match, payload: f.payload }, error: f.error }))]);
-        error(`Falha em ${updateFailures.length} atualizações. Verifique os itens e tente novamente.`);
+        console.info('[ImportarEstoque] attempting retry for failed updates', { count: updateFailures.length });
+        const remaining: any[] = [];
+        for (const f of updateFailures) {
+          let retried = false;
+          const p = f.payload || {};
+          // try payload.codigo_produto / codigo
+          const codeCandidates: string[] = [];
+          if (p.codigo_produto) codeCandidates.push(String(p.codigo_produto));
+          if (p.codigo) codeCandidates.push(String(p.codigo));
+          for (const c of codeCandidates) {
+            try {
+              const foundRes = await supabase.from('pecas').select('id').eq('codigo_produto', c).maybeSingle();
+              const found = foundRes && (foundRes.data ?? foundRes);
+              if (found && found.id) {
+                const { error: upErr } = await supabase.from('pecas').update(p).eq('id', found.id);
+                if (!upErr) { retried = true; break; }
+              }
+            } catch (e) { /* ignore per-item retry errors */ }
+          }
+          // try matching by nome
+          if (!retried && p.nome) {
+            try {
+              const nameQ = String(p.nome).slice(0, 60);
+              const foundRes = await supabase.from('pecas').select('id').ilike('nome', `%${nameQ}%`).limit(1).maybeSingle();
+              const found = foundRes && (foundRes.data ?? foundRes);
+              if (found && found.id) {
+                const { error: upErr } = await supabase.from('pecas').update(p).eq('id', found.id);
+                if (!upErr) retried = true;
+              }
+            } catch (e) { /* ignore */ }
+          }
+          if (!retried) remaining.push(f);
+        }
+
+        if (remaining.length > 0) {
+          setFailedUpdates(prev => [...prev, ...remaining.map(f => ({ item: { match: f.match, payload: f.payload }, error: f.error }))]);
+          error(`Falha em ${remaining.length} atualizações. Verifique os itens e tente novamente.`);
+        } else {
+          // all retried successfully
+          success(`Atualizações aplicadas: ${pendingUpdates.length} (após retry)`);
+          try { if (zeroedProductsPreview && zeroedProductsPreview.length) setAppliedZeroedProducts(zeroedProductsPreview); } catch (e) {}
+          setPreparedUpdates([]);
+          setPendentes([]);
+          setMissingProducts([]);
+          setParsed([]);
+          setProcessedResult(null);
+          setCompletedOps(prev => prev + 0);
+          setProcessing(false);
+          if (onImported) await onImported();
+          // show summary for user review
+          setShowImportSummary(true);
+          return;
+        }
       } else if (pendingUpdates.length > 0) {
         success(`Atualizações aplicadas: ${pendingUpdates.length}`);
         // record applied zeroed products preview for summary
@@ -746,7 +959,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         setCompletedOps(prev => prev + 0);
         setProcessing(false);
         if (onImported) await onImported();
-        if (onClose) onClose();
+        // keep modal open for user to review summary/errors
         // if there were no new items to insert (lista is empty), finish here and show summary
         if (!lista || lista.length === 0) {
           setShowImportSummary(true);
@@ -814,8 +1027,11 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
         try {
           console.info('[ImportarEstoque] attempting upsert payload', { count: attemptPayload.length, sample: attemptPayload.slice(0,3) });
           // Request representation to get returned rows when possible
-          const { data, error: upsertErr } = await supabase.from('pecas').upsert(attemptPayload, { onConflict: 'codigo_produto', returning: 'representation' } as any);
+          const rawUpsertRes = await supabase.from('pecas').upsert(attemptPayload, { onConflict: 'codigo_produto', returning: 'representation' } as any);
           // log full server response for diagnosis
+          try { console.info('[ImportarEstoque] raw upsert response', rawUpsertRes); } catch(e) {}
+          const data = rawUpsertRes && (rawUpsertRes.data ?? rawUpsertRes);
+          const upsertErr = rawUpsertRes && (rawUpsertRes.error ?? null);
           console.info('[ImportarEstoque] upsert server response', { data, upsertErr });
           if (upsertErr) {
             console.warn('Upsert errored, fallback to insert attempt', upsertErr);
@@ -833,25 +1049,46 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
             // any items that still don't exist. This is a defensive fallback to ensure nothing
             // from the spreadsheet is silently dropped.
             try {
+              // perform presence checks and log results for diagnosis when upsert returned no rows
               const missingAfterUpsert: any[] = [];
+              let foundCount = 0;
               for (const p of attemptPayload) {
                 let found = null;
                 try {
                   if (p.codigo_produto) {
-                    const { data: byCode } = await supabase.from('pecas').select('id,nome,codigo_produto').eq('codigo_produto', p.codigo_produto).limit(1).maybeSingle();
-                    found = byCode && (byCode.data || byCode) ? (byCode.data || byCode) : byCode;
+                    const byCodeRes = await supabase.from('pecas').select('id,nome,codigo_produto').eq('codigo_produto', p.codigo_produto).limit(1).maybeSingle();
+                    const byCode = byCodeRes && (byCodeRes.data ?? byCodeRes) ? (byCodeRes.data ?? byCodeRes) : byCodeRes;
+                    if (byCode) { found = byCode; }
                   }
-                } catch (e) { /* ignore */ }
+                } catch (e) { console.warn('[ImportarEstoque] presence check by codigo failed', e); }
                 if (!found && p.nome) {
                   try {
                     const nameQ = String(p.nome).slice(0, 60);
-                    const { data: byName } = await supabase.from('pecas').select('id,nome,codigo_produto').ilike('nome', `%${nameQ}%`).limit(1).maybeSingle();
-                    found = byName && (byName.data || byName) ? (byName.data || byName) : byName;
-                  } catch (e) { /* ignore */ }
+                    const byNameRes = await supabase.from('pecas').select('id,nome,codigo_produto').ilike('nome', `%${nameQ}%`).limit(1).maybeSingle();
+                    const byName = byNameRes && (byNameRes.data ?? byNameRes) ? (byNameRes.data ?? byNameRes) : byNameRes;
+                    if (byName) { found = byName; }
+                  } catch (e) { console.warn('[ImportarEstoque] presence check by nome failed', e); }
                 }
-                if (!found) missingAfterUpsert.push(p);
+                if (found) foundCount++; else missingAfterUpsert.push(p);
               }
-              console.info('[ImportarEstoque] post-upsert missing count', { missingCount: missingAfterUpsert.length });
+              console.info('[ImportarEstoque] post-upsert presence check', { foundCount, missingCount: missingAfterUpsert.length });
+              try {
+                console.info('[ImportarEstoque] missingAfterUpsert sample', { sample: missingAfterUpsert.slice(0, 10) });
+                // expose missing items to UI so the user can inspect and retry
+                if (missingAfterUpsert.length) {
+                  try {
+                    const uiMissing = missingAfterUpsert.map((p: any) => ({
+                      id: p.id ?? null,
+                      codigo: p.codigo_produto ?? p.codigo ?? '',
+                      nome: p.nome ?? p.nome_produto ?? p.descricao ?? '',
+                      sistema_saldo: (p.quantidade ?? p.saldo_estoque ?? 0),
+                      selected: true
+                    }));
+                    setMissingProducts(uiMissing);
+                    console.info('[ImportarEstoque] setMissingProducts with post-upsert missing items', { count: uiMissing.length, sample: uiMissing.slice(0,5) });
+                  } catch (e) { console.warn('[ImportarEstoque] failed to set missingProducts', e); }
+                }
+              } catch (e) { /* ignore logging errors */ }
               const insertedIndividually: any[] = [];
               const insertErrors: any[] = [];
               for (const p of missingAfterUpsert) {
@@ -871,7 +1108,14 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
                 }
               }
               if (insertedIndividually.length) console.info('[ImportarEstoque] inserted individually', { count: insertedIndividually.length, sample: insertedIndividually.slice(0,5) });
-              if (insertErrors.length) console.warn('[ImportarEstoque] insert errors', { count: insertErrors.length, sample: insertErrors.slice(0,5) });
+              if (insertErrors.length) {
+                console.warn('[ImportarEstoque] insert errors', { count: insertErrors.length, sample: insertErrors.slice(0,5) });
+                try {
+                  // surface insert errors to failedUpdates state for retry/inspection
+                  const mapped = insertErrors.map((ie: any) => ({ item: { match: { field: 'codigo_produto', value: ie.item.codigo_produto ?? ie.item.codigo }, payload: ie.item }, error: ie.error }));
+                  setFailedUpdates(prev => [...prev, ...mapped]);
+                } catch (e) { console.warn('[ImportarEstoque] failed to add insertErrors to failedUpdates', e); }
+              }
                 // capture individually inserted names for summary
                 try {
                   if (insertedIndividually.length) setNewProductsApplied((insertedIndividually || []).map((r: any) => r.nome).filter(Boolean));
@@ -889,7 +1133,7 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
             setProcessedResult(null);
             setProcessing(false);
             if (onImported) await onImported();
-            if (onClose) onClose();
+            // keep modal open for user to review summary/errors
             return;
           }
         } catch (e) {
@@ -966,6 +1210,8 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
   // Consider pendentes valid when they have at least code and description.
   // We auto-fill unidade, valor_unitario and estoque_minimo with sane defaults above.
   const allPendentesValid = pendentes.length > 0 && pendentes.every(p => p.descricao && p.codigo);
+  // For new-products confirmation modal we require unit price before allowing confirm
+  const newProductsValid = pendentes.length === 0 ? true : pendentes.every(p => typeof p.valor_unitario === 'number' && !Number.isNaN(p.valor_unitario));
 
   return (
     <div className="max-w-4xl mx-auto p-6">
@@ -1090,21 +1336,43 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
                           <div className="text-xs text-gray-600 dark:text-gray-300 ml-3">(Atualizações aplicadas automaticamente; nenhum novo produto para salvar.)</div>
                         )}
                         {failedUpdates.length > 0 && (
-                          <button onClick={async () => {
-                            // retry failed updates
-                            try {
-                              const retryItems = failedUpdates.map(f => f.item);
-                              setFailedUpdates([]);
-                              // attempt retries sequentially to avoid overloading the server
-                              for (const u of retryItems) {
-                                const field = u.match.field;
-                                const value = u.match.value;
-                                const { error: upErr } = await supabase.from('pecas').update(u.payload).eq(field, value as any);
-                                if (upErr) console.warn('Retry update failed', upErr, u);
-                              }
-                              success('Tentativa de reexecução concluída. Verifique console para possíveis falhas.');
-                            } catch (e) { console.error(e); error('Erro ao reexecutar atualizações. Veja console.'); }
-                          }} className="px-3 py-2 rounded bg-yellow-500 text-white">Repetir atualizações falhas ({failedUpdates.length})</button>
+                          <>
+                            <button onClick={async () => {
+                              try {
+                                // export failedUpdates to CSV for inspection
+                                const rows: any[] = failedUpdates.map((f: any) => ({ match_field: f.item.match.field, match_value: f.item.match.value, payload: JSON.stringify(f.item.payload || {}), error: String((f.error && f.error.message) || f.error || '') }));
+                                if (rows.length === 0) { error('Nenhuma falha para exportar'); return; }
+                                const csv = rows.map(r => Object.values(r).map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n');
+                                const header = Object.keys(rows[0]).map(h => '"' + h + '"').join(',') + '\n';
+                                const blob = new Blob([header + csv], { type: 'text/csv;charset=utf-8;' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `falhas_importacao_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                URL.revokeObjectURL(url);
+                                success('CSV de falhas gerado. Verifique downloads.');
+                              } catch (e) { console.error(e); error('Erro ao exportar falhas. Veja console.'); }
+                            }} className="px-3 py-2 rounded bg-gray-300 mr-2">Exportar falhas (CSV)</button>
+
+                            <button onClick={async () => {
+                              // retry failed updates
+                              try {
+                                const retryItems = failedUpdates.map(f => f.item);
+                                setFailedUpdates([]);
+                                // attempt retries sequentially to avoid overloading the server
+                                for (const u of retryItems) {
+                                  const field = u.match.field;
+                                  const value = u.match.value;
+                                  const { error: upErr } = await supabase.from('pecas').update(u.payload).eq(field, value as any);
+                                  if (upErr) console.warn('Retry update failed', upErr, u);
+                                }
+                                success('Tentativa de reexecução concluída. Verifique console para possíveis falhas.');
+                              } catch (e) { console.error(e); error('Erro ao reexecutar atualizações. Veja console.'); }
+                            }} className="px-3 py-2 rounded bg-yellow-500 text-white">Repetir atualizações falhas ({failedUpdates.length})</button>
+                          </>
                         )}
                         <button onClick={() => { setPendentes([]); setMissingProducts([]); setProcessedResult(null); }} className="px-3 py-2 rounded bg-gray-200">Cancelar</button>
                         <button onClick={() => setDebugEnableSave(d => !d)} className={`px-3 py-2 rounded ${debugEnableSave ? 'bg-yellow-400' : 'bg-gray-100'}`}>{debugEnableSave ? 'Desativar debug' : 'Habilitar Salvar (debug)'}</button>
@@ -1264,6 +1532,113 @@ export default function ImportarEstoque({ onClose, onImported }: ImportarEstoque
               <button onClick={() => setMissingProducts(prev => prev.map(p => ({ ...p, selected: true })))} className="px-3 py-2 rounded bg-emerald-600 text-white">Marcar todos</button>
               <button onClick={() => setMissingProducts(prev => prev.map(p => ({ ...p, selected: false })))} className="px-3 py-2 rounded bg-gray-200">Desmarcar todos</button>
               <div className="text-sm text-gray-600 dark:text-gray-300">Os itens marcados serão preparados para terem o saldo zerado ao clicar em "Salvar no sistema".</div>
+            </div>
+          </div>
+        )}
+        {showZeroConfirmation && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white text-black rounded-lg w-11/12 md:w-2/3 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold">Confirmar zeragem de produtos ausentes</h3>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowZeroConfirmation(false)} className="px-3 py-1 bg-gray-200 rounded text-sm">Fechar</button>
+                </div>
+              </div>
+              <div className="mb-2 text-sm text-gray-700">
+                Estes produtos existem no sistema mas não foram encontrados no arquivo. Marque os itens que deseja zerar o estoque e confirme.
+              </div>
+              <div className="max-h-64 overflow-auto mb-3">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th className="px-2 py-1">#</th>
+                      <th className="px-2 py-1">Zerar?</th>
+                      <th className="px-2 py-1">Código</th>
+                      <th className="px-2 py-1">Nome</th>
+                      <th className="px-2 py-1">Saldo (sistema)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(missingProducts || []).map((m, idx) => (
+                      <tr key={m.id || idx} className={`${idx % 2 === 0 ? '' : 'bg-gray-50 dark:bg-slate-700'}`}>
+                        <td className="px-2 py-1">{idx + 1}</td>
+                        <td className="px-2 py-1 text-center"><input type="checkbox" checked={!!m.selected} onChange={(e) => setMissingProducts(prev => prev.map((it, i) => i === idx ? ({ ...it, selected: e.target.checked }) : it))} /></td>
+                        <td className="px-2 py-1">{m.codigo}</td>
+                        <td className="px-2 py-1">{m.nome}</td>
+                        <td className="px-2 py-1 text-right">{m.sistema_saldo ?? 0}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-end gap-3">
+                <button onClick={() => setMissingProducts(prev => prev.map(p => ({ ...p, selected: true })))} className="px-3 py-2 rounded bg-emerald-600 text-white">Marcar todos</button>
+                <button onClick={() => setMissingProducts(prev => prev.map(p => ({ ...p, selected: false })))} className="px-3 py-2 rounded bg-gray-200">Desmarcar todos</button>
+                <button onClick={() => { setShowZeroConfirmation(false); }} className="px-3 py-2 rounded bg-gray-200">Cancelar</button>
+                <button onClick={async () => {
+                  try {
+                    setShowZeroConfirmation(false);
+                    await cadastrarNovosProdutos(pendentes, preparedUpdates);
+                  } catch (e) {
+                    console.error('[ImportarEstoque] error applying zero updates', e);
+                    error('Erro ao aplicar atualizações. Veja console para detalhes.');
+                  }
+                }} className="px-4 py-2 rounded bg-blue-600 text-white">Confirmar zeragem e salvar</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showNewProductsConfirmation && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white text-black rounded-lg w-11/12 md:w-2/3 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold">Confirmar novos produtos a inserir</h3>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowNewProductsConfirmation(false)} className="px-3 py-1 bg-gray-200 rounded text-sm">Fechar</button>
+                </div>
+              </div>
+              <div className="mb-2 text-sm text-gray-700">Estes itens não existem no sistema. Confirme os que deseja inserir e preencha o Valor Unitário para cada novo produto antes de confirmar.</div>
+              <div className="max-h-64 overflow-auto mb-3">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th className="px-2 py-1">#</th>
+                      <th className="px-2 py-1">Código</th>
+                      <th className="px-2 py-1">Nome</th>
+                      <th className="px-2 py-1">Unidade</th>
+                      <th className="px-2 py-1">Quantidade</th>
+                      <th className="px-2 py-1">Valor Unit.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendentes.map((p, idx) => (
+                      <tr key={idx} className={`${idx % 2 === 0 ? '' : 'bg-gray-50 dark:bg-slate-700'}`}>
+                        <td className="px-2 py-1">{idx + 1}</td>
+                        <td className="px-2 py-1"><input className="w-36 px-2 py-1 rounded bg-white/5" value={p.codigo} onChange={(e) => updatePendenteField(idx, 'codigo', e.target.value)} /></td>
+                        <td className="px-2 py-1"><input className="w-64 px-2 py-1 rounded bg-white/5" value={p.descricao} onChange={(e) => updatePendenteField(idx, 'descricao', e.target.value)} /></td>
+                        <td className="px-2 py-1"><input className="w-28 px-2 py-1 rounded bg-white/5" value={p.unidade ?? ''} onChange={(e) => updatePendenteField(idx, 'unidade', e.target.value)} /></td>
+                        <td className="px-2 py-1"><input className="w-24 px-2 py-1 rounded bg-white/5 text-right" value={p.saldo ?? ''} onChange={(e) => updatePendenteField(idx, 'saldo', parseNumber(e.target.value))} /></td>
+                        <td className="px-2 py-1"><input className="w-32 px-2 py-1 rounded bg-white/5 text-right" value={p.valor_unitario ?? ''} onChange={(e) => updatePendenteField(idx, 'valor_unitario', parseNumber(e.target.value))} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-end gap-3">
+                <button onClick={() => { setPendentes([]); setShowNewProductsConfirmation(false); }} className="px-3 py-2 rounded bg-gray-200">Cancelar</button>
+                <button disabled={!newProductsValid} onClick={async () => {
+                  try {
+                    setShowNewProductsConfirmation(false);
+                    // proceed to create new products (do not auto-zero missing products yet)
+                    await cadastrarNovosProdutos(pendentes, preparedUpdates);
+                    // after inserting new products, if there are missing products to consider, show zero confirmation
+                    if (missingProducts && missingProducts.length > 0) setShowZeroConfirmation(true);
+                  } catch (e) {
+                    console.error('[ImportarEstoque] error inserting new products from modal', e);
+                    error('Erro ao inserir novos produtos. Veja console para detalhes.');
+                  }
+                }} className={`px-4 py-2 rounded text-white ${!newProductsValid ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}>Confirmar inserção</button>
+              </div>
             </div>
           </div>
         )}

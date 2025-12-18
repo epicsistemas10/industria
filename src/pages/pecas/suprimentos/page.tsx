@@ -190,34 +190,13 @@ export default function SuprimentosPage() {
     if (!logoUrl) logoUrl = '/favicon.svg';
 
     // build HTML with logo + IBA header and styled product cards
-    // dedupe items for print as well (choose stable representative per product)
-    const allRows = items || [];
-    const groups = new Map<string, any[]>();
-    for (const it of allRows) {
-      const key = normalizeLookupName(it.codigo_produto || it.nome || '');
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(it);
-    }
-    const uniqueRows: any[] = [];
-    for (const [key, list] of groups) {
-      if (!list || list.length === 0) continue;
-      list.sort((a: any, b: any) => {
-        const aP = a.peca_id ? 1 : 0;
-        const bP = b.peca_id ? 1 : 0;
-        if (aP !== bP) return bP - aP;
-        const aM = (a.estoque_minimo != null) ? 1 : 0;
-        const bM = (b.estoque_minimo != null) ? 1 : 0;
-        if (aM !== bM) return bM - aM;
-        const aq = getQty(a);
-        const bq = getQty(b);
-        return bq - aq;
-      });
-      uniqueRows.push(list[0]);
-    }
+    // Use all items (do not dedupe) to ensure report lists every suprimento
+    const allRows = Array.isArray(items) ? items.slice() : [];
+    allRows.sort((a: any, b: any) => String((a.nome || a.produto || '')).localeCompare(String(b.nome || b.produto || ''), 'pt-BR', { sensitivity: 'base' }));
 
     const escape = (s: any) => (s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'));
 
-    const cardsHtml = uniqueRows.map((it) => {
+    const cardsHtml = allRows.map((it) => {
       const nome = escape(it.nome || it.produto || '-');
       const qtd = getQty(it);
       const unidade = escape(it.unidade_medida || it.unidade || 'unidades');
@@ -616,14 +595,20 @@ export default function SuprimentosPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(filtered || []).map((it: any) => (
-                    <tr key={it.id} className="odd:bg-slate-900 even:bg-slate-800">
+                  {(filtered || []).map((it: any) => {
+                    const qty = getQty(it);
+                    const min = (it.estoque_minimo != null) ? Number(it.estoque_minimo) : null;
+                    const below = (min != null && min > 0 && qty < min);
+                    const rowClass = `px-4 py-2 ${below ? 'bg-red-900/20 animate-pulse' : ''}`;
+                    return (
+                    <tr key={it.id} className={below ? 'bg-red-900/10' : ''}>
                       <td className="px-4 py-2">{String(it.codigo_produto || it.codigo || '-')}</td>
                       <td className="px-4 py-2">{String(it.nome || it.produto || '-')}</td>
-                      <td className="px-4 py-2 text-right">{getQty(it)}</td>
-                      <td className="px-4 py-2 text-right">{it.estoque_minimo != null ? String(it.estoque_minimo) : '-'}</td>
+                      <td className={`px-4 py-2 text-right ${below ? 'text-red-200 font-semibold' : ''}`}>{qty}</td>
+                      <td className={`px-4 py-2 text-right ${below ? 'text-red-200' : ''}`}>{it.estoque_minimo != null ? String(it.estoque_minimo) : '-'}</td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>

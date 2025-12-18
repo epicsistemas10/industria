@@ -17,20 +17,24 @@ export default function SuprimentosPage() {
   const { success, error: showError } = useToast();
   const [showReport, setShowReport] = useState(false);
   const [reportText, setReportText] = useState('');
-
+  // debug removed
   // Filter items: default show only manual copies; optionally include auto_synced rows
   const filtered = (items || []).filter((i: any) => {
     if (!i) return false;
     if (showOnlyLinked) {
-      // require an explicit manual copy marker
-      if (!i.peca_id) return false;
-      if (!(i.meta && i.meta.from_pecas)) return false;
+      const mf = i.meta && (i.meta.from_pecas ?? i.meta.fromPecas ?? i.meta.from_peca);
+      const isFrom = mf === true || mf === 'true' || mf === 1 || mf === '1';
+      if (!isFrom) return false;
     } else {
-      // when not restricting to only linked, still hide auto_synced rows by default
-      if (!showAutoSynced && i.meta && i.meta.auto_synced) return false;
+      const auto = i.meta && (i.meta.auto_synced ?? i.meta.autoSynced);
+      if (!showAutoSynced && (auto === true || auto === 'true' || auto === 1 || auto === '1')) return false;
     }
-    return !search || (i.nome || '').toLowerCase().includes(search.toLowerCase());
+    if (!search) return true;
+    return (String(i.nome || i.produto || '')).toLowerCase().includes(search.toLowerCase());
   });
+  const filteredCount = (filtered || []).length;
+  const uniqueKeysCount = new Set((filtered || []).map((it: any) => normalizeLookupName(it.codigo_produto || it.nome || ''))).size;
+  let representatives: any[] = [];
   // parse formatted numbers robustly (handles '29.272', '29,272', '29.272,50')
   const parseNumber = (v: any) => {
     if (v == null) return null;
@@ -114,6 +118,34 @@ export default function SuprimentosPage() {
     { nome: '095407 - FITA TENAX 2225CJ C 2040M - RL', codigo_produto: '095407', unidade_medida: 'UN', quantidade: 212, meta: { kind: 'fita' } },
     { nome: 'LONA PLÁSTICA PRETA 6x100 40 micras 24KG', unidade_medida: 'UN', quantidade: 198, meta: { kind: 'lona_preta' } },
   ];
+
+  // compute groups & representatives after helper functions are defined
+  try {
+    const _groups = new Map<string, any[]>();
+    for (const it of (filtered || [])) {
+      const key = normalizeLookupName(it.codigo_produto || it.nome || '');
+      if (!_groups.has(key)) _groups.set(key, []);
+      _groups.get(key)!.push(it);
+    }
+    for (const [key, list] of _groups) {
+      if (!list || list.length === 0) continue;
+      list.sort((a: any, b: any) => {
+        const aP = a.peca_id ? 1 : 0;
+        const bP = b.peca_id ? 1 : 0;
+        if (aP !== bP) return bP - aP;
+        const aM = (a.estoque_minimo != null) ? 1 : 0;
+        const bM = (b.estoque_minimo != null) ? 1 : 0;
+        if (aM !== bM) return bM - aM;
+        const aq = getQty(a);
+        const bq = getQty(b);
+        return bq - aq;
+      });
+      representatives.push(list[0]);
+    }
+  } catch (e) {
+    // ignore grouping errors in dev; representatives stays empty
+    console.warn('Grouping suprimentos failed', e);
+  }
 
   const printReport = async () => {
     const now = new Date();
@@ -534,6 +566,8 @@ export default function SuprimentosPage() {
       <div className={`${sidebarOpen ? 'ml-64' : 'ml-20'} transition-all`}> 
         <TopBar darkMode setDarkMode={() => {}} />
         <main className="p-6 text-white">
+          {/* RAW items removed — main list shows only filtered items */}
+            {/* debug removed — show only filtered items */}
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-white">Suprimentos</h1>
@@ -542,10 +576,7 @@ export default function SuprimentosPage() {
             <div className="flex flex-col items-end gap-2">
               <div className="flex items-center gap-4">
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar" className="px-3 py-2 rounded w-72" />
-                <label className="flex items-center gap-2 text-sm text-gray-300">
-                  <input type="checkbox" checked={showOnlyLinked} onChange={(e) => setShowOnlyLinked(e.target.checked)} />
-                  <span>Mostrar apenas copiados</span>
-                </label>
+                {/* filtro por cópias e sincronizados removido da UI */}
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => refreshStock()} className="px-4 py-2 h-10 bg-blue-600 text-white rounded-lg text-sm whitespace-nowrap">Atualizar</button>
@@ -568,48 +599,29 @@ export default function SuprimentosPage() {
           </div>
 
           <div className="overflow-x-auto bg-transparent rounded">
-            {(() => {
-              const groups = new Map<string, any[]>();
-              for (const it of filtered) {
-                const key = normalizeLookupName(it.codigo_produto || it.nome || '');
-                if (!groups.has(key)) groups.set(key, []);
-                groups.get(key)!.push(it);
-              }
-              const representatives: any[] = [];
-              for (const [key, list] of groups) {
-                if (!list || list.length === 0) continue;
-                list.sort((a: any, b: any) => {
-                  const aP = a.peca_id ? 1 : 0;
-                  const bP = b.peca_id ? 1 : 0;
-                  if (aP !== bP) return bP - aP;
-                  const aM = (a.estoque_minimo != null) ? 1 : 0;
-                  const bM = (b.estoque_minimo != null) ? 1 : 0;
-                  if (aM !== bM) return bM - aM;
-                  const aq = getQty(a);
-                  const bq = getQty(b);
-                  return bq - aq;
-                });
-                representatives.push(list[0]);
-              }
-              return (
-                <table className="min-w-full text-sm bg-transparent">
-                  <thead className="bg-slate-800 text-gray-100">
-                    <tr>
-                      <th className="px-4 py-2 text-left">Nome</th>
-                      <th className="px-4 py-2 text-left">Unidade</th>
-                      <th className="px-4 py-2 text-right">Quantidade</th>
-                      <th className="px-4 py-2 text-right">Estoque Mínimo</th>
-                      <th className="px-4 py-2 text-center">Ações</th>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm text-gray-300">Itens filtrados: <strong className="text-white">{filteredCount}</strong> — chaves únicas: <strong className="text-white">{uniqueKeysCount}</strong></div>
+            </div>
+            <div className="mb-4">
+              <table className="min-w-full text-sm bg-transparent">
+                <thead className="bg-slate-800 text-gray-100">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Código</th>
+                    <th className="px-4 py-2 text-left">Nome</th>
+                    <th className="px-4 py-2 text-right">Quantidade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(filtered || []).map((it: any) => (
+                    <tr key={it.id} className="odd:bg-slate-900 even:bg-slate-800">
+                      <td className="px-4 py-2">{String(it.codigo_produto || it.codigo || '-')}</td>
+                      <td className="px-4 py-2">{String(it.nome || it.produto || '-')}</td>
+                      <td className="px-4 py-2 text-right">{getQty(it)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {representatives.map((it: any) => (
-                      <SuprimentosCard key={it.id} item={it} onUpdate={update} onDelete={remove} as="row" />
-                    ))}
-                  </tbody>
-                </table>
-              );
-            })()}
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
           {showReport && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">

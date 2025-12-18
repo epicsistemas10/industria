@@ -10,6 +10,14 @@ export function useSuprimentos() {
     setLoading(true);
     try {
       const { data: rows, error } = await supabase.from('suprimentos').select('*').neq('is_archived', true).order('nome', { ascending: true });
+      try {
+        const len = Array.isArray(rows) ? rows.length : (rows ? 1 : 0);
+        // show small sample in browser console for debugging
+        // eslint-disable-next-line no-console
+        console.info('[useSuprimentos.fetch] rows fetched:', len, Array.isArray(rows) ? rows.slice(0, 10) : rows);
+      } catch (e) {
+        // ignore logging errors
+      }
       if (error) throw error;
       // normalize numeric fields to JS numbers to avoid UI inconsistencies
       const coerceNumber = (v: any) => {

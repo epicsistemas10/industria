@@ -525,24 +525,54 @@ export default function EstoqueTV(): JSX.Element {
     const suprKeys = new Set<string>();
     for (const s of (suprimentosRepresentatives || [])) suprKeys.add(normalizeLookupName(s.nome || s.codigo_produto || ''));
 
-    let pecasTotal = 0;
+    // compute raw pecas total (sum of all pecas values) and build price map
+    let pecasTotalRaw = 0;
     const pecaPriceMap = new Map<string, number>();
     for (const p of (pecas || [])) {
       const key = normalizeLookupName(p.nome || p.codigo_produto || '');
       const qty = Number(p.saldo_estoque ?? p.quantidade ?? 0) || 0;
       const val = Number((p as any).valor_unitario ?? 0) || 0;
-      // exclude pecas that were copied to suprimentos (they should be counted only in suprimentos)
-      if (!suprKeys.has(key)) pecasTotal += qty * val;
+      pecasTotalRaw += qty * val;
       pecaPriceMap.set(key, val);
     }
 
+    const parseMoney = (v: any) => {
+      if (v == null) return null;
+      if (typeof v === 'number') return v;
+      let s = String(v).trim();
+      if (s === '') return null;
+      s = s.replace(/\u00A0/g, '');
+      if (s.indexOf(',') > -1 && s.indexOf('.') > -1) s = s.replace(/\./g, '').replace(/,/g, '.');
+      else s = s.replace(/,/g, '.');
+      s = s.replace(/[^0-9.-]/g, '');
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    // Sum suprimentos value using explicit `valor_total` when available across all suprimentos rows.
+    // Sum suprimentos values and track overlap with pecas (to avoid double counting)
     let suprimentosTotal = 0;
-    for (const s of (suprimentosRepresentatives || [])) {
-      const qty = Number(s.saldo_estoque ?? s.quantidade ?? 0) || 0;
+    let overlapTotal = 0;
+    const suprimentosItems = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
+    for (const s of (suprimentosItems || [])) {
       const key = normalizeLookupName(s.nome || s.codigo_produto || '');
-      const val = Number((s as any).valor_unitario ?? pecaPriceMap.get(key) ?? 0) || 0;
-      suprimentosTotal += qty * val;
+      const explicitTotal = parseMoney((s as any).valor_total);
+      let supValue = 0;
+      if (explicitTotal != null) {
+        supValue = explicitTotal;
+      } else {
+        const qty = Number(s.saldo_estoque ?? s.quantidade ?? 0) || 0;
+        const unit = parseMoney((s as any).valor_unitario) ?? parseMoney(pecaPriceMap.get(key)) ?? 0;
+        const safeUnit = unit > 1e9 ? 0 : unit;
+        supValue = qty * safeUnit;
+      }
+      suprimentosTotal += supValue;
+      if (pecaPriceMap.has(key)) overlapTotal += supValue;
     }
+
+    // Deduct suprimentos values that correspond to pecas from pecas total to avoid double counting
+    let pecasTotal = pecasTotalRaw - overlapTotal;
+    if (pecasTotal < 0) pecasTotal = 0;
 
     const totalValue = pecasTotal + suprimentosTotal;
 

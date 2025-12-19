@@ -490,11 +490,11 @@ export default function ServicosPage() {
                           <div className="flex-1 min-w-0">
                               <div className="text-sm text-gray-400">{s.codigo}</div>
                               <div
-                                className={`font-semibold truncate ${darkMode ? 'text-white' : 'text-gray-900'} cursor-pointer underline-offset-2 hover:underline flex items-center gap-2`}
+                                  className={`font-semibold whitespace-normal break-words ${darkMode ? 'text-white' : 'text-gray-900'} cursor-pointer underline-offset-2 hover:underline flex items-center gap-2`}
                                 onClick={() => openLinked(s)}
                                 title="Ver equipamentos vinculados"
                               >
-                                <span className="truncate">{s.nome}</span>
+                                  <span className="whitespace-normal break-words">{s.nome}</span>
                                 {(serviceCounts[s.nome] || 0) > 0 && (
                                   <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-amber-300 text-amber-900">
                                     <i className="ri-link-line"></i>
@@ -503,6 +503,7 @@ export default function ServicosPage() {
                                 )}
                               </div>
                               <p className={`text-sm mt-1 truncate ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{s.descricao}</p>
+                                <p className={`text-sm mt-1 whitespace-normal break-words ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{s.descricao}</p>
                           </div>
                           <div className="flex items-center gap-4 ml-4">
                             <span className={`${darkMode ? 'text-xs px-2 py-1 rounded bg-slate-700 text-gray-200' : 'text-xs px-2 py-1 rounded bg-gray-200 text-gray-800'}`}>{s.categoria || 'Sem Categoria'}</span>

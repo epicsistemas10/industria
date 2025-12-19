@@ -264,29 +264,58 @@ export default function EstoqueTV(): JSX.Element {
         const min = (it.estoque_minimo != null) ? Number(it.estoque_minimo) : null;
         return min != null && min >= 0 && qtd <= min;
       });
-      // compute totals as in PDF
+      // compute totals using the same heuristics as generateEstoquePDF to avoid discrepancies
       const parseMoney = (v: any) => {
-        if (v == null) return 0;
-        const n = Number(v);
-        return Number.isFinite(n) ? n : 0;
+        if (v == null) return null;
+        if (typeof v === 'number') return v;
+        let s = String(v).trim();
+        if (s === '') return null;
+        s = s.replace(/\u00A0/g, '');
+        if (s.indexOf(',') > -1 && s.indexOf('.') > -1) s = s.replace(/\./g, '').replace(/,/g, '.');
+        else s = s.replace(/,/g, '.');
+        s = s.replace(/[^0-9.-]/g, '');
+        const n = parseFloat(s);
+        return Number.isFinite(n) ? n : null;
       };
-      let pecasTotal = 0;
-      for (const p of (pecas || [])) pecasTotal += (Number(p.saldo_estoque ?? p.quantidade ?? 0) || 0) * (Number((p as any).valor_unitario || 0) || 0);
+
+      // pecas raw total and price map
+      let pecasTotalRaw = 0;
+      const pecaPriceMap = new Map<string, number>();
+      for (const p of (pecas || [])) {
+        const key = normalizeLookupName(p.nome || p.codigo_produto || '');
+        const qty = Number(p.saldo_estoque ?? p.quantidade ?? 0) || 0;
+        const val = Number((p as any).valor_unitario ?? 0) || 0;
+        pecasTotalRaw += qty * val;
+        pecaPriceMap.set(key, val);
+      }
+
+      // suprimentos total and overlap (values that belong to pecas)
       let suprimentosTotal = 0;
+      let overlapTotal = 0;
       const suprItems = (suprimentosState && suprimentosState.length) ? suprimentosState : (suprimentosFromHook || []);
       for (const s of (suprItems || [])) {
-        const explicit = parseMoney((s as any).valor_total);
-        if (explicit > 0) suprimentosTotal += explicit;
-        else {
+        const key = normalizeLookupName(s.nome || s.codigo_produto || '');
+        const explicitTotal = parseMoney((s as any).valor_total);
+        let supValue = 0;
+        if (explicitTotal != null) {
+          supValue = explicitTotal;
+        } else {
           const qty = Number(s.saldo_estoque ?? s.quantidade ?? 0) || 0;
-          const unit = parseMoney((s as any).valor_unitario) || 0;
-          suprimentosTotal += qty * unit;
+          const unit = parseMoney((s as any).valor_unitario) ?? parseMoney(pecaPriceMap.get(key)) ?? 0;
+          const safeUnit = unit > 1e9 ? 0 : unit;
+          supValue = qty * safeUnit;
         }
+        suprimentosTotal += supValue;
+        if (pecaPriceMap.has(key)) overlapTotal += supValue;
       }
-      const totalValue = pecasTotal + suprimentosTotal;
-      const pecasValue = pecasTotal; // already computed as pecasTotalRaw - overlapTotal
+
+      let pecasValue = pecasTotalRaw - overlapTotal;
+      if (pecasValue < 0) pecasValue = 0;
+
+      const totalValue = pecasValue + suprimentosTotal;
       const title = `Relatório Estoque TV - itens no/abaixo do mínimo`;
-      const header = `${title}\nPeças: R$ ${pecasValue.toLocaleString('pt-BR', { minimumFractionDigits:2 })} — Suprimentos: R$ ${suprimentosTotal.toLocaleString('pt-BR', { minimumFractionDigits:2 })} — Total: R$ ${totalValue.toLocaleString('pt-BR', { minimumFractionDigits:2 })}\n\n`;
+      const subtitle = `Atualizado em ${new Date().toLocaleString('pt-BR')} — Valor peças: R$ ${pecasValue.toLocaleString('pt-BR', { minimumFractionDigits:2 })} • Valor suprimentos: R$ ${suprimentosTotal.toLocaleString('pt-BR', { minimumFractionDigits:2 })}`;
+      const header = `${title}\n${subtitle}\n\n`;
       // build list of filtered items text (only items at/under minimum)
       const lines: string[] = [];
       for (const it of filtered) {
@@ -776,7 +805,7 @@ export default function EstoqueTV(): JSX.Element {
     return (
       <div className={`border ${bgColor} p-2 rounded-xl shadow-sm flex flex-col justify-between min-h-[96px]`}>
         <div className="flex items-start justify-between">
-          <div className="text-sm font-medium tracking-wide text-white max-w-[75%] truncate">{item.nome}</div>
+          <div className="text-sm font-medium tracking-wide text-white max-w-[75%] whitespace-normal break-words">{item.nome}</div>
           <Icon className="text-white w-5 h-5" />
         </div>
 

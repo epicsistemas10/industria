@@ -12,6 +12,13 @@ export default function DashboardTVPage(): JSX.Element {
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [tvView, setTvView] = useState<'map' | 'plan'>('map');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [totalOS, setTotalOS] = useState<number | null>(null);
+  const [totalEquipments, setTotalEquipments] = useState<number | null>(null);
+  const [planningItems, setPlanningItems] = useState<any[]>([]);
+  const [equipesMeta, setEquipesMeta] = useState<Record<string, { nome: string; foto_url?: string }>>({});
+  const planningRef = useRef<HTMLDivElement | null>(null);
+  const [perItemHeight, setPerItemHeight] = useState<number>(72);
+  const [perItemFont, setPerItemFont] = useState<number>(13);
 
   const imageRefTV = useRef<HTMLImageElement | null>(null);
   const overlayRefTV = useRef<HTMLDivElement | null>(null);
@@ -37,6 +44,35 @@ export default function DashboardTVPage(): JSX.Element {
   const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number } | null>(null);
   const [tooltipCache, setTooltipCache] = useState<Record<string, any>>({});
 
+  // small helper components for avatars
+  const AsyncAvatar = ({ colaboradorId, size = 32 }: { colaboradorId: string; size?: number }) => {
+    const [col, setCol] = useState<any | null>(null);
+    useEffect(() => {
+      let mounted = true;
+      (async () => {
+        try {
+          const mod = await import('../../lib/supabase');
+          const supabase = (mod as any).supabase;
+          if (!supabase) return;
+          const { data } = await supabase.from('colaboradores').select('id,nome,foto_url').eq('id', colaboradorId).single();
+          if (mounted) setCol(data || null);
+        } catch (e) {
+          // ignore
+        }
+      })();
+      return () => { mounted = false; };
+    }, [colaboradorId]);
+    if (!col) return <div style={{ width: size, height: size }} className="rounded-full bg-slate-700" />;
+    return <img src={col.foto_url || '/favicon.svg'} alt={col.nome || 'colaborador'} className="rounded-full object-cover" style={{ width: size, height: size }} onError={(e)=>{try{(e.target as HTMLImageElement).src='/favicon.svg';}catch(err){}}} />;
+  };
+
+  const TeamAvatar = ({ equipeId }: { equipeId: string }) => {
+    const meta = equipesMeta[String(equipeId)];
+    if (meta && meta.foto_url) return <img src={meta.foto_url} alt={meta.nome || 'equipe'} className="rounded-full object-cover" style={{ width: 28, height: 28 }} onError={(e)=>{try{(e.target as HTMLImageElement).src='/favicon.svg';}catch(err){}}} />;
+    const initials = (meta?.nome || 'Eq').split(' ').map((s:string)=>s[0]).slice(0,2).join('');
+    return <div className="rounded-full bg-slate-700 flex items-center justify-center text-white text-xs" style={{ width: 28, height: 28 }}>{initials}</div>;
+  };
+
   const fetchTooltipForHotspot = async (h: any) => {
     try {
       const id = String(h.id);
@@ -60,7 +96,12 @@ export default function DashboardTVPage(): JSX.Element {
 
       // fetch ordens_servico for these equipamentos
       try {
-        const { data: os } = await supabase.from('ordens_servico').select('id,titulo,status,descricao,created_at,equipamento_id').in('equipamento_id', uniqueIds).order('created_at', { ascending: false }).limit(10);
+        const quoted = uniqueIds.map((i:any)=>`"${String(i)}"`).join(',');
+        const { data: os } = await supabase.from('ordens_servico')
+          .select('id,titulo,status,descricao,created_at,equipamento_id,responsavel,responsavel_id,equipe_id')
+          .filter('equipamento_id', 'in', `(${quoted})`)
+          .order('created_at', { ascending: false })
+          .limit(10);
         if (os) {
           result.ordens = os;
           result.counts.open = os.filter((o: any) => (o.status || '').toLowerCase() !== 'concluida' && (o.status || '').toLowerCase() !== 'fechada').length;
@@ -161,7 +202,10 @@ export default function DashboardTVPage(): JSX.Element {
           const mod = await import('../../lib/supabase');
           const supabase = (mod as any).supabase;
           if (!supabase) return;
-          const { data } = await supabase.from('ordens_servico').select('id,titulo,equipamento_id,status').order('created_at', { ascending: false }).limit(10);
+          const { data } = await supabase.from('ordens_servico')
+            .select('id,titulo,equipamento_id,status,responsavel,responsavel_id,equipe_id,equipamentos(id,nome,ind,codigo_interno)')
+            .order('created_at', { ascending: false })
+            .limit(10);
           if (mounted && data) setOrders(data as any[]);
         } catch (e) {
           // ignore
@@ -175,9 +219,19 @@ export default function DashboardTVPage(): JSX.Element {
     return (
       <div className="space-y-2">
         {orders.map(o => (
-          <div key={o.id} className="flex flex-col bg-white/3 p-2 rounded text-sm">
-            <div className="font-medium text-white truncate">{o.titulo || 'OS sem título'}</div>
-            <div className="text-xs text-gray-300 mt-1">{o.status || ''}</div>
+          <div key={o.id} className="flex items-center gap-2 bg-white/3 p-2 rounded text-sm">
+            <div className="flex-1">
+              <div className="font-medium text-white whitespace-normal break-words text-sm md:text-base">{o.titulo || 'OS sem título'}</div>
+              <div className="text-xs md:text-sm text-gray-300 mt-1 whitespace-normal break-words">{o.status || ''} • {o.equipamentos?.nome || ''} {o.equipamentos?.ind || o.equipamentos?.codigo_interno ? `(${o.equipamentos?.ind || o.equipamentos?.codigo_interno})` : ''}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* show responsavel avatar when available (responsavel_id) or equipe first member */}
+              {o.responsavel_id ? (
+                <AsyncAvatar key={String(o.responsavel_id)} colaboradorId={String(o.responsavel_id)} size={28} />
+              ) : (o.equipe_id ? (
+                <TeamAvatar key={String(o.equipe_id)} equipeId={String(o.equipe_id)} />
+              ) : null)}
+            </div>
           </div>
         ))}
       </div>
@@ -380,16 +434,100 @@ export default function DashboardTVPage(): JSX.Element {
         const mod = await import('../../lib/supabase');
         const supabase = (mod as any).supabase;
         if (!supabase) return;
+        // equipments
         const { data: eqData } = await supabase.from('equipamentos').select('*');
+        let mappedEquipments: any[] = [];
         if (eqData) {
           const mapped = eqData.map((i: any) => ({ id: i.id, nome: i.nome, progresso: i.status_revisao ?? i.status ?? 0, imagem_url: i.imagem_url, codigo_interno: i.codigo_interno, setor: i.linha_setor ?? i.setor ?? '', linha_setor: i.linha_setor ?? i.setor ?? '' }));
+          mappedEquipments = mapped;
           setEquipments(mapped);
           try { localStorage.setItem('equipments', JSON.stringify(mapped)); } catch (e) {}
+        }
+        // totals: equipamentos count and ordens_servico count (use head/count)
+        try {
+          const { count: eqCount } = await supabase.from('equipamentos').select('id', { count: 'exact', head: true });
+          setTotalEquipments(Number(eqCount ?? 0));
+        } catch (e) {
+          // fallback: use mapped length if available
+          setTotalEquipments((eqData || []).length || 0);
+        }
+
+        try {
+          const { count: osCount } = await supabase.from('ordens_servico').select('id', { count: 'exact', head: true });
+          setTotalOS(Number(osCount ?? 0));
+        } catch (e) {
+          setTotalOS(null);
+        }
+
+        // load planejamento semanal for current week (semana 0) and enrich items
+        try {
+          const { data: planRows, error: planErr } = await supabase.from('planejamento_semana')
+            .select('*')
+            .eq('semana', 0)
+            .order('dia_semana', { ascending: true });
+
+          if (planErr) {
+            console.warn('[TV] planejamento simple select failed', planErr);
+            setPlanningItems([]);
+          } else {
+            const items = (planRows || []) as any[];
+
+            // enrich equipamentos (prefer using already-fetched equipments to avoid batch queries)
+            const equipamentoIds = Array.from(new Set(items.map((r:any)=>r.equipamento_id).filter(Boolean)));
+            const equipamentosMap: Record<string, any> = {};
+            if (mappedEquipments && mappedEquipments.length > 0) {
+              (mappedEquipments || []).forEach((e:any) => { equipamentosMap[String(e.id)] = e; });
+            } else if (equipamentoIds.length > 0) {
+              try {
+                const orStr = equipamentoIds.map((i:any)=>`id.eq.${i}`).join(',');
+                const { data: eqs, error: eqErr } = await supabase.from('equipamentos').select('id,nome,codigo_interno,ind,imagem_url').or(orStr);
+                if (eqErr) console.warn('[TV] equipamentos batch or query error', eqErr, orStr);
+                else (eqs || []).forEach((e:any)=>{ equipamentosMap[String(e.id)] = e; });
+              } catch (e) {
+                console.warn('[TV] failed to batch-load equipamentos for planejamento', e);
+              }
+            }
+
+            // enrich services
+            const servicoIds = Array.from(new Set(items.map((r:any)=>r.servico_id).filter(Boolean)));
+            const servicosMap: Record<string, any> = {};
+            if (servicoIds.length > 0) {
+              try {
+                const orS = servicoIds.map((i:any)=>`id.eq.${i}`).join(',');
+                const { data: svs, error: svErr } = await supabase.from('equipamento_servicos').select('id,nome').or(orS);
+                if (svErr) console.warn('[TV] equipamento_servicos batch error', svErr, orS);
+                else (svs || []).forEach((s:any)=> { servicosMap[String(s.id)] = s; });
+              } catch (e) { console.warn('[TV] failed to batch-load equipamento_servicos', e); }
+            }
+
+            // refresh equipesMeta (ensure fotos available)
+            try {
+              const { data: equipes } = await supabase.from('equipes').select('id,nome');
+              const ids = (equipes || []).map((e:any)=>e.id);
+              const meta: Record<string, { nome: string; foto_url?: string }> = {};
+              if (ids.length > 0) {
+                const { data: cols } = await supabase.from('colaboradores').select('id,nome,foto_url,equipe_id').in('equipe_id', ids as any[]).order('nome');
+                const grouped: Record<string, any[]> = {};
+                (cols || []).forEach((c:any)=>{ grouped[String(c.equipe_id)] = grouped[String(c.equipe_id)] || []; grouped[String(c.equipe_id)].push(c); });
+                (equipes || []).forEach((r:any)=>{ const g = grouped[String(r.id)] || []; meta[String(r.id)] = { nome: r.nome, foto_url: g[0]?.foto_url, membros: (g || []).map((x:any)=>x.nome) }; });
+              }
+              setEquipesMeta(meta);
+            } catch (e) { console.warn('[TV] failed to refresh equipesMeta', e); }
+
+            const enriched = items.map((r:any) => ({ ...r, equipamentos: equipamentosMap[String(r.equipamento_id)] || r.equipamentos || null, equipamento_servicos: servicosMap[String(r.servico_id)] || r.equipamento_servicos || null }));
+            setPlanningItems(enriched || []);
+            console.debug('[TV] planejamento loaded (enriched)', enriched.slice(0,10));
+          }
+        } catch (e) {
+          console.warn('[TV] planejamento unexpected error', e);
+          setPlanningItems([]);
         }
       } catch (e) {
         // ignore
       }
     };
+    // run once immediately to populate planningItems and equipesMeta
+    try { reloadData(); } catch (e) { /* ignore */ }
     refreshI = window.setInterval(() => reloadData(), 10_000);
 
     // storage listener to react to local changes (e.g., adding hotspot saved to localStorage)
@@ -426,6 +564,74 @@ export default function DashboardTVPage(): JSX.Element {
       } catch (e) {}
     };
   }, []);
+
+  // load equipes meta (first collaborator photo) for use in planning view
+  useEffect(() => {
+    (async () => {
+      try {
+        const mod = await import('../../lib/supabase');
+        const supabase = (mod as any).supabase;
+        if (!supabase) return;
+        const { data: equipes } = await supabase.from('equipes').select('id, nome');
+        const meta: Record<string, { nome: string; foto_url?: string; membros?: string[] }> = {};
+        const ids = (equipes || []).map((e: any) => e.id);
+        if (ids.length > 0) {
+          const { data: cols } = await supabase.from('colaboradores').select('id, nome, foto_url, equipe_id').in('equipe_id', ids as any[]).order('nome');
+          const grouped: Record<string, any[]> = {};
+          (cols || []).forEach((c: any) => { grouped[String(c.equipe_id)] = grouped[String(c.equipe_id)] || []; grouped[String(c.equipe_id)].push(c); });
+          (equipes || []).forEach((r: any) => {
+            const g = grouped[String(r.id)] || [];
+            meta[String(r.id)] = { nome: r.nome, foto_url: g[0]?.foto_url, membros: (g || []).map((x:any)=>x.nome) };
+          });
+          console.debug('[TV] equipesMeta loaded sample', Object.keys(meta).slice(0,10));
+        }
+        setEquipesMeta(meta);
+        console.debug('[TV] equipesMeta set keys', Object.keys(meta).slice(0,20));
+      } catch (e) {
+        console.warn('Erro ao carregar equipesMeta', e);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    try {
+      console.debug('[TV] planningItems changed', planningItems.length, planningItems.slice(0,5));
+      // expose for manual inspection in console
+      try { (window as any).__planningItems = planningItems; } catch (e) {}
+    } catch (e) {}
+  }, [planningItems]);
+
+  useEffect(() => {
+    try {
+      console.debug('[TV] equipesMeta changed keys', Object.keys(equipesMeta).slice(0,20));
+      try { (window as any).__equipesMeta = equipesMeta; } catch (e) {}
+    } catch (e) {}
+  }, [equipesMeta]);
+
+  // compute per-item sizing so the planning grid can fit all items without vertical scroll
+  useEffect(() => {
+    const compute = () => {
+      try {
+        const el = planningRef.current;
+        if (!el) return;
+        const header = el.querySelector('h3');
+        const headerH = header ? (header as HTMLElement).getBoundingClientRect().height : 40;
+        const padding = 24; // approximation of p-4 vertical
+        const available = Math.max(120, el.clientHeight - headerH - padding);
+        const counts = [1,2,3,4,5,6].map(d => planningItems.filter((it:any)=>Number(it.dia_semana)===d).length);
+        const maxItems = Math.max(1, ...counts);
+        let itemH = Math.floor(available / Math.max(1, maxItems));
+        // leave a small safety buffer so items don't touch container edges and avoid clipping
+        itemH = Math.max(40, Math.min(140, itemH - 6));
+        const font = Math.max(10, Math.min(16, Math.floor(itemH * 0.22)));
+        setPerItemHeight(itemH);
+        setPerItemFont(font);
+      } catch (e) {}
+    };
+    compute();
+    window.addEventListener('resize', compute);
+    return () => { window.removeEventListener('resize', compute); };
+  }, [planningItems]);
 
   // when hotspots change, ensure rects are recomputed (helps keep alignment after dynamic updates)
   useEffect(() => {
@@ -585,7 +791,7 @@ export default function DashboardTVPage(): JSX.Element {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3">
             <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
               <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Produção</div>
               <div className="text-xs text-white/70">—</div>
@@ -596,7 +802,7 @@ export default function DashboardTVPage(): JSX.Element {
             </div>
             <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
               <div className="text-sm font-semibold" style={{ color: '#10B981' }}>OS</div>
-              <div className="text-xs text-white/70">—</div>
+              <div className="text-xs text-white/70">{totalOS != null ? String(totalOS) : '—'}</div>
             </div>
             <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
               <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Alertas</div>
@@ -604,7 +810,7 @@ export default function DashboardTVPage(): JSX.Element {
             </div>
             <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
               <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Equipamentos</div>
-              <div className="text-xs text-white/70">—</div>
+              <div className="text-xs text-white/70">{totalEquipments != null ? String(totalEquipments) : '—'}</div>
             </div>
             <div className="w-36 h-14 rounded-lg bg-white/5 shadow-lg flex flex-col items-center justify-center text-sm">
               <div className="text-sm font-semibold" style={{ color: '#10B981' }}>Status Geral</div>
@@ -653,11 +859,11 @@ export default function DashboardTVPage(): JSX.Element {
                                   <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 1</div>
                                   <div className="space-y-1">
                                     {leftGroupItems.map((eq) => (
-                                      <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
-                                        <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
-                                        <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
-                                      </div>
-                                    ))}
+                                              <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
+                                                <div className="text-xs font-bold text-white whitespace-normal break-words">{toTitleCase(eq.nome)}</div>
+                                                <div className="font-bold text-xs text-white">{(eq.progresso ?? 0)}%</div>
+                                              </div>
+                                            ))}
                                   </div>
                                 </div>
                               </div>
@@ -669,11 +875,11 @@ export default function DashboardTVPage(): JSX.Element {
                                   <div className="inline-block text-[10px] bg-emerald-600 text-white uppercase font-semibold mb-1 px-2 py-0.5 rounded">Linha 2</div>
                                   <div className="space-y-1">
                                     {rightOverlayItems.map((eq) => (
-                                      <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
-                                        <div className="truncate text-xs">{toTitleCase(eq.nome)}</div>
-                                        <div className="font-bold text-xs">{(eq.progresso ?? 0)}%</div>
-                                      </div>
-                                    ))}
+                                              <div key={eq.id} className="flex items-center justify-between text-xs text-white px-1 py-0.5">
+                                                <div className="text-xs font-bold text-white whitespace-normal break-words">{toTitleCase(eq.nome)}</div>
+                                                <div className="font-bold text-xs text-white">{(eq.progresso ?? 0)}%</div>
+                                              </div>
+                                            ))}
                                   </div>
                                 </div>
                               </div>
@@ -733,13 +939,21 @@ export default function DashboardTVPage(): JSX.Element {
                       {/* Tooltip rendered relative to overlayRefTV using innerBox coords */}
                       {tooltipId && tooltipPos && (tooltipCache[tooltipId]) && (
                         <div style={{ position: 'absolute', left: `${tooltipPos.left + 12}px`, top: `${tooltipPos.top + 12}px`, zIndex: 60, pointerEvents: 'auto' }}>
-                          <div className="bg-black/80 text-white rounded-lg p-3 w-64 shadow-lg">
-                            <div className="text-sm font-semibold">Informações</div>
-                            <div className="text-xs text-gray-300 mt-1">Equipamentos: {(tooltipCache[tooltipId].equipamentos || []).length}</div>
-                            <div className="flex items-center gap-2 text-xs mt-2">
-                              <div className="text-emerald-400 font-bold">Abertas: {tooltipCache[tooltipId].counts?.open ?? 0}</div>
-                              <div className="text-gray-400">Fechadas: {tooltipCache[tooltipId].counts?.closed ?? 0}</div>
-                            </div>
+                              <div className="bg-black/90 text-white rounded-lg p-3 w-64 shadow-lg border border-white/10">
+                                <div className="text-sm font-bold text-white">Informações</div>
+                                    <div className="text-xs text-white/90 mt-1">Equipamentos: <span className="font-bold">{(tooltipCache[tooltipId].equipamentos || []).length}</span></div>
+                                    <div className="flex items-center gap-2 mt-2">
+                                      {(tooltipCache[tooltipId].ordens || []).slice(0,3).map((o:any)=> (
+                                        <div key={o.id} className="flex items-center gap-2">
+                                          {o.responsavel_id ? <AsyncAvatar colaboradorId={String(o.responsavel_id)} size={28} /> : (o.equipe_id ? <TeamAvatar equipeId={String(o.equipe_id)} /> : null)}
+                                          <div className="text-xs text-white/80">{o.titulo || ''} {o.equipamento_id ? (<span className="text-gray-300">• { (equipments.find(e=>String(e.id)===String(o.equipamento_id))?.nome) || '' } { (equipments.find(e=>String(e.id)===String(o.equipamento_id))?.codigo_interno || equipments.find(e=>String(e.id)===String(o.equipamento_id))?.ind) ? `(${equipments.find(e=>String(e.id)===String(o.equipamento_id))?.codigo_interno || equipments.find(e=>String(e.id)===String(o.equipamento_id))?.ind})` : ''}</span>) : null}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                <div className="flex items-center gap-2 text-xs mt-2">
+                                  <div className="text-white font-bold">Abertas: <span className="text-emerald-400">{tooltipCache[tooltipId].counts?.open ?? 0}</span></div>
+                                  <div className="text-white/80">Fechadas: <span className="font-semibold">{tooltipCache[tooltipId].counts?.closed ?? 0}</span></div>
+                                </div>
                             <div className="mt-2 text-xs">
                               <div className="font-medium">Ordens recentes</div>
                               <div className="mt-1 space-y-1 max-h-28 overflow-auto">
@@ -769,17 +983,62 @@ export default function DashboardTVPage(): JSX.Element {
                 ) : (
                   <div className="text-center text-gray-400 p-6">Mapa não encontrado. Faça upload na página Mapa Industrial.</div>
                 )
-              ) : (
-                <div className="w-full h-full overflow-auto p-4 text-white">
+                ) : (
+                <div ref={planningRef} className="w-full h-full p-4 text-white">
                   <h3 className="text-xl mb-2">Planejamento Semanal</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-                    <div className="bg-white/5 rounded p-3">Segunda</div>
-                    <div className="bg-white/5 rounded p-3">Terça</div>
-                    <div className="bg-white/5 rounded p-3">Quarta</div>
-                    <div className="bg-white/5 rounded p-3">Quinta</div>
-                    <div className="bg-white/5 rounded p-3">Sexta</div>
-                    <div className="bg-white/5 rounded p-3">Sábado</div>
-                  </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3" style={{ height: 'calc(100% - 40px)' }}>
+                      {[
+                        { num: 1, label: 'Segunda' },
+                        { num: 2, label: 'Terça' },
+                        { num: 3, label: 'Quarta' },
+                        { num: 4, label: 'Quinta' },
+                        { num: 5, label: 'Sexta' },
+                        { num: 6, label: 'Sábado' }
+                      ].map(d => (
+                        <div key={d.num} className="bg-white/5 rounded p-3 min-h-[160px]">
+                          <div className="text-sm font-semibold mb-2">{d.label}</div>
+                          <div className="space-y-2 h-full">
+                            {(() => {
+                              const dayItems = planningItems.filter((it:any)=>Number(it.dia_semana)===d.num);
+                              const groups = new Map<string, any>();
+                              dayItems.forEach((it:any) => {
+                                const equipamentoId = it.equipamento_id || it.equipamentos?.id || it.equipamento_id || 'noequip';
+                                const equipeId = it.equipe_id || it.equipes?.id || 'noequipe';
+                                const key = `${equipamentoId}::${equipeId}`;
+                                if (!groups.has(key)) {
+                                  groups.set(key, { equipamento: it.equipamentos || null, equipamento_nome: it.equipamento_nome || (it.equipamentos?.nome), equipeId, equipeNome: it.equipes?.nome || it.equipe_nome || (equipesMeta[String(equipeId)]?.nome) || 'Equipe', services: [] as string[] });
+                                }
+                                const g = groups.get(key);
+                                const sname = it.equipamento_servicos?.nome || it.servico_nome;
+                                if (sname && !g.services.includes(sname)) g.services.push(sname);
+                              });
+                              return Array.from(groups.values()).map((g:any, idx:number) => (
+                                <div key={`${d.num}-${idx}`} className="flex items-start gap-3 bg-white/6 p-2 rounded" style={{ height: `${perItemHeight}px`, minHeight: `${Math.max(40, Math.floor(perItemHeight * 0.6))}px` }}>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-baseline gap-2 flex-wrap">
+                                      <div className="font-semibold text-white min-w-0 whitespace-normal break-normal" style={{ fontSize: `${Math.max(11, perItemFont - 1)}px`, lineHeight: 1.1 }}>{g.equipamento_nome || '—'}</div>
+                                      {(g.equipamento?.codigo_interno || g.equipamento?.ind) && (
+                                        <div className="text-sm text-emerald-400 whitespace-nowrap ml-1" style={{ fontSize: `${Math.max(11, perItemFont - 1)}px` }}>({g.equipamento?.codigo_interno || g.equipamento?.ind})</div>
+                                      )}
+                                    </div>
+                                    <div className="text-gray-300 whitespace-normal break-normal" style={{ fontSize: `${Math.max(10, perItemFont - 3)}px` }}>
+                                      <div className="flex flex-col gap-0">
+                                        {g.services.map((s:string, i:number) => (
+                                          <div key={i} className="leading-tight py-[1px]">{s}</div>
+                                        ))}
+                                        {g.services.length===0 && <div className="leading-tight">—</div>}
+                                      </div>
+                                    </div>
+                                    <div className="text-blue-400 mt-1" style={{ fontSize: `${Math.max(11, perItemFont - 1)}px` }}>{(equipesMeta[String(g.equipeId)]?.membros && equipesMeta[String(g.equipeId)].membros.length>0) ? equipesMeta[String(g.equipeId)].membros.join(' e ') : g.equipeNome}</div>
+                                  </div>
+                                </div>
+                              ));
+                            })()}
+                            {planningItems.filter((it:any)=>Number(it.dia_semana)===d.num).length===0 && <div className="text-xs text-gray-400">Nenhuma atividade</div>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                 </div>
               )}
             </div>

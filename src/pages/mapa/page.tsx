@@ -1831,12 +1831,74 @@ export default function MapaPage() {
                                 onMouseDown={(e) => handleMouseDown(e, hotspot.id, true)}
                               ></div>
 
+                              {/* If this hotspot is a group, offer Edit Group. If single equipment, offer Convert to Group */}
+                              {((hotspot as any).isGroup || String(hotspot.id).startsWith('grp-')) ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // open edit group modal with current group data
+                                    const grp = (hotspot as any).group || null;
+                                    const members = (hotspot as any).members || [];
+                                    openEditGroupModal(grp, members);
+                                  }}
+                                  title="Editar Grupo"
+                                  className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-500 text-white rounded-full flex items-center justify-center hover:bg-yellow-600 cursor-pointer"
+                                >
+                                  <i className="ri-edit-line text-xs"></i>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      // convert single-equipment hotspot into a persisted group so user can add members
+                                      const h: any = hotspot;
+                                      const equipamentoId = String(h.equipamento_id || '');
+                                      const equipmentRow = equipments.find((eq) => eq.id === equipamentoId) || null;
+                                      const groupPayload: any = {
+                                        nome: equipmentRow ? (equipmentRow.nome || `Grupo ${Date.now()}`) : `Grupo ${Date.now()}`,
+                                        linha: equipmentRow ? (equipmentRow.setor || '') : '',
+                                        x: h.x ?? 10,
+                                        y: h.y ?? 10,
+                                        width: h.width ?? 8,
+                                        height: h.height ?? 8,
+                                        color: h.color ?? '#10b981',
+                                        font_size: h.fontSize ?? 14,
+                                        icon: h.icon ?? 'ri-map-pin-fill',
+                                      };
+                                      const saved = await grupoEquipamentosAPI.create(groupPayload);
+                                      if (saved && saved.id) {
+                                        // attach the equipment as a member
+                                        try {
+                                          await supabase.from('grupo_equipamentos_members').insert([{ grupo_id: saved.id, equipamento_id: equipamentoId }]);
+                                        } catch (e) {
+                                          console.warn('Failed to insert group member after create', e);
+                                        }
+                                        // remove original individual hotspot
+                                        try { await mapa.deleteHotspot(hotspot.id); } catch (e) { /* ignore */ }
+                                        await mapa.load();
+                                        toast.success('Hotspot convertido para grupo. Agora edite o grupo para adicionar mais equipamentos.');
+                                      } else {
+                                        toast.error('Não foi possível criar grupo a partir do hotspot');
+                                      }
+                                    } catch (err) {
+                                      console.error('Erro ao converter hotspot em grupo:', err);
+                                      toast.error('Erro ao converter hotspot em grupo');
+                                    }
+                                  }}
+                                  title="Converter em Grupo"
+                                  className="absolute -top-2 -right-2 w-6 h-6 bg-amber-500 text-white rounded-full flex items-center justify-center hover:bg-amber-600 cursor-pointer"
+                                >
+                                  <i className="ri-group-line text-xs"></i>
+                                </button>
+                              )}
+
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDeleteHotspot(hotspot.id);
                                 }}
-                                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 cursor-pointer"
+                                className="absolute -top-2 -left-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 cursor-pointer"
                               >
                                 <i className="ri-close-line text-xs"></i>
                               </button>
